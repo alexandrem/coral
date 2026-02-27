@@ -144,7 +144,7 @@ func attachDatabases(ctx context.Context, db *sql.DB, agentIDs []string, databas
 	var attachedDBs []string
 
 	for _, agentID := range agentIDs {
-		meshIP, err := resolveAgentAddress(ctx, agentID)
+		agentBase, err := agentDuckDBBase(ctx, agentID, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve agent %s: %w", agentID, err)
 		}
@@ -153,7 +153,7 @@ func attachDatabases(ctx context.Context, db *sql.DB, agentIDs []string, databas
 		dbName := databaseName
 		if dbName == "" {
 			// Query available databases and use the first one.
-			databases, err := listAgentDatabases(ctx, meshIP)
+			databases, err := listAgentDatabases(ctx, agentBase)
 			if err != nil {
 				return nil, fmt.Errorf("failed to query available databases for agent %s: %w", agentID, err)
 			}
@@ -164,7 +164,7 @@ func attachDatabases(ctx context.Context, db *sql.DB, agentIDs []string, databas
 			fmt.Printf("Using database: %s (agent: %s)\n", dbName, agentID)
 		}
 
-		if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
+		if err := attachAgentDatabase(ctx, db, agentID, agentBase, dbName); err != nil {
 			return nil, fmt.Errorf("failed to attach database for agent %s: %w", agentID, err)
 		}
 

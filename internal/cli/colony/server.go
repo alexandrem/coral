@@ -30,6 +30,23 @@ import (
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
+// registryAgentLookup adapts *registry.Registry to the httpapi.AgentLookup interface.
+type registryAgentLookup struct {
+	reg *registry.Registry
+}
+
+// GetAgent returns the WireGuard mesh IPv4 address for the given agent ID.
+func (r *registryAgentLookup) GetAgent(agentID string) (string, error) {
+	entry, err := r.reg.Get(agentID)
+	if err != nil {
+		return "", err
+	}
+	if entry.MeshIPv4 == "" {
+		return "", fmt.Errorf("agent %s has no mesh IP", agentID)
+	}
+	return entry.MeshIPv4, nil
+}
+
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
 // Returns the HTTP server, the token store (nil if public endpoint is disabled), and any error.
 func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, *auth.TokenStore, error) {
@@ -232,16 +249,28 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	mux.Handle(debugPath, debugHandler)
 
 	// Add DuckDB HTTP handler for remote query (RFD 046).
+	// Handler is created separately from registration so it can be passed to the public endpoint.
 	duckdbHandler := duckdb.NewDuckDBHandler(logger.With().Str("component", "duckdb-handler").Logger())
+	var registeredDuckDB bool
 	if err := duckdbHandler.RegisterDatabase(filepath.Base(db.Path()), db.Path()); err != nil {
 		logger.Warn().Err(err).Msg("Failed to register colony database for HTTP serving")
 	} else {
 		mux.Handle("/duckdb/", duckdbHandler)
+		registeredDuckDB = true
 		logger.Info().
 			Str("path", db.Path()).
 			Str("db_name", filepath.Base(db.Path())).
 			Msg("Colony database registered for remote query")
 	}
+
+	// Build agent DuckDB proxy handler (RFD 095).
+	// Registered on the internal HTTP server so DuckDB's httpfs can attach without
+	// TLS certificate verification issues on localhost HTTPS setups.
+	agentProxyHandler := httpapi.NewAgentDuckDBProxyHandler(
+		&registryAgentLookup{reg: agentRegistry},
+		logger.With().Str("component", "agent-duckdb-proxy").Logger(),
+	)
+	mux.Handle("/agent/", agentProxyHandler)
 
 	// Create status handler (reused for public endpoint).
 	statusHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -354,18 +383,26 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		}
 
 		// Create public endpoint server.
+		// Pass the DuckDB handler to the public endpoint only if registration succeeded.
+		var publicDuckDBHandler *duckdb.DuckDBHandler
+		if registeredDuckDB {
+			publicDuckDBHandler = duckdbHandler
+		}
+
 		publicConfig := httpapi.Config{
-			PublicConfig:   colonyConfig.PublicEndpoint,
-			ColonyPath:     colonyPath,
-			ColonyHandler:  colonyHandler,
-			DebugPath:      debugPath,
-			DebugHandler:   debugHandler,
-			MCPServer:      mcpServer,
-			TokenStore:     tokenStore,
-			ColonyDir:      colonyDir,
-			TLSCertificate: tlsCert,
-			StatusHandler:  statusHandler,
-			Logger:         logger.With().Str("component", "public-endpoint").Logger(),
+			PublicConfig:            colonyConfig.PublicEndpoint,
+			ColonyPath:              colonyPath,
+			ColonyHandler:           colonyHandler,
+			DebugPath:               debugPath,
+			DebugHandler:            debugHandler,
+			MCPServer:               mcpServer,
+			TokenStore:              tokenStore,
+			ColonyDir:               colonyDir,
+			TLSCertificate:          tlsCert,
+			StatusHandler:           statusHandler,
+			DuckDBHandler:           publicDuckDBHandler,
+			AgentDuckDBProxyHandler: agentProxyHandler,
+			Logger:                  logger.With().Str("component", "public-endpoint").Logger(),
 		}
 
 		publicServer, err := httpapi.New(publicConfig)

@@ -59,7 +59,7 @@ func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, erro
 	}
 
 	// Build HTTP client with appropriate TLS configuration.
-	httpClient, err := buildHTTPClient(colonyID, url)
+	httpClient, err := BuildHTTPClient(colonyID, url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build HTTP client: %w", err)
 	}
@@ -86,7 +86,7 @@ func GetColonyDebugClient(colonyID string) (colonyv1connect.ColonyDebugServiceCl
 	}
 
 	// Build HTTP client with appropriate TLS configuration.
-	httpClient, err := buildHTTPClient(colonyID, url)
+	httpClient, err := BuildHTTPClient(colonyID, url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build HTTP client: %w", err)
 	}
@@ -119,9 +119,9 @@ func getInterceptorOptsFromEnv() []connect.ClientOption {
 	return opts
 }
 
-// buildHTTPClient creates an HTTP client with appropriate TLS configuration.
+// BuildHTTPClient creates an HTTP client with appropriate TLS configuration.
 // For HTTPS endpoints, it configures TLS based on colony config (with env vars merged).
-func buildHTTPClient(colonyID string, url string) (*http.Client, error) {
+func BuildHTTPClient(colonyID string, url string) (*http.Client, error) {
 	// For non-HTTPS URLs, use default client.
 	if !strings.HasPrefix(url, "https://") {
 		return http.DefaultClient, nil
@@ -280,7 +280,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	}
 
 	// Build HTTP client (with TLS support if needed).
-	httpClient, err := buildHTTPClient(colonyID, "https://placeholder")
+	httpClient, err := BuildHTTPClient(colonyID, "https://placeholder")
 	if err != nil {
 		// Fall back to default client if TLS config fails.
 		httpClient = http.DefaultClient

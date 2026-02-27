@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -207,6 +208,64 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 		Err:    err,
 	}
 
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		result.ExitCode = exitErr.ExitCode()
+	}
+
+	return result
+}
+
+// RunCLIWithEnvAndStdin executes a coral CLI command with custom environment variables and standard input.
+func RunCLIWithEnvAndStdin(ctx context.Context, env map[string]string, stdin io.Reader, args ...string) *CLIResult {
+	coralBin := getCoralBinaryPath()
+	cmd := exec.CommandContext(ctx, coralBin, args...)
+
+	envMap := make(map[string]string)
+	safeVars := []string{
+		"HOME", "USER", "TMPDIR", "PATH", "TERM", "LANG", "LC_ALL", "TZ",
+		"CORAL_COLONY_ID", "CORAL_CONFIG",
+	}
+
+	for _, varName := range safeVars {
+		if value, ok := env[varName]; ok && value != "" {
+			envMap[varName] = value
+		} else if value := os.Getenv(varName); value != "" {
+			envMap[varName] = value
+		}
+	}
+
+	for key, value := range env {
+		found := false
+		for _, safeVar := range safeVars {
+			if key == safeVar {
+				found = true
+				break
+			}
+		}
+		if !found {
+			envMap[key] = value
+		}
+	}
+
+	coralDir := filepath.Dir(coralBin)
+	if currentPath, ok := envMap["PATH"]; ok {
+		envMap["PATH"] = coralDir + string(os.PathListSeparator) + currentPath
+	} else {
+		envMap["PATH"] = coralDir
+	}
+
+	cmd.Env = make([]string, 0, len(envMap))
+	for key, value := range envMap {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	cmd.Stdin = stdin
+	output, err := cmd.CombinedOutput()
+
+	result := &CLIResult{
+		Output: string(output),
+		Err:    err,
+	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		result.ExitCode = exitErr.ExitCode()
 	}
@@ -468,6 +527,19 @@ func ColonyAgentsJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interf
 	}
 
 	return agents, nil
+}
+
+// GetHealthyAgentID finds the first agent with 'healthy' status from the parsed JSON output.
+// Returns an empty string if no healthy agent is found.
+func GetHealthyAgentID(agents []map[string]interface{}) string {
+	for _, a := range agents {
+		if status, ok := a["status"].(string); ok && status == "healthy" {
+			if agentID, ok := a["agent_id"].(string); ok {
+				return agentID
+			}
+		}
+	}
+	return ""
 }
 
 // ColonyTokenCreate executes `coral colony token create` and returns the output.

@@ -336,6 +336,18 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_AddRemoteConnectionSucceedsWithStoredCA", cliMeshSuite.TestAddRemoteConnectionSucceedsWithStoredCA)
 	s.Run("CLI_AddRemoteCADataEnvVar", cliMeshSuite.TestAddRemoteCADataEnvVar)
 
+	// DuckDB integration tests
+	duckdbSuite := &DuckDBSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	duckdbSuite.SetT(s.T())
+	duckdbSuite.SetupSuite()
+	defer duckdbSuite.TearDownSuite()
+
+	s.Run("TestDuckDBListAgentsRemote", duckdbSuite.TestDuckDBListAgentsRemote)
+	s.Run("TestDuckDBQueryRemote", duckdbSuite.TestDuckDBQueryRemote)
+	s.Run("TestDuckDBShellRemote", duckdbSuite.TestDuckDBShellRemote)
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")
