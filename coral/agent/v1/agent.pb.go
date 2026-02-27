@@ -364,7 +364,7 @@ type RuntimeContextResponse struct {
 	// Agent ID.
 	AgentId string `protobuf:"bytes,10,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	// Structured mesh info (parity with /status).
-	MeshTelemetry *v1.MeshTelemetry `protobuf:"bytes,11,opt,name=mesh_telemetry,json=meshTelemetry,proto3" json:"mesh_telemetry,omitempty"`
+	Wireguard     *v1.MeshTelemetry `protobuf:"bytes,11,opt,name=wireguard,proto3" json:"wireguard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -469,9 +469,9 @@ func (x *RuntimeContextResponse) GetAgentId() string {
 	return ""
 }
 
-func (x *RuntimeContextResponse) GetMeshTelemetry() *v1.MeshTelemetry {
+func (x *RuntimeContextResponse) GetWireguard() *v1.MeshTelemetry {
 	if x != nil {
-		return x.MeshTelemetry
+		return x.Wireguard
 	}
 	return nil
 }
@@ -4530,7 +4530,7 @@ var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
 const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"\x1acoral/agent/v1/agent.proto\x12\x0ecoral.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1ecoral/network/v1/network.proto\"\x1a\n" +
-	"\x18GetRuntimeContextRequest\"\x9f\x05\n" +
+	"\x18GetRuntimeContextRequest\"\x96\x05\n" +
 	"\x16RuntimeContextResponse\x128\n" +
 	"\bplatform\x18\x01 \x01(\v2\x1c.coral.agent.v1.PlatformInfoR\bplatform\x12A\n" +
 	"\fruntime_type\x18\x02 \x01(\x0e2\x1e.coral.agent.v1.RuntimeContextR\vruntimeType\x12>\n" +
@@ -4546,8 +4546,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\aversion\x18\b \x01(\tR\aversion\x12M\n" +
 	"\x11ebpf_capabilities\x18\t \x01(\v2 .coral.agent.v1.EbpfCapabilitiesR\x10ebpfCapabilities\x12\x19\n" +
 	"\bagent_id\x18\n" +
-	" \x01(\tR\aagentId\x12F\n" +
-	"\x0emesh_telemetry\x18\v \x01(\v2\x1f.coral.network.v1.MeshTelemetryR\rmeshTelemetry\"i\n" +
+	" \x01(\tR\aagentId\x12=\n" +
+	"\twireguard\x18\v \x01(\v2\x1f.coral.network.v1.MeshTelemetryR\twireguard\"i\n" +
 	"\fPlatformInfo\x12\x0e\n" +
 	"\x02os\x18\x01 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x1d\n" +
@@ -5098,7 +5098,7 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	9,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
 	67, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
 	21, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
-	68, // 8: coral.agent.v1.RuntimeContextResponse.mesh_telemetry:type_name -> coral.network.v1.MeshTelemetry
+	68, // 8: coral.agent.v1.RuntimeContextResponse.wireguard:type_name -> coral.network.v1.MeshTelemetry
 	12, // 9: coral.agent.v1.Capabilities.exec_capabilities:type_name -> coral.agent.v1.ExecCapabilities
 	11, // 10: coral.agent.v1.Capabilities.linux_capabilities:type_name -> coral.agent.v1.LinuxCapabilities
 	0,  // 11: coral.agent.v1.ExecCapabilities.mode:type_name -> coral.agent.v1.ExecMode

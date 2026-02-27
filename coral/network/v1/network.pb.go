@@ -27,7 +27,10 @@ type MeshTelemetry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MeshIp        string                 `protobuf:"bytes,1,opt,name=mesh_ip,json=meshIp,proto3" json:"mesh_ip,omitempty"`
 	MeshSubnet    string                 `protobuf:"bytes,2,opt,name=mesh_subnet,json=meshSubnet,proto3" json:"mesh_subnet,omitempty"`
-	Wireguard     *WireGuardTelemetry    `protobuf:"bytes,3,opt,name=wireguard,proto3" json:"wireguard,omitempty"`
+	PublicKey     string                 `protobuf:"bytes,3,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	ListenPort    int32                  `protobuf:"varint,4,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
+	Endpoints     []string               `protobuf:"bytes,5,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	Status        *WireGuardTelemetry    `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -76,9 +79,30 @@ func (x *MeshTelemetry) GetMeshSubnet() string {
 	return ""
 }
 
-func (x *MeshTelemetry) GetWireguard() *WireGuardTelemetry {
+func (x *MeshTelemetry) GetPublicKey() string {
 	if x != nil {
-		return x.Wireguard
+		return x.PublicKey
+	}
+	return ""
+}
+
+func (x *MeshTelemetry) GetListenPort() int32 {
+	if x != nil {
+		return x.ListenPort
+	}
+	return 0
+}
+
+func (x *MeshTelemetry) GetEndpoints() []string {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+func (x *MeshTelemetry) GetStatus() *WireGuardTelemetry {
+	if x != nil {
+		return x.Status
 	}
 	return nil
 }
@@ -225,12 +249,17 @@ var File_coral_network_v1_network_proto protoreflect.FileDescriptor
 
 const file_coral_network_v1_network_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecoral/network/v1/network.proto\x12\x10coral.network.v1\"\x8d\x01\n" +
+	"\x1ecoral/network/v1/network.proto\x12\x10coral.network.v1\"\xe5\x01\n" +
 	"\rMeshTelemetry\x12\x17\n" +
 	"\amesh_ip\x18\x01 \x01(\tR\x06meshIp\x12\x1f\n" +
 	"\vmesh_subnet\x18\x02 \x01(\tR\n" +
-	"meshSubnet\x12B\n" +
-	"\twireguard\x18\x03 \x01(\v2$.coral.network.v1.WireGuardTelemetryR\twireguard\"\x97\x01\n" +
+	"meshSubnet\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x03 \x01(\tR\tpublicKey\x12\x1f\n" +
+	"\vlisten_port\x18\x04 \x01(\x05R\n" +
+	"listenPort\x12\x1c\n" +
+	"\tendpoints\x18\x05 \x03(\tR\tendpoints\x12<\n" +
+	"\x06status\x18\x06 \x01(\v2$.coral.network.v1.WireGuardTelemetryR\x06status\"\x97\x01\n" +
 	"\x12WireGuardTelemetry\x12)\n" +
 	"\x10interface_exists\x18\x01 \x01(\bR\x0finterfaceExists\x12\x1f\n" +
 	"\vlink_status\x18\x02 \x01(\tR\n" +
@@ -264,7 +293,7 @@ var file_coral_network_v1_network_proto_goTypes = []any{
 	(*WireGuardPeer)(nil),      // 2: coral.network.v1.WireGuardPeer
 }
 var file_coral_network_v1_network_proto_depIdxs = []int32{
-	1, // 0: coral.network.v1.MeshTelemetry.wireguard:type_name -> coral.network.v1.WireGuardTelemetry
+	1, // 0: coral.network.v1.MeshTelemetry.status:type_name -> coral.network.v1.WireGuardTelemetry
 	2, // 1: coral.network.v1.WireGuardTelemetry.peers:type_name -> coral.network.v1.WireGuardPeer
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type

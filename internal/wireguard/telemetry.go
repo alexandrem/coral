@@ -20,6 +20,27 @@ func MapToMeshTelemetryProto(info map[string]interface{}) *networkv1.MeshTelemet
 	}
 
 	if wgInfo, ok := info["wireguard"].(map[string]interface{}); ok {
+		if pk, ok := wgInfo["public_key"].(string); ok {
+			telemetry.PublicKey = pk
+		}
+		if port, ok := wgInfo["listen_port"].(int); ok {
+			telemetry.ListenPort = int32(port)
+		} else if port, ok := wgInfo["listen_port"].(float64); ok {
+			telemetry.ListenPort = int32(port)
+		} else if port, ok := wgInfo["listen_port"].(int32); ok {
+			telemetry.ListenPort = port
+		}
+
+		if endpoints, ok := wgInfo["endpoints"].([]string); ok {
+			telemetry.Endpoints = endpoints
+		} else if eps, ok := wgInfo["endpoints"].([]interface{}); ok {
+			for _, ep := range eps {
+				if s, ok := ep.(string); ok {
+					telemetry.Endpoints = append(telemetry.Endpoints, s)
+				}
+			}
+		}
+
 		wgTelemetry := &networkv1.WireGuardTelemetry{}
 		if exists, ok := wgInfo["interface_exists"].(bool); ok {
 			wgTelemetry.InterfaceExists = exists
@@ -58,7 +79,7 @@ func MapToMeshTelemetryProto(info map[string]interface{}) *networkv1.MeshTelemet
 				wgTelemetry.Peers = append(wgTelemetry.Peers, peer)
 			}
 		}
-		telemetry.Wireguard = wgTelemetry
+		telemetry.Status = wgTelemetry
 	}
 
 	return telemetry

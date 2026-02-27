@@ -155,7 +155,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		MeshIpv4:           s.config.MeshIPv4,
 		MeshIpv6:           s.config.MeshIPv6,
 		PublicEndpointUrl:  s.config.PublicEndpointURL,
-		MeshTelemetry:      meshTelemetry,
+		Wireguard:          meshTelemetry,
 	}
 }
 

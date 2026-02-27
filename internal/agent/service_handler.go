@@ -71,7 +71,7 @@ func (h *ServiceHandler) GetRuntimeContext(
 	// Fetch dynamic mesh telemetry and map to strictly typed Protobuf struct
 	if h.meshInfoProvider != nil {
 		if meshInfo := h.meshInfoProvider(); meshInfo != nil {
-			resp.MeshTelemetry = wireguard.MapToMeshTelemetryProto(meshInfo)
+			resp.Wireguard = wireguard.MapToMeshTelemetryProto(meshInfo)
 		}
 	}
 

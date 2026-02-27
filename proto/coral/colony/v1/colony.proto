@@ -118,7 +118,7 @@ message GetStatusResponse {
   string public_endpoint_url = 18;
 
   // Structured mesh info (parity with /status).
-  coral.network.v1.MeshTelemetry mesh_telemetry = 19;
+  coral.network.v1.MeshTelemetry wireguard = 19;
 }
 
 message ListAgentsRequest {}

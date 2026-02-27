@@ -91,7 +91,7 @@ message RuntimeContextResponse {
   string agent_id = 10;
 
   // Structured mesh info (parity with /status).
-  coral.network.v1.MeshTelemetry mesh_telemetry = 11;
+  coral.network.v1.MeshTelemetry wireguard = 11;
 }
 
 message PlatformInfo {

@@ -24,6 +24,8 @@ func GatherMeshInfo(
 		wgInfo := make(map[string]interface{})
 		wgInfo["interface_name"] = wgDevice.InterfaceName()
 		wgInfo["listen_port"] = wgDevice.ListenPort()
+		wgInfo["public_key"] = wgDevice.Config().PublicKey
+		wgInfo["endpoints"] = wgDevice.Config().PublicEndpoints
 
 		// Get interface status.
 		iface := wgDevice.Interface()

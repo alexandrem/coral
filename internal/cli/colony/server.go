@@ -284,7 +284,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
 		cachedResp := colonySvc.GetStatusResponse()
 		resp := proto.Clone(cachedResp).(*colonyv1.GetStatusResponse)
-		resp.MeshTelemetry = nil
+		resp.Wireguard = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
@@ -308,15 +308,17 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				"dashboard_url":  resp.DashboardUrl,
 				"platform":       platformInfo,
 			},
-			"network": map[string]interface{}{
-				"wireguard_port":       resp.WireguardPort,
-				"wireguard_public_key": resp.WireguardPublicKey,
-				"wireguard_endpoints":  resp.WireguardEndpoints,
-				"connect_port":         resp.ConnectPort,
-				"mesh_ipv4":            resp.MeshIpv4,
-				"mesh_ipv6":            resp.MeshIpv6,
+			"wireguard": map[string]interface{}{
+				"port":       resp.WireguardPort,
+				"public_key": resp.WireguardPublicKey,
+				"endpoints":  resp.WireguardEndpoints,
+				"mesh_ipv4":  resp.MeshIpv4,
+				"mesh_ipv6":  resp.MeshIpv6,
+				"telemetry":  meshInfo,
 			},
-			"mesh": meshInfo,
+			"network": map[string]interface{}{
+				"connect_port": resp.ConnectPort,
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")

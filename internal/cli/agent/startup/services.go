@@ -509,7 +509,7 @@ func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeServi
 
 		// Clone prior to stripping the raw mesh json bytes so we don't leak it in HTTP GET
 		runtimeCtx := proto.Clone(cachedCtx).(*agentv1.RuntimeContextResponse)
-		runtimeCtx.MeshTelemetry = nil
+		runtimeCtx.Wireguard = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := s.gatherMeshNetworkInfo()
@@ -517,7 +517,9 @@ func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeServi
 		// Combine runtime context with mesh info.
 		status := map[string]interface{}{
 			"runtime": runtimeCtx,
-			"mesh":    meshInfo,
+			"wireguard": map[string]interface{}{
+				"telemetry": meshInfo,
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")

@@ -126,8 +126,14 @@ This command is useful for troubleshooting connectivity issues.`,
 				}
 				output["network_endpoints"] = networkEndpoints
 
-				if runtimeStatus.MeshTelemetry != nil {
-					output["mesh_telemetry"] = runtimeStatus.MeshTelemetry
+				if runtimeStatus.Wireguard != nil {
+					// Merge dynamic telemetry into wireguard object
+					wgMap, _ := output["wireguard"].(map[string]interface{})
+					if wgMap == nil {
+						wgMap = make(map[string]interface{})
+					}
+					wgMap["telemetry"] = runtimeStatus.Wireguard
+					output["wireguard"] = wgMap
 				}
 			} else {
 				output["status"] = "configured"
@@ -166,8 +172,8 @@ This command is useful for troubleshooting connectivity issues.`,
 				fmt.Printf("  Agents:        %s\n", agentCountStr)
 
 				var peerCount int
-				if runtimeStatus.MeshTelemetry != nil && runtimeStatus.MeshTelemetry.Wireguard != nil {
-					peerCount = len(runtimeStatus.MeshTelemetry.Wireguard.Peers)
+				if runtimeStatus.Wireguard != nil && runtimeStatus.Wireguard.Status != nil {
+					peerCount = len(runtimeStatus.Wireguard.Status.Peers)
 				}
 				if peerCount > 0 {
 					fmt.Printf("  Mesh Peers:    %d connected (WireGuard)\n", peerCount)
@@ -245,9 +251,9 @@ This command is useful for troubleshooting connectivity issues.`,
 			if runtimeStatus != nil {
 				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)
 
-				if detail && runtimeStatus.MeshTelemetry != nil {
+				if detail && runtimeStatus.Wireguard != nil {
 					fmt.Println()
-					printMeshStatus(runtimeStatus.MeshTelemetry)
+					printMeshStatus(runtimeStatus.Wireguard)
 				}
 			} else {
 				fmt.Println("Status: Colony is configured (not running)")
@@ -276,12 +282,12 @@ This command is useful for troubleshooting connectivity issues.`,
 func printMeshStatus(info *networkv1.MeshTelemetry) {
 	fmt.Println("Live Mesh Peers Information:")
 
-	if info.Wireguard == nil {
+	if info.Status == nil {
 		fmt.Println("  WireGuard details unavailable")
 		return
 	}
 
-	peers := info.Wireguard.Peers
+	peers := info.Status.Peers
 	if len(peers) == 0 {
 		fmt.Println("  Connected Peers: 0")
 		return

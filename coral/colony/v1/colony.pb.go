@@ -103,7 +103,7 @@ type GetStatusResponse struct {
 	// Empty if public endpoint is not enabled.
 	PublicEndpointUrl string `protobuf:"bytes,18,opt,name=public_endpoint_url,json=publicEndpointUrl,proto3" json:"public_endpoint_url,omitempty"`
 	// Structured mesh info (parity with /status).
-	MeshTelemetry *v1.MeshTelemetry `protobuf:"bytes,19,opt,name=mesh_telemetry,json=meshTelemetry,proto3" json:"mesh_telemetry,omitempty"`
+	Wireguard     *v1.MeshTelemetry `protobuf:"bytes,19,opt,name=wireguard,proto3" json:"wireguard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -264,9 +264,9 @@ func (x *GetStatusResponse) GetPublicEndpointUrl() string {
 	return ""
 }
 
-func (x *GetStatusResponse) GetMeshTelemetry() *v1.MeshTelemetry {
+func (x *GetStatusResponse) GetWireguard() *v1.MeshTelemetry {
 	if x != nil {
-		return x.MeshTelemetry
+		return x.Wireguard
 	}
 	return nil
 }
@@ -1108,7 +1108,7 @@ var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
 	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\x1a\x1acoral/agent/v1/agent.proto\x1a\x19coral/colony/v1/mcp.proto\x1a\x1dcoral/colony/v1/queries.proto\x1a\x1ecoral/network/v1/network.proto\"\x12\n" +
-	"\x10GetStatusRequest\"\x91\x06\n" +
+	"\x10GetStatusRequest\"\x88\x06\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12\x19\n" +
 	"\bapp_name\x18\x02 \x01(\tR\aappName\x12 \n" +
@@ -1130,8 +1130,8 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\tmesh_ipv6\x18\x0f \x01(\tR\bmeshIpv6\x12,\n" +
 	"\x12active_agent_count\x18\x10 \x01(\x05R\x10activeAgentCount\x120\n" +
 	"\x14degraded_agent_count\x18\x11 \x01(\x05R\x12degradedAgentCount\x12.\n" +
-	"\x13public_endpoint_url\x18\x12 \x01(\tR\x11publicEndpointUrl\x12F\n" +
-	"\x0emesh_telemetry\x18\x13 \x01(\v2\x1f.coral.network.v1.MeshTelemetryR\rmeshTelemetry\"\x13\n" +
+	"\x13public_endpoint_url\x18\x12 \x01(\tR\x11publicEndpointUrl\x12=\n" +
+	"\twireguard\x18\x13 \x01(\v2\x1f.coral.network.v1.MeshTelemetryR\twireguard\"\x13\n" +
 	"\x11ListAgentsRequest\"D\n" +
 	"\x12ListAgentsResponse\x12.\n" +
 	"\x06agents\x18\x01 \x03(\v2\x16.coral.colony.v1.AgentR\x06agents\"\xe1\x02\n" +
@@ -1273,7 +1273,7 @@ var file_coral_colony_v1_colony_proto_goTypes = []any{
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	16, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
-	17, // 1: coral.colony.v1.GetStatusResponse.mesh_telemetry:type_name -> coral.network.v1.MeshTelemetry
+	17, // 1: coral.colony.v1.GetStatusResponse.wireguard:type_name -> coral.network.v1.MeshTelemetry
 	4,  // 2: coral.colony.v1.ListAgentsResponse.agents:type_name -> coral.colony.v1.Agent
 	16, // 3: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
 	18, // 4: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo

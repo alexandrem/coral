@@ -114,9 +114,9 @@ The agent must be running and accessible.`,
 
 			// Extract dynamic mesh info from the gRPC context, ensuring parity with /status
 			var meshTelemetry *networkv1.MeshTelemetry
-			if runtimeCtx.MeshTelemetry != nil {
-				meshTelemetry = runtimeCtx.MeshTelemetry
-				runtimeCtx.MeshTelemetry = nil // prevent object payload cascade from showing in json dump
+			if runtimeCtx.Wireguard != nil {
+				meshTelemetry = runtimeCtx.Wireguard
+				runtimeCtx.Wireguard = nil // prevent object payload cascade from showing in json dump
 			}
 
 			// Output in requested format.
@@ -457,7 +457,7 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, ser
 	}
 
 	if meshTelemetry != nil {
-		output["mesh"] = meshTelemetry
+		output["wireguard"] = meshTelemetry
 	}
 
 	if certInfo != nil {
@@ -496,14 +496,14 @@ func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, service
 
 	// Output mesh status if available.
 	if meshTelemetry != nil {
-		printMeshStatus(meshTelemetry)
+		printAgentMeshStatus(meshTelemetry)
 	}
 
 	return nil
 }
 
-// printMeshStatus formats and prints WireGuard mesh telemetry natively for the agent.
-func printMeshStatus(info *networkv1.MeshTelemetry) {
+// printAgentMeshStatus formats and prints WireGuard mesh telemetry natively for the agent.
+func printAgentMeshStatus(info *networkv1.MeshTelemetry) {
 	fmt.Println("Mesh Network:")
 
 	if info == nil {
@@ -523,29 +523,29 @@ func printMeshStatus(info *networkv1.MeshTelemetry) {
 		return
 	}
 
-	if info.Wireguard == nil {
+	if info.Status == nil {
 		fmt.Println("  WireGuard:      Not configured or unavailable")
 		fmt.Println()
 		return
 	}
 
-	if !info.Wireguard.InterfaceExists {
+	if !info.Status.InterfaceExists {
 		fmt.Println("  WireGuard:      Interface does not exist")
 		fmt.Println()
 		return
 	}
 
 	statusDisp := "Unknown"
-	if info.Wireguard.LinkStatus != "" {
-		if strings.Contains(info.Wireguard.LinkStatus, "UP") {
+	if info.Status.LinkStatus != "" {
+		if strings.Contains(info.Status.LinkStatus, "UP") {
 			statusDisp = "UP"
-		} else if strings.Contains(info.Wireguard.LinkStatus, "DOWN") {
+		} else if strings.Contains(info.Status.LinkStatus, "DOWN") {
 			statusDisp = "DOWN"
 		}
 	}
 	fmt.Printf("  WireGuard:      %s\n", statusDisp)
 
-	peers := info.Wireguard.Peers
+	peers := info.Status.Peers
 	if len(peers) == 0 {
 		fmt.Println("  Peers:          0")
 		fmt.Println()

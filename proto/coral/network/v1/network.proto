@@ -8,7 +8,10 @@ option go_package = "github.com/coral-mesh/coral/coral/network/v1;networkv1";
 message MeshTelemetry {
   string mesh_ip = 1;
   string mesh_subnet = 2;
-  WireGuardTelemetry wireguard = 3;
+  string public_key = 3;
+  int32 listen_port = 4;
+  repeated string endpoints = 5;
+  WireGuardTelemetry status = 6;
 }
 
 // WireGuardTelemetry contains statistics and state of the WireGuard instance.
