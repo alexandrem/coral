@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"time"
 
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
@@ -134,6 +137,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		PublicEndpointURL:  publicEndpointURL,
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+	colonySvc.SetMeshInfoProvider(func() map[string]interface{} {
+		return colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
+	})
 
 	// Load colony config early (needed by function registry, MCP, and other components).
 	mcpLoader, mcpErr := config.NewLoader()
@@ -276,7 +282,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	statusHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Call the colony service's internal GetStatusResponse method directly.
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
-		resp := colonySvc.GetStatusResponse()
+		cachedResp := colonySvc.GetStatusResponse()
+		resp := proto.Clone(cachedResp).(*colonyv1.GetStatusResponse)
+		resp.MeshInfoJson = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)

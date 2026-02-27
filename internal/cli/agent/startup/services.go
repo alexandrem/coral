@@ -13,7 +13,9 @@ import (
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/collector"
@@ -408,6 +410,7 @@ func (s *ServiceRegistry) createHTTPServers(
 	// Create service handler and HTTP server for gRPC API.
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
 	serviceHandler.SetSessionID(s.sessionID)
+	serviceHandler.SetMeshInfoProvider(s.gatherMeshNetworkInfo)
 	systemMetricsHandler.SetSessionID(s.sessionID)
 	path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
@@ -498,11 +501,15 @@ func (s *ServiceRegistry) createHTTPServers(
 func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get runtime context from cache directly.
-		runtimeCtx := runtimeService.GetCachedContext()
-		if runtimeCtx == nil {
+		cachedCtx := runtimeService.GetCachedContext()
+		if cachedCtx == nil {
 			http.Error(w, "runtime context not yet detected", http.StatusServiceUnavailable)
 			return
 		}
+
+		// Clone prior to stripping the raw mesh json bytes so we don't leak it in HTTP GET
+		runtimeCtx := proto.Clone(cachedCtx).(*agentv1.RuntimeContextResponse)
+		runtimeCtx.MeshInfoJson = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := s.gatherMeshNetworkInfo()

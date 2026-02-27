@@ -361,7 +361,9 @@ type RuntimeContextResponse struct {
 	// eBPF capabilities (RFD 013).
 	EbpfCapabilities *EbpfCapabilities `protobuf:"bytes,9,opt,name=ebpf_capabilities,json=ebpfCapabilities,proto3" json:"ebpf_capabilities,omitempty"`
 	// Agent ID.
-	AgentId       string `protobuf:"bytes,10,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	AgentId string `protobuf:"bytes,10,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// JSON encoded mesh info (parity with /status).
+	MeshInfoJson  []byte `protobuf:"bytes,11,opt,name=mesh_info_json,json=meshInfoJson,proto3" json:"mesh_info_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -464,6 +466,13 @@ func (x *RuntimeContextResponse) GetAgentId() string {
 		return x.AgentId
 	}
 	return ""
+}
+
+func (x *RuntimeContextResponse) GetMeshInfoJson() []byte {
+	if x != nil {
+		return x.MeshInfoJson
+	}
+	return nil
 }
 
 type PlatformInfo struct {
@@ -4520,7 +4529,7 @@ var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
 const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"\x1acoral/agent/v1/agent.proto\x12\x0ecoral.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1a\n" +
-	"\x18GetRuntimeContextRequest\"\xd7\x04\n" +
+	"\x18GetRuntimeContextRequest\"\xfd\x04\n" +
 	"\x16RuntimeContextResponse\x128\n" +
 	"\bplatform\x18\x01 \x01(\v2\x1c.coral.agent.v1.PlatformInfoR\bplatform\x12A\n" +
 	"\fruntime_type\x18\x02 \x01(\x0e2\x1e.coral.agent.v1.RuntimeContextR\vruntimeType\x12>\n" +
@@ -4536,7 +4545,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\aversion\x18\b \x01(\tR\aversion\x12M\n" +
 	"\x11ebpf_capabilities\x18\t \x01(\v2 .coral.agent.v1.EbpfCapabilitiesR\x10ebpfCapabilities\x12\x19\n" +
 	"\bagent_id\x18\n" +
-	" \x01(\tR\aagentId\"i\n" +
+	" \x01(\tR\aagentId\x12$\n" +
+	"\x0emesh_info_json\x18\v \x01(\fR\fmeshInfoJson\"i\n" +
 	"\fPlatformInfo\x12\x0e\n" +
 	"\x02os\x18\x01 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x1d\n" +

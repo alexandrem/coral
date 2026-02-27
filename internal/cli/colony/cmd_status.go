@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -19,6 +20,7 @@ func newStatusCmd() *cobra.Command {
 	var (
 		format   string
 		colonyID string
+		detail   bool
 	)
 
 	cmd := &cobra.Command{
@@ -123,6 +125,13 @@ This command is useful for troubleshooting connectivity issues.`,
 					networkEndpoints["public_endpoint"] = runtimeStatus.PublicEndpointUrl
 				}
 				output["network_endpoints"] = networkEndpoints
+
+				if len(runtimeStatus.MeshInfoJson) > 0 {
+					var meshInfo map[string]interface{}
+					if err := json.Unmarshal(runtimeStatus.MeshInfoJson, &meshInfo); err == nil {
+						output["mesh_info"] = meshInfo
+					}
+				}
 			} else {
 				output["status"] = "configured"
 			}
@@ -158,6 +167,21 @@ This command is useful for troubleshooting connectivity issues.`,
 					agentCountStr = fmt.Sprintf("%d connected (✓%d ⚠%d)", runtimeStatus.AgentCount, runtimeStatus.ActiveAgentCount, runtimeStatus.DegradedAgentCount)
 				}
 				fmt.Printf("  Agents:        %s\n", agentCountStr)
+
+				var peerCount int
+				if len(runtimeStatus.MeshInfoJson) > 0 {
+					var rawMeshInfo map[string]interface{}
+					if err := json.Unmarshal(runtimeStatus.MeshInfoJson, &rawMeshInfo); err == nil {
+						if wgInfo, ok := rawMeshInfo["wireguard"].(map[string]interface{}); ok {
+							if peers, ok := wgInfo["peers"].([]interface{}); ok {
+								peerCount = len(peers)
+							}
+						}
+					}
+				}
+				if peerCount > 0 {
+					fmt.Printf("  Mesh Peers:    %d connected (WireGuard)\n", peerCount)
+				}
 
 				if runtimeStatus.StorageBytes > 0 {
 					fmt.Printf("  Storage Used:  %s\n", formatBytes(runtimeStatus.StorageBytes))
@@ -230,6 +254,14 @@ This command is useful for troubleshooting connectivity issues.`,
 
 			if runtimeStatus != nil {
 				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)
+
+				if detail && len(runtimeStatus.MeshInfoJson) > 0 {
+					var meshInfo map[string]interface{}
+					if err := json.Unmarshal(runtimeStatus.MeshInfoJson, &meshInfo); err == nil {
+						fmt.Println()
+						printMeshStatus(meshInfo)
+					}
+				}
 			} else {
 				fmt.Println("Status: Colony is configured (not running)")
 				fmt.Println()
@@ -248,6 +280,51 @@ This command is useful for troubleshooting connectivity issues.`,
 		helpers.FormatYAML,
 	})
 	helpers.AddColonyFlag(cmd, &colonyID)
+	cmd.Flags().BoolVar(&detail, "detail", false, "Show detailed mesh configuration including peer endpoints")
 
 	return cmd
+}
+
+// printMeshStatus formats and prints WireGuard mesh telemetry natively for colony.
+func printMeshStatus(info map[string]interface{}) {
+	fmt.Println("Live Mesh Peers Information:")
+
+	wgInfo, wgOk := info["wireguard"].(map[string]interface{})
+	if !wgOk {
+		fmt.Println("  WireGuard details unavailable")
+		return
+	}
+
+	peers, ok := wgInfo["peers"].([]interface{})
+	if !ok || len(peers) == 0 {
+		fmt.Println("  Connected Peers: 0")
+		return
+	}
+
+	fmt.Printf("  Connected Peers: %d\n", len(peers))
+	for _, p := range peers {
+		peerMap, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		pubKey, _ := peerMap["public_key"].(string)
+		fmt.Printf("    - %s\n", pubKey)
+
+		if endpoint, ok := peerMap["endpoint"].(string); ok && endpoint != "" {
+			fmt.Printf("        Endpoint:   %s\n", endpoint)
+		}
+
+		if rx, ok := peerMap["rx_bytes"].(float64); ok && rx > 0 {
+			fmt.Printf("        Rx Bytes:   %.0f\n", rx)
+		}
+
+		if tx, ok := peerMap["tx_bytes"].(float64); ok && tx > 0 {
+			fmt.Printf("        Tx Bytes:   %.0f\n", tx)
+		}
+
+		if hs, ok := peerMap["last_handshake_time"].(string); ok && hs != "" {
+			fmt.Printf("        Handshake:  %s\n", hs)
+		}
+	}
 }
