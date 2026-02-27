@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -14,6 +13,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // MeshInfoProvider is a callback that fetches live WireGuard/mesh statistics for parity with the /status endpoint.
@@ -68,12 +68,10 @@ func (h *ServiceHandler) GetRuntimeContext(
 
 	resp := proto.Clone(cachedResp).(*agentv1.RuntimeContextResponse)
 
-	// Fetch dynamic mesh telemetry and serialize parity JSON payload
+	// Fetch dynamic mesh telemetry and map to strictly typed Protobuf struct
 	if h.meshInfoProvider != nil {
 		if meshInfo := h.meshInfoProvider(); meshInfo != nil {
-			if meshBytes, err := json.Marshal(meshInfo); err == nil {
-				resp.MeshInfoJson = meshBytes
-			}
+			resp.MeshTelemetry = wireguard.MapToMeshTelemetryProto(meshInfo)
 		}
 	}
 

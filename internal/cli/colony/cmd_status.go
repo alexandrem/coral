@@ -2,7 +2,6 @@ package colony
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -126,11 +126,8 @@ This command is useful for troubleshooting connectivity issues.`,
 				}
 				output["network_endpoints"] = networkEndpoints
 
-				if len(runtimeStatus.MeshInfoJson) > 0 {
-					var meshInfo map[string]interface{}
-					if err := json.Unmarshal(runtimeStatus.MeshInfoJson, &meshInfo); err == nil {
-						output["mesh_info"] = meshInfo
-					}
+				if runtimeStatus.MeshTelemetry != nil {
+					output["mesh_telemetry"] = runtimeStatus.MeshTelemetry
 				}
 			} else {
 				output["status"] = "configured"
@@ -169,15 +166,8 @@ This command is useful for troubleshooting connectivity issues.`,
 				fmt.Printf("  Agents:        %s\n", agentCountStr)
 
 				var peerCount int
-				if len(runtimeStatus.MeshInfoJson) > 0 {
-					var rawMeshInfo map[string]interface{}
-					if err := json.Unmarshal(runtimeStatus.MeshInfoJson, &rawMeshInfo); err == nil {
-						if wgInfo, ok := rawMeshInfo["wireguard"].(map[string]interface{}); ok {
-							if peers, ok := wgInfo["peers"].([]interface{}); ok {
-								peerCount = len(peers)
-							}
-						}
-					}
+				if runtimeStatus.MeshTelemetry != nil && runtimeStatus.MeshTelemetry.Wireguard != nil {
+					peerCount = len(runtimeStatus.MeshTelemetry.Wireguard.Peers)
 				}
 				if peerCount > 0 {
 					fmt.Printf("  Mesh Peers:    %d connected (WireGuard)\n", peerCount)
@@ -255,12 +245,9 @@ This command is useful for troubleshooting connectivity issues.`,
 			if runtimeStatus != nil {
 				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)
 
-				if detail && len(runtimeStatus.MeshInfoJson) > 0 {
-					var meshInfo map[string]interface{}
-					if err := json.Unmarshal(runtimeStatus.MeshInfoJson, &meshInfo); err == nil {
-						fmt.Println()
-						printMeshStatus(meshInfo)
-					}
+				if detail && runtimeStatus.MeshTelemetry != nil {
+					fmt.Println()
+					printMeshStatus(runtimeStatus.MeshTelemetry)
 				}
 			} else {
 				fmt.Println("Status: Colony is configured (not running)")
@@ -286,45 +273,34 @@ This command is useful for troubleshooting connectivity issues.`,
 }
 
 // printMeshStatus formats and prints WireGuard mesh telemetry natively for colony.
-func printMeshStatus(info map[string]interface{}) {
+func printMeshStatus(info *networkv1.MeshTelemetry) {
 	fmt.Println("Live Mesh Peers Information:")
 
-	wgInfo, wgOk := info["wireguard"].(map[string]interface{})
-	if !wgOk {
+	if info.Wireguard == nil {
 		fmt.Println("  WireGuard details unavailable")
 		return
 	}
 
-	peers, ok := wgInfo["peers"].([]interface{})
-	if !ok || len(peers) == 0 {
+	peers := info.Wireguard.Peers
+	if len(peers) == 0 {
 		fmt.Println("  Connected Peers: 0")
 		return
 	}
 
 	fmt.Printf("  Connected Peers: %d\n", len(peers))
 	for _, p := range peers {
-		peerMap, ok := p.(map[string]interface{})
-		if !ok {
-			continue
+		fmt.Printf("    - %s\n", p.PublicKey)
+		if p.Endpoint != "" {
+			fmt.Printf("        Endpoint:   %s\n", p.Endpoint)
 		}
-
-		pubKey, _ := peerMap["public_key"].(string)
-		fmt.Printf("    - %s\n", pubKey)
-
-		if endpoint, ok := peerMap["endpoint"].(string); ok && endpoint != "" {
-			fmt.Printf("        Endpoint:   %s\n", endpoint)
+		if p.RxBytes > 0 {
+			fmt.Printf("        Rx Bytes:   %d\n", p.RxBytes)
 		}
-
-		if rx, ok := peerMap["rx_bytes"].(float64); ok && rx > 0 {
-			fmt.Printf("        Rx Bytes:   %.0f\n", rx)
+		if p.TxBytes > 0 {
+			fmt.Printf("        Tx Bytes:   %d\n", p.TxBytes)
 		}
-
-		if tx, ok := peerMap["tx_bytes"].(float64); ok && tx > 0 {
-			fmt.Printf("        Tx Bytes:   %.0f\n", tx)
-		}
-
-		if hs, ok := peerMap["last_handshake_time"].(string); ok && hs != "" {
-			fmt.Printf("        Handshake:  %s\n", hs)
+		if p.LastHandshakeTime != "" {
+			fmt.Printf("        Handshake:  %s\n", p.LastHandshakeTime)
 		}
 	}
 }

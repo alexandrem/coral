@@ -509,7 +509,7 @@ func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeServi
 
 		// Clone prior to stripping the raw mesh json bytes so we don't leak it in HTTP GET
 		runtimeCtx := proto.Clone(cachedCtx).(*agentv1.RuntimeContextResponse)
-		runtimeCtx.MeshInfoJson = nil
+		runtimeCtx.MeshTelemetry = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := s.gatherMeshNetworkInfo()

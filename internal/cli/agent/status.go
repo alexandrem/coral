@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
@@ -112,19 +112,19 @@ The agent must be running and accessible.`,
 				certInfo = getLocalCertificateInfo(certsDir)
 			}
 
-			// Parse dynamic mesh info from the gRPC context, ensuring parity with /status
-			var meshInfo map[string]interface{}
-			if len(runtimeCtx.MeshInfoJson) > 0 {
-				_ = json.Unmarshal(runtimeCtx.MeshInfoJson, &meshInfo)
-				runtimeCtx.MeshInfoJson = nil // prevent byte array from showing in json dump
+			// Extract dynamic mesh info from the gRPC context, ensuring parity with /status
+			var meshTelemetry *networkv1.MeshTelemetry
+			if runtimeCtx.MeshTelemetry != nil {
+				meshTelemetry = runtimeCtx.MeshTelemetry
+				runtimeCtx.MeshTelemetry = nil // prevent object payload cascade from showing in json dump
 			}
 
 			// Output in requested format.
 			if format != string(helpers.FormatTable) {
-				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, meshInfo, format)
+				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, meshTelemetry, format)
 			}
 
-			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo, meshInfo)
+			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo, meshTelemetry)
 		},
 	}
 
@@ -447,7 +447,7 @@ func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
 }
 
 // outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
-func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshInfo map[string]interface{}, format string) error {
+func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
 	}
@@ -456,8 +456,8 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, ser
 		output["services"] = services
 	}
 
-	if meshInfo != nil {
-		output["mesh"] = meshInfo
+	if meshTelemetry != nil {
+		output["mesh"] = meshTelemetry
 	}
 
 	if certInfo != nil {
@@ -483,7 +483,7 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, ser
 }
 
 // outputAgentStatusTableWithCert outputs agent status with cert info in human-readable format.
-func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshInfo map[string]interface{}) error {
+func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry) error {
 	// Output standard status info first.
 	if err := outputAgentStatusTable(ctx, services); err != nil {
 		return err
@@ -495,21 +495,27 @@ func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, service
 	}
 
 	// Output mesh status if available.
-	if meshInfo != nil {
-		printMeshStatus(meshInfo)
+	if meshTelemetry != nil {
+		printMeshStatus(meshTelemetry)
 	}
 
 	return nil
 }
 
-// printMeshStatus formats and prints WireGuard mesh telemetry.
-func printMeshStatus(info map[string]interface{}) {
+// printMeshStatus formats and prints WireGuard mesh telemetry natively for the agent.
+func printMeshStatus(info *networkv1.MeshTelemetry) {
 	fmt.Println("Mesh Network:")
 
-	if meshIP, ok := info["mesh_ip"].(string); ok && meshIP != "" {
-		fmt.Printf("  Mesh IP:        %s\n", meshIP)
-		if subnet, ok := info["mesh_subnet"].(string); ok && subnet != "" {
-			fmt.Printf("  Subnet:         %s\n", subnet)
+	if info == nil {
+		fmt.Println("  Status:         Not connected to mesh")
+		fmt.Println()
+		return
+	}
+
+	if info.MeshIp != "" {
+		fmt.Printf("  Mesh IP:        %s\n", info.MeshIp)
+		if info.MeshSubnet != "" {
+			fmt.Printf("  Subnet:         %s\n", info.MeshSubnet)
 		}
 	} else {
 		fmt.Println("  Status:         Not connected to mesh")
@@ -517,31 +523,30 @@ func printMeshStatus(info map[string]interface{}) {
 		return
 	}
 
-	wgInfo, wgOk := info["wireguard"].(map[string]interface{})
-	if !wgOk {
+	if info.Wireguard == nil {
 		fmt.Println("  WireGuard:      Not configured or unavailable")
 		fmt.Println()
 		return
 	}
 
-	if exists, _ := wgInfo["interface_exists"].(bool); !exists {
+	if !info.Wireguard.InterfaceExists {
 		fmt.Println("  WireGuard:      Interface does not exist")
 		fmt.Println()
 		return
 	}
 
 	statusDisp := "Unknown"
-	if linkStatus, ok := wgInfo["link_status"].(string); ok {
-		if strings.Contains(linkStatus, "UP") {
+	if info.Wireguard.LinkStatus != "" {
+		if strings.Contains(info.Wireguard.LinkStatus, "UP") {
 			statusDisp = "UP"
-		} else if strings.Contains(linkStatus, "DOWN") {
+		} else if strings.Contains(info.Wireguard.LinkStatus, "DOWN") {
 			statusDisp = "DOWN"
 		}
 	}
 	fmt.Printf("  WireGuard:      %s\n", statusDisp)
 
-	peers, ok := wgInfo["peers"].([]interface{})
-	if !ok || len(peers) == 0 {
+	peers := info.Wireguard.Peers
+	if len(peers) == 0 {
 		fmt.Println("  Peers:          0")
 		fmt.Println()
 		return
@@ -549,28 +554,19 @@ func printMeshStatus(info map[string]interface{}) {
 
 	fmt.Printf("  Peers:          %d\n", len(peers))
 	for _, p := range peers {
-		peerMap, ok := p.(map[string]interface{})
-		if !ok {
-			continue
+		fmt.Printf("    - %s\n", p.PublicKey)
+
+		if p.Endpoint != "" {
+			fmt.Printf("        Endpoint:   %s\n", p.Endpoint)
 		}
-
-		pubKey, _ := peerMap["public_key"].(string)
-		fmt.Printf("    - %s\n", pubKey)
-
-		if endpoint, ok := peerMap["endpoint"].(string); ok && endpoint != "" {
-			fmt.Printf("        Endpoint:   %s\n", endpoint)
+		if p.RxBytes > 0 {
+			fmt.Printf("        Rx Bytes:   %d\n", p.RxBytes)
 		}
-
-		if rx, ok := peerMap["rx_bytes"].(float64); ok && rx > 0 {
-			fmt.Printf("        Rx Bytes:   %.0f\n", rx)
+		if p.TxBytes > 0 {
+			fmt.Printf("        Tx Bytes:   %d\n", p.TxBytes)
 		}
-
-		if tx, ok := peerMap["tx_bytes"].(float64); ok && tx > 0 {
-			fmt.Printf("        Tx Bytes:   %.0f\n", tx)
-		}
-
-		if hs, ok := peerMap["last_handshake_time"].(string); ok && hs != "" {
-			fmt.Printf("        Handshake:  %s\n", hs)
+		if p.LastHandshakeTime != "" {
+			fmt.Printf("        Handshake:  %s\n", p.LastHandshakeTime)
 		}
 	}
 	fmt.Println()

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -17,11 +16,13 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/storage"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // MeshInfoProvider is a callback that fetches live WireGuard/mesh statistics.
@@ -126,13 +127,11 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		Int64("uptime_seconds", uptimeSeconds).
 		Msg("Colony status response prepared")
 
-	// Fetch dynamic mesh telemetry and serialize parity JSON payload
-	var meshInfoJson []byte
+	// Fetch dynamic mesh telemetry and map to strictly typed Protobuf struct
+	var meshTelemetry *networkv1.MeshTelemetry
 	if s.meshInfoProvider != nil {
 		if meshInfo := s.meshInfoProvider(); meshInfo != nil {
-			if meshBytes, err := json.Marshal(meshInfo); err == nil {
-				meshInfoJson = meshBytes
-			}
+			meshTelemetry = wireguard.MapToMeshTelemetryProto(meshInfo)
 		}
 	}
 
@@ -156,7 +155,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		MeshIpv4:           s.config.MeshIPv4,
 		MeshIpv6:           s.config.MeshIPv6,
 		PublicEndpointUrl:  s.config.PublicEndpointURL,
-		MeshInfoJson:       meshInfoJson,
+		MeshTelemetry:      meshTelemetry,
 	}
 }
 

@@ -7,6 +7,7 @@ import "coral/mesh/v1/auth.proto";
 import "coral/agent/v1/agent.proto";
 import "coral/colony/v1/mcp.proto";
 import "coral/colony/v1/queries.proto";
+import "coral/network/v1/network.proto";
 
 option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
 
@@ -116,8 +117,8 @@ message GetStatusResponse {
   // Empty if public endpoint is not enabled.
   string public_endpoint_url = 18;
 
-  // JSON encoded mesh info (parity with /status).
-  bytes mesh_info_json = 19;
+  // Structured mesh info (parity with /status).
+  coral.network.v1.MeshTelemetry mesh_telemetry = 19;
 }
 
 message ListAgentsRequest {}

@@ -3,6 +3,7 @@ syntax = "proto3";
 package coral.agent.v1;
 
 import "google/protobuf/timestamp.proto";
+import "coral/network/v1/network.proto";
 
 option go_package = "github.com/coral-mesh/coral/coral/agent/v1;agentv1";
 
@@ -89,8 +90,8 @@ message RuntimeContextResponse {
   // Agent ID.
   string agent_id = 10;
 
-  // JSON encoded mesh info (parity with /status).
-  bytes mesh_info_json = 11;
+  // Structured mesh info (parity with /status).
+  coral.network.v1.MeshTelemetry mesh_telemetry = 11;
 }
 
 message PlatformInfo {

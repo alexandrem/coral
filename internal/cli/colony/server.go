@@ -284,7 +284,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
 		cachedResp := colonySvc.GetStatusResponse()
 		resp := proto.Clone(cachedResp).(*colonyv1.GetStatusResponse)
-		resp.MeshInfoJson = nil
+		resp.MeshTelemetry = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
