@@ -314,7 +314,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				"endpoints":  resp.WireguardEndpoints,
 				"mesh_ipv4":  resp.MeshIpv4,
 				"mesh_ipv6":  resp.MeshIpv6,
-				"telemetry":  meshInfo,
+				"status":     meshInfo,
 			},
 			"network": map[string]interface{}{
 				"connect_port": resp.ConnectPort,

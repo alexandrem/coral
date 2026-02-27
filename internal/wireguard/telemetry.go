@@ -19,7 +19,7 @@ func MapToMeshTelemetryProto(info map[string]interface{}) *networkv1.MeshTelemet
 		telemetry.MeshSubnet = subnet
 	}
 
-	if wgInfo, ok := info["wireguard"].(map[string]interface{}); ok {
+	if wgInfo, ok := info["status"].(map[string]interface{}); ok {
 		if pk, ok := wgInfo["public_key"].(string); ok {
 			telemetry.PublicKey = pk
 		}

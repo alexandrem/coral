@@ -82,7 +82,7 @@ func GatherMeshInfo(
 			wgInfo["interface_exists"] = false
 		}
 
-		info["wireguard"] = wgInfo
+		info["status"] = wgInfo
 	}
 
 	return info

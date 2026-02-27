@@ -516,10 +516,8 @@ func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeServi
 
 		// Combine runtime context with mesh info.
 		status := map[string]interface{}{
-			"runtime": runtimeCtx,
-			"wireguard": map[string]interface{}{
-				"telemetry": meshInfo,
-			},
+			"runtime":   runtimeCtx,
+			"wireguard": meshInfo,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -663,7 +661,7 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 		wgInfo["peers"] = peerInfos
 		wgInfo["peer_count"] = len(peers)
 
-		info["wireguard"] = wgInfo
+		info["status"] = wgInfo
 	}
 
 	// Colony info.

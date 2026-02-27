@@ -195,7 +195,7 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 		}
 
 		// Check if mesh is configured.
-		mesh, ok := statusResp["mesh"].(map[string]interface{})
+		mesh, ok := statusResp["wireguard"].(map[string]interface{})
 		if !ok {
 			return false
 		}
@@ -208,8 +208,8 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 	s.Require().NotNil(statusResp, "Status response should not be nil")
 
 	// Validate mesh configuration.
-	mesh, ok := statusResp["mesh"].(map[string]interface{})
-	s.Require().True(ok, "Status should include mesh section")
+	mesh, ok := statusResp["wireguard"].(map[string]interface{})
+	s.Require().True(ok, "Status should include wireguard section")
 
 	meshIP, _ := mesh["mesh_ip"].(string)
 	meshSubnet, _ := mesh["mesh_subnet"].(string)
@@ -220,8 +220,8 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 	s.T().Logf("✓ Mesh subnet configured: %s", meshSubnet)
 
 	// Validate WireGuard configuration.
-	wg, ok := mesh["wireguard"].(map[string]interface{})
-	s.Require().True(ok, "Status should include wireguard section")
+	wg, ok := mesh["status"].(map[string]interface{})
+	s.Require().True(ok, "Status should include status section")
 
 	interfaceExists, _ := wg["interface_exists"].(bool)
 	peerCount, _ := wg["peer_count"].(float64) // JSON numbers are float64
