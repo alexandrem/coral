@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,6 +22,7 @@ type CLITestEnv struct {
 	ConfigDir      string // Path to .coral directory
 	TempDir        string // Root temp directory
 	HomeDir        string // Simulated HOME directory
+	ExtraVars      map[string]string
 }
 
 // SetupCLIEnv prepares an isolated environment for CLI testing.
@@ -49,6 +51,7 @@ func SetupCLIEnv(ctx context.Context, colonyID, colonyEndpoint string) (*CLITest
 		ConfigDir:      configDir,
 		TempDir:        tempDir,
 		HomeDir:        homeDir,
+		ExtraVars:      make(map[string]string),
 	}
 
 	// Create a minimal colony config file for the test colony.
@@ -80,6 +83,11 @@ func (e *CLITestEnv) Run(ctx context.Context, args ...string) *CLIResult {
 	return RunCLIWithEnv(ctx, e.buildEnvMap(), args...)
 }
 
+// RunWithStdin executes a coral CLI command using this environment and provides standard input.
+func (e *CLITestEnv) RunWithStdin(ctx context.Context, stdin io.Reader, args ...string) *CLIResult {
+	return RunCLIWithEnvAndStdin(ctx, e.buildEnvMap(), stdin, args...)
+}
+
 // Clone creates a copy of this environment with optional overrides.
 // Use this when you need to run a command with modified settings.
 //
@@ -94,6 +102,7 @@ func (e *CLITestEnv) Clone() *CLITestEnvBuilder {
 			ConfigDir:      e.ConfigDir,
 			TempDir:        e.TempDir,
 			HomeDir:        e.HomeDir,
+			ExtraVars:      e.ExtraVars, // Copy reference or deep copy? Builder usually wants a copy.
 		},
 		extraVars: make(map[string]string),
 		unsetVars: make(map[string]bool),
@@ -119,6 +128,11 @@ func (e *CLITestEnv) buildEnvMap() map[string]string {
 
 	if e.ColonyEndpoint != "" {
 		env["CORAL_COLONY_ENDPOINT"] = e.ColonyEndpoint
+	}
+
+	// Add extra vars from the env itself
+	for k, v := range e.ExtraVars {
+		env[k] = v
 	}
 
 	return env
@@ -187,6 +201,23 @@ func (b *CLITestEnvBuilder) Run(ctx context.Context, args ...string) *CLIResult 
 	}
 
 	return RunCLIWithEnv(ctx, envMap, args...)
+}
+
+// RunWithStdin executes a CLI command with the configured environment and standard input.
+func (b *CLITestEnvBuilder) RunWithStdin(ctx context.Context, stdin io.Reader, args ...string) *CLIResult {
+	envMap := b.env.buildEnvMap()
+
+	// Add extra vars
+	for k, v := range b.extraVars {
+		envMap[k] = v
+	}
+
+	// Remove unset vars
+	for k := range b.unsetVars {
+		delete(envMap, k)
+	}
+
+	return RunCLIWithEnvAndStdin(ctx, envMap, stdin, args...)
 }
 
 // Env returns the underlying CLITestEnv (for compatibility).
