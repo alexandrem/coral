@@ -26,7 +26,7 @@ live peers.
 coral colony status --detail
 
 # On the Agent
-coral agent status --format json
+coral-agent status --format json
 ```
 
 Look specifically for the **Live Mesh Peers Information** block, which exposes
