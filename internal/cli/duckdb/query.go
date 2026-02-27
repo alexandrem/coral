@@ -94,8 +94,8 @@ If --database is not specified, the first available database will be used.`,
 					return err
 				}
 			} else {
-				// Agent mode: resolve agent ID and attach agent database.
-				meshIP, err := resolveAgentAddress(ctx, agentID)
+				// Agent mode: resolve agent DuckDB base URL and attach database.
+				agentBase, err := agentDuckDBBase(ctx, agentID, "")
 				if err != nil {
 					return fmt.Errorf("failed to resolve agent address: %w", err)
 				}
@@ -104,7 +104,7 @@ If --database is not specified, the first available database will be used.`,
 				dbName := database
 				if dbName == "" {
 					// Query available databases and use the first one.
-					databases, err := listAgentDatabases(ctx, meshIP)
+					databases, err := listAgentDatabases(ctx, agentBase)
 					if err != nil {
 						return fmt.Errorf("failed to query available databases: %w", err)
 					}
@@ -115,7 +115,7 @@ If --database is not specified, the first available database will be used.`,
 					fmt.Printf("Using database: %s\n", dbName)
 				}
 
-				if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
+				if err := attachAgentDatabase(ctx, db, agentID, agentBase, dbName); err != nil {
 					return err
 				}
 			}
