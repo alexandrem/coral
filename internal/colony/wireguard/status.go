@@ -32,13 +32,46 @@ func GatherMeshInfo(
 
 			// Get peer information.
 			peers := wgDevice.ListPeers()
+
+			// Try to get dynamic stats from UAPI.
+			stats, err := wgDevice.GetStats()
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to gather dynamic WireGuard stats via UAPI")
+			}
+
 			peerInfos := make([]map[string]interface{}, 0, len(peers))
 			for _, peer := range peers {
 				peerInfo := make(map[string]interface{})
 				peerInfo["public_key"] = peer.PublicKey[:16] + "..."
-				peerInfo["endpoint"] = peer.Endpoint
+
+				// Base properties from internal configuration.
+				peerInfo["configured_endpoint"] = peer.Endpoint
 				peerInfo["allowed_ips"] = peer.AllowedIPs
 				peerInfo["persistent_keepalive"] = peer.PersistentKeepalive
+
+				// Dynamic properties from UAPI.
+				if stats != nil {
+					pStats, ok := stats.Peers[peer.PublicKey]
+					// Wireguard UAPI might surface endpoints we haven't seen explicitly configured.
+					if ok {
+						if pStats.Endpoint != "" {
+							peerInfo["endpoint"] = pStats.Endpoint
+						}
+						peerInfo["rx_bytes"] = pStats.RxBytes
+						peerInfo["tx_bytes"] = pStats.TxBytes
+
+						if !pStats.LastHandshakeTime.IsZero() {
+							// Return ISO8601 formatted string.
+							peerInfo["last_handshake_time"] = pStats.LastHandshakeTime.UTC().Format("2006-01-02T15:04:05Z")
+						}
+					}
+				}
+
+				// Fallback to configured endpoint if dynamic endpoint wasn't discovered.
+				if peerInfo["endpoint"] == nil {
+					peerInfo["endpoint"] = peer.Endpoint
+				}
+
 				peerInfos = append(peerInfos, peerInfo)
 			}
 			wgInfo["peers"] = peerInfos
