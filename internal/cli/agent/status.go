@@ -112,21 +112,11 @@ The agent must be running and accessible.`,
 				certInfo = getLocalCertificateInfo(certsDir)
 			}
 
-			// Query mesh status via HTTP /status endpoint
+			// Parse dynamic mesh info from the gRPC context, ensuring parity with /status
 			var meshInfo map[string]interface{}
-			statusReq, err := http.NewRequestWithContext(ctx, "GET", agentURL+"/status", nil)
-			if err == nil {
-				if statusResp, err := http.DefaultClient.Do(statusReq); err == nil {
-					defer statusResp.Body.Close()
-					if statusResp.StatusCode == http.StatusOK {
-						var fullStatus map[string]interface{}
-						if err := json.NewDecoder(statusResp.Body).Decode(&fullStatus); err == nil {
-							if mesh, ok := fullStatus["mesh"].(map[string]interface{}); ok {
-								meshInfo = mesh
-							}
-						}
-					}
-				}
+			if len(runtimeCtx.MeshInfoJson) > 0 {
+				_ = json.Unmarshal(runtimeCtx.MeshInfoJson, &meshInfo)
+				runtimeCtx.MeshInfoJson = nil // prevent byte array from showing in json dump
 			}
 
 			// Output in requested format.
