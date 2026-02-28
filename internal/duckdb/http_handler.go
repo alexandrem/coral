@@ -107,7 +107,8 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify file still exists before serving.
-	if _, err := os.Stat(filePath); err != nil {
+	info, err := os.Stat(filePath)
+	if err != nil {
 		// If it's a WAL file, it might have been checkpointed and removed.
 		// This is expected behavior, so just return 404 without warning.
 		if isWal && os.IsNotExist(err) {
@@ -124,6 +125,17 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Err(err).
 			Msg("Database file no longer exists")
 		http.Error(w, "database not found", http.StatusNotFound)
+		return
+	}
+
+	// Treat an empty WAL file as non-existent: DuckDB range requests on a 0-byte
+	// file return 416 (Range Not Satisfiable), which causes ATTACH to fail.
+	// An empty WAL contains no transactions to replay, so 404 is semantically correct.
+	if isWal && info.Size() == 0 {
+		h.logger.Debug().
+			Str("db_name", dbName).
+			Msg("WAL file is empty, treating as non-existent")
+		http.Error(w, "wal not found", http.StatusNotFound)
 		return
 	}
 

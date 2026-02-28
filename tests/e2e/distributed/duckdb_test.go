@@ -5,20 +5,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"testing"
-
-	"github.com/stretchr/testify/suite"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
-
-// TestDuckDBSuite runs the DuckDBSuite.
-func TestDuckDBSuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping DuckDB E2E tests in short mode")
-	}
-	suite.Run(t, new(DuckDBSuite))
-}
 
 // DuckDBSuite tests DuckDB remote access via colony proxy.
 type DuckDBSuite struct {

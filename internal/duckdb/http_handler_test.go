@@ -155,6 +155,38 @@ func TestDuckDBHandler_RangeRequests(t *testing.T) {
 	}
 }
 
+func TestDuckDBHandler_EmptyWALReturns404(t *testing.T) {
+	// Create a real database file and an empty WAL file.
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.duckdb")
+	walPath := dbPath + ".wal"
+	if err := os.WriteFile(dbPath, []byte("mock duckdb data"), 0644); err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	// Create an empty WAL file (0 bytes).
+	if err := os.WriteFile(walPath, []byte{}, 0644); err != nil {
+		t.Fatalf("Failed to create empty WAL file: %v", err)
+	}
+
+	logger := zerolog.Nop()
+	handler := NewDuckDBHandler(logger)
+	if err := handler.RegisterDatabase("test.duckdb", dbPath); err != nil {
+		t.Fatalf("Failed to register database: %v", err)
+	}
+
+	// DuckDB will send a range request for the WAL file; an empty WAL must return 404
+	// so DuckDB skips WAL replay instead of failing with 416 Range Not Satisfiable.
+	req := httptest.NewRequest(http.MethodGet, "/duckdb/test.duckdb.wal", nil)
+	req.Header.Set("Range", "bytes=0-")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404 for empty WAL, got %d", w.Code)
+	}
+}
+
 func TestDuckDBHandler_RegisterDatabase_FileNotFound(t *testing.T) {
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
