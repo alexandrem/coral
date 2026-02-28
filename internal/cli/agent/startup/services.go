@@ -38,6 +38,7 @@ type ServicesResult struct {
 	SystemMetricsHandler *agent.SystemMetricsHandler
 	MeshServer           *http.Server
 	LocalhostServer      *http.Server
+	MeshPingServer       *agent.MeshPingServer
 	Context              context.Context
 	CancelFunc           context.CancelFunc
 }
@@ -193,6 +194,14 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 
 	result.MeshServer = meshServer
 	result.LocalhostServer = localhostServer
+
+	// Initialize mesh ping echo receiver (RFD 097).
+	meshPingServer := agent.NewMeshPingServer(s.meshIP, s.logger.With().Str("component", "agent").Logger())
+	if err := meshPingServer.Start(ctx); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to start mesh ping echo receiver")
+	} else {
+		result.MeshPingServer = meshPingServer
+	}
 
 	return result, nil
 }

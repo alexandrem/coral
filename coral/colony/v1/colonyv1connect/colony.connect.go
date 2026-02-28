@@ -85,6 +85,8 @@ const (
 	// ColonyServiceGetCAStatusProcedure is the fully-qualified name of the ColonyService's GetCAStatus
 	// RPC.
 	ColonyServiceGetCAStatusProcedure = "/coral.colony.v1.ColonyService/GetCAStatus"
+	// ColonyServiceMeshPingProcedure is the fully-qualified name of the ColonyService's MeshPing RPC.
+	ColonyServiceMeshPingProcedure = "/coral.colony.v1.ColonyService/MeshPing"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -118,6 +120,9 @@ type ColonyServiceClient interface {
 	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
 	// Get CA status and fingerprint (RFD 047).
 	GetCAStatus(context.Context, *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error)
+	// Troubleshoot the WireGuard-based control mesh (RFD 097).
+	// Colony pings agents through the mesh and returns statistics.
+	MeshPing(context.Context, *connect.Request[v1.MeshPingRequest]) (*connect.Response[v1.MeshPingResponse], error)
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -239,6 +244,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("GetCAStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		meshPing: connect.NewClient[v1.MeshPingRequest, v1.MeshPingResponse](
+			httpClient,
+			baseURL+ColonyServiceMeshPingProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("MeshPing")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -262,6 +273,7 @@ type colonyServiceClient struct {
 	requestCertificate  *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
 	revokeCertificate   *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
 	getCAStatus         *connect.Client[v1.GetCAStatusRequest, v1.GetCAStatusResponse]
+	meshPing            *connect.Client[v1.MeshPingRequest, v1.MeshPingResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -354,6 +366,11 @@ func (c *colonyServiceClient) GetCAStatus(ctx context.Context, req *connect.Requ
 	return c.getCAStatus.CallUnary(ctx, req)
 }
 
+// MeshPing calls coral.colony.v1.ColonyService.MeshPing.
+func (c *colonyServiceClient) MeshPing(ctx context.Context, req *connect.Request[v1.MeshPingRequest]) (*connect.Response[v1.MeshPingResponse], error) {
+	return c.meshPing.CallUnary(ctx, req)
+}
+
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
 type ColonyServiceHandler interface {
 	// Get colony status and health.
@@ -385,6 +402,9 @@ type ColonyServiceHandler interface {
 	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
 	// Get CA status and fingerprint (RFD 047).
 	GetCAStatus(context.Context, *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error)
+	// Troubleshoot the WireGuard-based control mesh (RFD 097).
+	// Colony pings agents through the mesh and returns statistics.
+	MeshPing(context.Context, *connect.Request[v1.MeshPingRequest]) (*connect.Response[v1.MeshPingResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -502,6 +522,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("GetCAStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceMeshPingHandler := connect.NewUnaryHandler(
+		ColonyServiceMeshPingProcedure,
+		svc.MeshPing,
+		connect.WithSchema(colonyServiceMethods.ByName("MeshPing")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyServiceGetStatusProcedure:
@@ -540,6 +566,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceRevokeCertificateHandler.ServeHTTP(w, r)
 		case ColonyServiceGetCAStatusProcedure:
 			colonyServiceGetCAStatusHandler.ServeHTTP(w, r)
+		case ColonyServiceMeshPingProcedure:
+			colonyServiceMeshPingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -619,4 +647,8 @@ func (UnimplementedColonyServiceHandler) RevokeCertificate(context.Context, *con
 
 func (UnimplementedColonyServiceHandler) GetCAStatus(context.Context, *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.GetCAStatus is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) MeshPing(context.Context, *connect.Request[v1.MeshPingRequest]) (*connect.Response[v1.MeshPingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.MeshPing is not implemented"))
 }

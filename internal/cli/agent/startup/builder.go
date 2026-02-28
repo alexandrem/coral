@@ -23,6 +23,7 @@ type AgentServer struct {
 	NetworkResult        *NetworkResult
 	StorageResult        *StorageResult
 	ServicesResult       *ServicesResult
+	MeshPingServer       *agent.MeshPingServer
 	Logger               logging.Logger
 }
 
@@ -57,6 +58,13 @@ func (as *AgentServer) Stop() error {
 	if as.OTLPReceiver != nil {
 		if err := as.OTLPReceiver.Stop(); err != nil {
 			as.Logger.Error().Err(err).Msg("Failed to stop OTLP receiver")
+		}
+	}
+
+	// Stop mesh ping echo receiver.
+	if as.MeshPingServer != nil {
+		if err := as.MeshPingServer.Stop(); err != nil {
+			as.Logger.Error().Err(err).Msg("Failed to stop mesh ping echo receiver")
 		}
 	}
 
@@ -426,6 +434,7 @@ func (b *AgentServerBuilder) Build() *AgentServer {
 		NetworkResult:        b.networkResult,
 		StorageResult:        b.storageResult,
 		ServicesResult:       b.servicesResult,
+		MeshPingServer:       b.servicesResult.MeshPingServer,
 		Logger:               b.logger,
 	}
 }
