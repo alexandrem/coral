@@ -261,6 +261,7 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	// Skip CLI_ErrorHandling - we don't have a colony endpoint env var yet
 	// s.Run("CLI_ErrorHandling", cliMeshSuite.TestInvalidColonyEndpoint)
 	s.Run("CLI_TableFormatting", cliMeshSuite.TestTableOutputFormatting)
+	s.Run("CLI_MeshPing", cliMeshSuite.TestMeshPingCommand)
 	s.Run("CLI_JSONValidity", cliMeshSuite.TestJSONOutputValidity)
 
 	// Run CLIQuerySuite (query commands - Phase 2)

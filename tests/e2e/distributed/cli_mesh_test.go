@@ -263,6 +263,51 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 	s.T().Logf("✓ Agent list validated (%d agents)", len(agents))
 }
 
+// TestMeshPingCommand tests 'coral mesh ping' command.
+//
+// Validates:
+// - Command executes successfully
+// - Pings all agents if no agent ID provided
+// - Pings a specific agent if agent ID provided
+// - Table output format is correct
+func (s *CLIMeshSuite) TestMeshPingCommand() {
+	s.T().Log("Testing 'coral mesh ping' command...")
+
+	// 1. Test ping (all agents)
+	result := helpers.MeshPing(s.ctx, s.cliEnv, "", 2) // 2 pings each
+	result.MustSucceed(s.T())
+
+	s.T().Log("Ping (all) output:")
+	s.T().Log(result.Output)
+
+	// Validate output structure - should have headers and at least 2 rows (agents)
+	helpers.AssertContains(s.T(), result.Output, "AGENT ID")
+	helpers.AssertContains(s.T(), result.Output, "MESH IP")
+	helpers.AssertContains(s.T(), result.Output, "LOSS")
+	helpers.AssertContains(s.T(), result.Output, "STATUS")
+
+	// 2. Test ping (specific agent)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(agents)
+
+	// In JSON, fields are often lowercase
+	agentID, _ := agents[0]["agent_id"].(string)
+	s.Require().NotEmpty(agentID)
+
+	s.T().Logf("Testing ping for specific agent: %s", agentID)
+	result = helpers.MeshPing(s.ctx, s.cliEnv, agentID, 2)
+	result.MustSucceed(s.T())
+
+	s.T().Log("Ping (specific) output:")
+	s.T().Log(result.Output)
+
+	// Should show result for only one agent
+	helpers.AssertContains(s.T(), result.Output, agentID)
+
+	s.T().Log("✓ Mesh ping command validated")
+}
+
 // TestServiceListCommand tests 'coral service list' output.
 //
 // Validates:

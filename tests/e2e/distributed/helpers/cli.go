@@ -606,6 +606,18 @@ func QueryServicesJSON(ctx context.Context, env *CLITestEnv) ([]map[string]inter
 	return services, nil
 }
 
+// MeshPing executes `coral mesh ping` and returns the output.
+func MeshPing(ctx context.Context, env *CLITestEnv, agentID string, count int) *CLIResult {
+	args := []string{"mesh", "ping"}
+	if agentID != "" {
+		args = append(args, agentID)
+	}
+	if count > 0 {
+		args = append(args, "-n", fmt.Sprintf("%d", count))
+	}
+	return env.Run(ctx, args...)
+}
+
 // ConfigGetContexts executes `coral config get-contexts` and returns the output.
 func ConfigGetContexts(ctx context.Context) *CLIResult {
 	return RunCLI(ctx, "config", "get-contexts")
