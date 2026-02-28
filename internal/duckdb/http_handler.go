@@ -101,23 +101,22 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If requesting WAL, append .wal to the path.
+	// WAL files are for crash recovery of the local writer process.
+	// A remote READ_ONLY ATTACH must read from the last checkpoint in the main
+	// database file; replaying a live WAL is unreliable (TOCTOU: the agent may
+	// checkpoint and truncate the WAL between DuckDB's HEAD and range-GET calls,
+	// turning a satisfiable range into a 416). Returning 404 tells DuckDB "no WAL",
+	// which is the correct and safe signal for a read-only remote consumer.
 	if isWal {
-		filePath = filePath + ".wal"
+		h.logger.Debug().
+			Str("db_name", dbName).
+			Msg("Declining WAL request for remote read-only access")
+		http.Error(w, "wal not available", http.StatusNotFound)
+		return
 	}
 
 	// Verify file still exists before serving.
 	if _, err := os.Stat(filePath); err != nil {
-		// If it's a WAL file, it might have been checkpointed and removed.
-		// This is expected behavior, so just return 404 without warning.
-		if isWal && os.IsNotExist(err) {
-			h.logger.Debug().
-				Str("db_name", dbName).
-				Msg("WAL file not found (likely checkpointed)")
-			http.Error(w, "wal not found", http.StatusNotFound)
-			return
-		}
-
 		h.logger.Warn().
 			Str("db_name", dbName).
 			Str("path", filePath).

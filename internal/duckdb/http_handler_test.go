@@ -155,6 +155,51 @@ func TestDuckDBHandler_RangeRequests(t *testing.T) {
 	}
 }
 
+func TestDuckDBHandler_WALAlwaysReturns404(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.duckdb")
+	walPath := dbPath + ".wal"
+	if err := os.WriteFile(dbPath, []byte("mock duckdb data"), 0644); err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+
+	logger := zerolog.Nop()
+	handler := NewDuckDBHandler(logger)
+	if err := handler.RegisterDatabase("test.duckdb", dbPath); err != nil {
+		t.Fatalf("Failed to register database: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		walData []byte
+	}{
+		{"empty WAL", []byte{}},
+		{"non-empty WAL", []byte("DUCK\x00\x00\x00\x01some wal data")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(walPath, tc.walData, 0644); err != nil {
+				t.Fatalf("Failed to write WAL file: %v", err)
+			}
+
+			// DuckDB sends range requests for WAL files; always return 404 so DuckDB
+			// skips WAL replay and reads from the last checkpoint instead. This avoids
+			// 416 errors from TOCTOU races where the agent checkpoints the WAL between
+			// DuckDB's HEAD and range-GET requests.
+			req := httptest.NewRequest(http.MethodGet, "/duckdb/test.duckdb.wal", nil)
+			req.Header.Set("Range", "bytes=0-")
+			w := httptest.NewRecorder()
+
+			handler.ServeHTTP(w, req)
+
+			if w.Code != http.StatusNotFound {
+				t.Errorf("Expected status 404 for WAL, got %d", w.Code)
+			}
+		})
+	}
+}
+
 func TestDuckDBHandler_RegisterDatabase_FileNotFound(t *testing.T) {
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
