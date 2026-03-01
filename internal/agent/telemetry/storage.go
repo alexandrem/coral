@@ -16,18 +16,19 @@ import (
 // ORM model for telemetry spans table.
 
 type otelSpanDB struct {
-	Timestamp   time.Time `duckdb:"timestamp,immutable"`
-	TraceID     string    `duckdb:"trace_id,pk"`
-	SpanID      string    `duckdb:"span_id,pk"`
-	ServiceName string    `duckdb:"service_name,immutable"`
-	SpanKind    string    `duckdb:"span_kind,immutable"`
-	DurationMs  float64   `duckdb:"duration_ms,immutable"`
-	IsError     bool      `duckdb:"is_error,immutable"`
-	HTTPStatus  *int      `duckdb:"http_status,immutable"`
-	HTTPMethod  *string   `duckdb:"http_method,immutable"`
-	HTTPRoute   *string   `duckdb:"http_route,immutable"`
-	Attributes  string    `duckdb:"attributes,immutable"`
-	CreatedAt   time.Time `duckdb:"created_at,immutable"`
+	Timestamp    time.Time `duckdb:"timestamp,immutable"`
+	TraceID      string    `duckdb:"trace_id,pk"`
+	SpanID       string    `duckdb:"span_id,pk"`
+	ParentSpanID string    `duckdb:"parent_span_id,immutable"`
+	ServiceName  string    `duckdb:"service_name,immutable"`
+	SpanKind     string    `duckdb:"span_kind,immutable"`
+	DurationMs   float64   `duckdb:"duration_ms,immutable"`
+	IsError      bool      `duckdb:"is_error,immutable"`
+	HTTPStatus   *int      `duckdb:"http_status,immutable"`
+	HTTPMethod   *string   `duckdb:"http_method,immutable"`
+	HTTPRoute    *string   `duckdb:"http_route,immutable"`
+	Attributes   string    `duckdb:"attributes,immutable"`
+	CreatedAt    time.Time `duckdb:"created_at,immutable"`
 }
 
 // Storage handles local storage of filtered telemetry spans.
@@ -66,6 +67,7 @@ func (s *Storage) initSchema() error {
 			timestamp     TIMESTAMP NOT NULL,
 			trace_id      TEXT NOT NULL,
 			span_id       TEXT NOT NULL,
+			parent_span_id TEXT,
 			service_name  TEXT NOT NULL,
 			span_kind     TEXT,
 			duration_ms   DOUBLE PRECISION,
@@ -148,18 +150,19 @@ func (s *Storage) StoreSpan(ctx context.Context, span Span) error {
 	}
 
 	item := &otelSpanDB{
-		Timestamp:   span.Timestamp,
-		TraceID:     span.TraceID,
-		SpanID:      span.SpanID,
-		ServiceName: span.ServiceName,
-		SpanKind:    span.SpanKind,
-		DurationMs:  span.DurationMs,
-		IsError:     span.IsError,
-		HTTPStatus:  httpStatus,
-		HTTPMethod:  httpMethod,
-		HTTPRoute:   httpRoute,
-		Attributes:  string(attributesJSON),
-		CreatedAt:   time.Now(),
+		Timestamp:    span.Timestamp,
+		TraceID:      span.TraceID,
+		SpanID:       span.SpanID,
+		ParentSpanID: span.ParentSpanID,
+		ServiceName:  span.ServiceName,
+		SpanKind:     span.SpanKind,
+		DurationMs:   span.DurationMs,
+		IsError:      span.IsError,
+		HTTPStatus:   httpStatus,
+		HTTPMethod:   httpMethod,
+		HTTPRoute:    httpRoute,
+		Attributes:   string(attributesJSON),
+		CreatedAt:    time.Now(),
 	}
 
 	if err := s.spansTable.Upsert(ctx, item); err != nil {

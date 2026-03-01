@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 )
 
@@ -20,7 +21,7 @@ func TestNew_ValidPath(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -51,7 +52,7 @@ func TestNew_CreatesDirectory(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database in non-existent directory.
-	db, err := New(storagePath, "test-colony", logger)
+	db, err := New(storagePath, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestNew_DatabaseFilename(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.colonyID, func(t *testing.T) {
-			db, err := New(tempDir, tc.colonyID, logger)
+			db, err := New(tempDir, tc.colonyID, constants.DefaultConnectionsCacheTTL, logger)
 			if err != nil {
 				t.Fatalf("Failed to create database: %v", err)
 			}
@@ -108,7 +109,7 @@ func TestPing(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestClose(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestDB(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestQueryContext_LogsQuery(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -221,7 +222,7 @@ func TestQueryContext_LogsExecutionTime(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -268,7 +269,7 @@ func TestExecContext_LogsQuery(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -312,7 +313,7 @@ func TestQueryRowContext_LogsQuery(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -346,7 +347,7 @@ func TestQueryLogging_TraceLevel(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.InfoLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -379,7 +380,7 @@ func TestQueryLogging_WithStringParameters(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -415,7 +416,7 @@ func TestQueryLogging_WithMixedParameters(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -502,7 +503,7 @@ func TestFormatQuery_CleansWhitespace(t *testing.T) {
 	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}

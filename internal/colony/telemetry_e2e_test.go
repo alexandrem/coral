@@ -17,6 +17,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // TestTelemetryE2E validates the RFD 025 pull-based telemetry query flow:
@@ -220,7 +221,7 @@ func TestTelemetryE2E(t *testing.T) {
 	// ============================================================
 
 	// Create colony database
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create colony database: %v", err)
 	}

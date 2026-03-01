@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -320,6 +321,37 @@ func (s *CLIQuerySuite) TestQueryTableOutputFormatting() {
 	s.T().Logf("Services table: %d rows", len(rows))
 
 	s.T().Log("✓ Table formatting validated")
+}
+
+// TestCLIQueryTopology tests 'coral query topology' CLI command (RFD 092).
+//
+// Validates:
+//   - Command executes without error against the live colony
+//   - Default text output is produced
+//   - JSON output flag works
+func (s *CLIQuerySuite) TestCLIQueryTopology() {
+	s.T().Log("Testing 'coral query topology' CLI command (RFD 092)...")
+
+	// Default text output.
+	result := s.cliEnv.Run(s.ctx, "query", "topology")
+	result.MustSucceed(s.T())
+	s.Require().NotEmpty(result.Output, "CLI topology output should not be empty")
+
+	s.T().Logf("coral query topology output:\n%s", result.Output)
+
+	// JSON output format.
+	jsonResult := s.cliEnv.Run(s.ctx, "query", "topology", "--format", "json")
+	jsonResult.MustSucceed(s.T())
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonResult.Output), &parsed); err != nil {
+		s.T().Logf("JSON parse error (output was): %s", jsonResult.Output)
+		s.Require().NoError(err, "JSON output should be valid JSON")
+	}
+	s.Require().Contains(parsed, "colony_id", "JSON output must include colony_id field")
+	s.Require().Contains(parsed, "connections", "JSON output must include connections field")
+
+	s.T().Log("✓ coral query topology CLI validated")
 }
 
 // Helper: ensureTelemetryData generates telemetry data by sending requests to test apps.

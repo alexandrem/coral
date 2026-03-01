@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ func setupTestCheckpointDB(t *testing.T) *Database {
 	t.Helper()
 	tempDir := t.TempDir()
 	logger := zerolog.Nop()
-	db, err := New(tempDir, "test-checkpoints", logger)
+	db, err := New(tempDir, "test-checkpoints", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db

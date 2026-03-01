@@ -433,6 +433,14 @@ func (m *Manager) startOTLPReceiver() error {
 	// Configure OTLP receiver for Beyla's output.
 	// Use ports 4319/4320 to avoid conflict with the shared OTLP receiver (4317/4318)
 	// which handles user application telemetry.
+	// Beyla already performs its own eBPF-level filtering; default to capturing
+	// 100% of spans so that normal-latency cross-service calls are never dropped
+	// by the OTLP receiver filter (required for topology materialisation).
+	sampleRate := m.config.SamplingRate
+	if sampleRate == 0 {
+		sampleRate = constants.DefaultBeylaSampleRate
+	}
+
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
 		GRPCEndpoint:          fmt.Sprintf("127.0.0.1:%d", constants.DefaultBeylaGRPCPort), // Beyla-specific gRPC port (avoids 4317 conflict).
@@ -441,7 +449,7 @@ func (m *Manager) startOTLPReceiver() error {
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,
-			SampleRate:             m.config.SamplingRate,
+			SampleRate:             sampleRate,
 		},
 		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
 		SpanHandler: m.handleBeylaSpan,
@@ -504,7 +512,7 @@ func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) erro
 		"", // agentID - not available from OTLP span, will be empty
 		span.TraceID,
 		span.SpanID,
-		"", // parentSpanID - not available from telemetry.Span
+		span.ParentSpanID,
 		span.ServiceName,
 		spanName,
 		span.SpanKind,
@@ -729,7 +737,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	return configFile.Name(), nil
 }
 
-// monitorBeylaProcess monitors the Beyla process and logs when it exits.
+// monitorBeylaProcess monitors the Beyla process and restarts it on unexpected exit.
 func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 
@@ -741,22 +749,40 @@ func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	wasReplaced := m.beylaCmd != cmd
 	m.mu.RUnlock()
 
-	if err != nil && m.ctx.Err() == nil && !wasReplaced {
-		// Process exited unexpectedly (not due to restart or context cancellation).
-		m.logger.Error().
-			Err(err).
-			Int("pid", cmd.Process.Pid).
-			Msg("Beyla process exited unexpectedly")
-	} else if wasReplaced {
+	if wasReplaced {
 		// Expected exit during restart.
 		m.logger.Debug().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process stopped for restart")
-	} else {
-		// Normal shutdown.
+		return
+	}
+
+	if m.ctx.Err() != nil {
+		// Normal shutdown due to context cancellation.
 		m.logger.Info().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process exited")
+		return
+	}
+
+	// Unexpected exit: restart Beyla so trace capture resumes automatically.
+	// This can happen if Beyla crashes or if the eBPF subsystem encounters an error.
+	m.logger.Error().
+		Err(err).
+		Int("pid", cmd.Process.Pid).
+		Msg("Beyla process exited unexpectedly, restarting")
+
+	// Brief pause before restart to avoid tight restart loops.
+	time.Sleep(2 * time.Second)
+
+	if m.ctx.Err() != nil {
+		return
+	}
+
+	if err := m.restartBeyla(); err != nil {
+		m.logger.Error().Err(err).Msg("Failed to restart Beyla after unexpected exit")
+	} else {
+		m.logger.Info().Msg("Beyla restarted successfully after unexpected exit")
 	}
 }
 

@@ -264,24 +264,46 @@ func (a *Agent) Close() error {
 	return nil
 }
 
-// buildSystemPrompt builds the system prompt with service context (RFD 054).
+// buildSystemPrompt builds the system prompt with service context (RFD 054, RFD 092).
+// Runs the three context fetches (service list, health alerts, topology) in parallel.
 func (a *Agent) buildSystemPrompt(ctx context.Context) string {
-	serviceCtx := a.fetchServiceContext(ctx)
-	healthAlerts := a.fetchHealthAlerts(ctx)
+	type result struct {
+		serviceCtx   string
+		healthAlerts string
+		topology     string
+	}
+
+	serviceCtxCh := make(chan string, 1)
+	healthAlertsCh := make(chan string, 1)
+	topologyCh := make(chan string, 1)
+
+	go func() { serviceCtxCh <- a.fetchServiceContext(ctx) }()
+	go func() { healthAlertsCh <- a.fetchHealthAlerts(ctx) }()
+	go func() { topologyCh <- a.fetchTopologyContext(ctx) }()
+
+	res := result{
+		serviceCtx:   <-serviceCtxCh,
+		healthAlerts: <-healthAlertsCh,
+		topology:     <-topologyCh,
+	}
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
 	prompt := "You are an observability assistant for Coral distributed systems.\n"
 	prompt += "Current time: " + now + "\n"
 
-	if healthAlerts != "" {
-		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
+	if res.healthAlerts != "" {
+		prompt += "\nALERTS (last 5m):\n" + res.healthAlerts + "\n"
+	}
+
+	if res.topology != "" {
+		prompt += "\n" + res.topology + "\n"
 	}
 
 	prompt += `
 PARAMETER EXTRACTION RULES:
 1. Service names: Extract exactly as mentioned (e.g., "coral service" → "coral")
-   Available services: ` + serviceCtx + `
+   Available services: ` + res.serviceCtx + `
 2. Time ranges: Convert natural language (e.g., "last hour" → "1h", "30 min" → "30m")
 3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
 4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
@@ -359,6 +381,79 @@ func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
 		return ""
 	}
 	return parseHealthAlerts(textContent.Text)
+}
+
+// fetchTopologyContext calls coral_topology and returns a compact call-graph string
+// for injection into the system prompt (RFD 092).
+// Returns empty string if the topology is unavailable or has no connections.
+func (a *Agent) fetchTopologyContext(ctx context.Context) string {
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "coral_topology"
+	req.Params.Arguments = map[string]interface{}{
+		"since": "1h",
+	}
+
+	result, err := a.mcpClient.CallTool(ctx, req)
+	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch topology: %v\n", err)
+		}
+		return ""
+	}
+
+	if len(result.Content) == 0 {
+		return ""
+	}
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	if !ok || textContent.Text == "" {
+		return ""
+	}
+
+	return formatCompactCallGraph(textContent.Text)
+}
+
+// formatCompactCallGraph converts coral_topology multi-line output into a compact
+// one-line call graph suitable for injection into the system prompt.
+// Input format (one edge per line):
+//
+//	api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)
+//
+// Output format:
+//
+//	Call graph: api-gateway→user-service (HTTP), user-service→postgres (SQL)
+func formatCompactCallGraph(topologyText string) string {
+	var edges []string
+	for _, line := range strings.Split(topologyText, "\n") {
+		line = strings.TrimSpace(line)
+		// Skip header lines and empty lines.
+		if line == "" || strings.HasPrefix(line, "Service call graph") {
+			continue
+		}
+		// Compact "a → b (HTTP, 2341 calls, last: 2s ago)" → "a→b (HTTP)".
+		// Split on " (", take from/to from before the parens and protocol from inside.
+		const arrowSeq = " → "
+		arrow := strings.Index(line, arrowSeq)
+		if arrow < 0 {
+			continue
+		}
+		from := line[:arrow]
+		rest := line[arrow+len(arrowSeq):]
+		paren := strings.Index(rest, " (")
+		if paren < 0 {
+			continue
+		}
+		to := rest[:paren]
+		detail := rest[paren+2:] // skip " ("
+		// Extract just the protocol (first comma-separated word).
+		parts := strings.SplitN(detail, ",", 2)
+		protocol := strings.TrimSuffix(strings.TrimSpace(parts[0]), ")")
+		edges = append(edges, fmt.Sprintf("%s→%s (%s)", from, to, protocol))
+	}
+
+	if len(edges) == 0 {
+		return ""
+	}
+	return "Call graph: " + strings.Join(edges, ", ")
 }
 
 // parseHealthAlerts extracts compact one-liners for degraded/critical services from

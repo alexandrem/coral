@@ -316,6 +316,15 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 	traceID := hex.EncodeToString(otlpSpan.TraceId)
 	spanID := hex.EncodeToString(otlpSpan.SpanId)
 
+	parentSpanID := ""
+	if len(otlpSpan.ParentSpanId) > 0 {
+		parentSpanID = hex.EncodeToString(otlpSpan.ParentSpanId)
+		// If it's all zeros, treat as empty (root span).
+		if parentSpanID == "0000000000000000" {
+			parentSpanID = ""
+		}
+	}
+
 	// Calculate duration in milliseconds.
 	startTime := time.Unix(0, int64(otlpSpan.StartTimeUnixNano))
 	endTime := time.Unix(0, int64(otlpSpan.EndTimeUnixNano))
@@ -354,17 +363,18 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 	spanKind := spanKindToString(otlpSpan.Kind)
 
 	return Span{
-		Timestamp:   startTime,
-		TraceID:     traceID,
-		SpanID:      spanID,
-		ServiceName: serviceName,
-		SpanKind:    spanKind,
-		DurationMs:  durationMs,
-		IsError:     isError,
-		HTTPStatus:  httpStatus,
-		HTTPMethod:  httpMethod,
-		HTTPRoute:   httpRoute,
-		Attributes:  attributes,
+		Timestamp:    startTime,
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		ServiceName:  serviceName,
+		SpanKind:     spanKind,
+		DurationMs:   durationMs,
+		IsError:      isError,
+		HTTPStatus:   httpStatus,
+		HTTPMethod:   httpMethod,
+		HTTPRoute:    httpRoute,
+		Attributes:   attributes,
 	}
 }
 

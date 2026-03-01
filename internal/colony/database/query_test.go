@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ func TestQueryTelemetrySummaries_WildcardAgent(t *testing.T) {
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr})
 	// Setup temporary database.
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", logger)
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -66,7 +67,7 @@ func TestQuerySystemMetricsSummaries_WildcardAgent(t *testing.T) {
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr})
 	// Setup temporary database.
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", logger)
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 

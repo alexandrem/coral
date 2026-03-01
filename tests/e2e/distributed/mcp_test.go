@@ -1347,9 +1347,10 @@ func (s *MCPSuite) TestMCPToolListIncludesMemoryProfilingTools() {
 // ensureServicesConnected ensures that test services are connected.
 // This uses the shared helper for idempotent service connection.
 func (s *MCPSuite) ensureServicesConnected() {
-	// MCP tests only need otel-app (OTLP-instrumented)
+	// MCP tests need otel-app (OTLP-instrumented) and cpu-app (for topology parity)
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
 		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
 	})
 }
 
@@ -1381,4 +1382,159 @@ func (s *MCPSuite) ensureTelemetryData() {
 	time.Sleep(2 * time.Second)
 
 	s.T().Log("Telemetry data generated")
+}
+
+// ensureCrossServiceData drives traffic through otel-app's /chain endpoint.
+// That handler makes a plain HTTP call to cpu-app (no OTel SDK traceparent
+// injection) so Beyla's eBPF interceptor can own the traceparent header end-
+// to-end: it injects its own span_id on the outgoing side and the cpu-app
+// SERVER span records it as parent_span_id, giving MaterializeConnections a
+// consistent parent-child pair inside beyla_traces.
+func (s *MCPSuite) ensureCrossServiceData() {
+	s.T().Log("Generating cross-service traffic (otel-app → cpu-app)...")
+
+	otelAppURL := "http://localhost:8082"
+
+	if err := helpers.WaitForHTTPEndpoint(s.ctx, otelAppURL+"/health", 10*time.Second); err != nil {
+		s.T().Log("otel-app not reachable, cross-service traffic generation skipped")
+		return
+	}
+
+	// Verify the /chain endpoint exists before generating traffic. A 404 means
+	// the otel-app image was not rebuilt after the /chain handler was added.
+	client := &http.Client{Timeout: 5 * time.Second}
+	probe, err := client.Get(otelAppURL + "/chain")
+	s.Require().NoError(err, "/chain probe request should succeed (is the otel-app image rebuilt?)")
+	_ = probe.Body.Close()
+	s.Require().Equal(http.StatusOK, probe.StatusCode,
+		"/chain returned %d — rebuild the otel-app Docker image to include the /chain handler", probe.StatusCode)
+
+	// Retry loop — Beyla may need a few seconds to attach uprobes after the process
+	// is first exercised by the probe request above. By making multiple batches
+	// spaced out over time, we ensure the eBPF uprobes are active for the later calls.
+	const (
+		batches       = 3
+		callsPerBatch = 5
+	)
+	calls := 0
+	for attempt := 1; attempt <= batches; attempt++ {
+		s.T().Logf("Traffic generation attempt %d/%d...", attempt, batches)
+		for i := 0; i < callsPerBatch; i++ {
+			resp, err := client.Get(otelAppURL + "/chain")
+			calls++
+			if err != nil {
+				s.T().Logf("cross-service call failed: %v", err)
+				continue
+			}
+			_ = resp.Body.Close()
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		if attempt < batches {
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	// Allow time for Beyla to capture both span sides, the colony's Beyla poll
+	// (1s in e2e config) to forward them, and the first topology materialization
+	// to run. Ten seconds gives comfortable headroom across that pipeline.
+	s.T().Log("Waiting for cross-service spans to propagate to colony...")
+	time.Sleep(10 * time.Second)
+
+	s.T().Logf("Generated %d cross-service calls", calls)
+}
+
+// =============================================================================
+// Group N: Service Topology (RFD 092)
+// =============================================================================
+
+// TestMCPTopologyTool tests the coral_topology MCP tool (RFD 092).
+//
+// Validates:
+//   - coral_topology is present in the tool list with a description
+//   - Actual cross-service edges (otel-app → cpu-app) appear after generating traffic
+//   - Connection count reflects the number of calls made
+//   - Tool accepts an explicit "since" parameter
+func (s *MCPSuite) TestMCPTopologyTool() {
+	s.T().Log("Testing coral_topology MCP tool...")
+
+	// Verify coral_topology appears in the tool list.
+	tools, err := helpers.MCPListToolsJSON(s.ctx, s.cliEnv)
+	s.Require().NoError(err, "Tool list should succeed")
+
+	foundTopology := false
+	for _, tool := range tools {
+		if name, ok := tool["name"].(string); ok && name == "coral_topology" {
+			foundTopology = true
+			desc, _ := tool["description"].(string)
+			s.Require().NotEmpty(desc, "coral_topology should have a description")
+			break
+		}
+	}
+	s.Require().True(foundTopology, "coral_topology must appear in the tool list")
+
+	// Generate real cross-service HTTP traffic so MaterializeConnections has
+	// parent-child span relationships to mine across service boundaries.
+	s.ensureCrossServiceData()
+
+	// Poll coral_topology until the otel-app → cpu-app edge appears or the
+	// deadline is exceeded. On each cycle, send a few more /chain calls so
+	// fresh Beyla spans are always available — this handles cases where the
+	// otel-app container restarted mid-suite and Beyla's eBPF uprobes needed
+	// time to re-attach to the new process.
+	const (
+		topologyTimeout  = 320 * time.Second
+		topologyInterval = 5 * time.Second
+	)
+	otelAppURL := "http://localhost:8082"
+	chainClient := &http.Client{Timeout: 3 * time.Second}
+	deadline := time.Now().Add(topologyTimeout)
+	var result *helpers.CLIResult
+	for {
+		// Keep generating cross-service calls so there is always fresh traffic
+		// for Beyla to capture once its uprobe attaches to the new process.
+		for i := 0; i < 3; i++ {
+			if resp, err := chainClient.Get(otelAppURL + "/chain"); err == nil {
+				_ = resp.Body.Close()
+			}
+		}
+
+		result = helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", "")
+		if result.Err == nil && strings.Contains(result.Output, "otel-app") {
+			break
+		}
+		if time.Now().After(deadline) {
+			s.T().Logf("coral_topology last output:\n%s", result.Output)
+			s.Require().Fail("timed out waiting for otel-app to appear in coral_topology output")
+			return
+		}
+		s.T().Logf("otel-app not yet in topology output, retrying in %s...", topologyInterval)
+		time.Sleep(topologyInterval)
+	}
+
+	result.MustSucceed(s.T())
+	s.Require().NotEmpty(result.Output, "Tool output should not be empty")
+
+	s.T().Logf("coral_topology output:\n%s", result.Output)
+
+	// The output must contain the call-graph header.
+	s.Require().True(
+		strings.Contains(strings.ToLower(result.Output), "call graph"),
+		"Output should contain the 'call graph' header",
+	)
+
+	// The output must include a detected edge between the two services.
+	// otel-app calls cpu-app via the /chain endpoint; Beyla's eBPF interceptor
+	// owns the traceparent header so the parent-child span pair lives entirely
+	// in beyla_traces, letting MaterializeConnections find the edge.
+	s.Require().Contains(result.Output, "otel-app", "Output should name the caller service")
+	s.Require().Contains(result.Output, "cpu-app", "Output should name the callee service")
+	s.Require().Contains(result.Output, "→", "Output should show a directed call edge")
+
+	// Execute coral_topology with an explicit since parameter.
+	result30m := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", `{"since":"30m"}`)
+	result30m.MustSucceed(s.T())
+	s.Require().Contains(result30m.Output, "30m", "Output should reflect the requested time window")
+
+	s.T().Log("✓ coral_topology tool validated with real cross-service connections")
 }

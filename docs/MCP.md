@@ -360,6 +360,45 @@ Returns:
 
 **See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for complete architecture details
 
+#### `coral_topology`
+
+Get the live service dependency graph derived from observed trace data (RFD 092).
+
+```
+Input:
+  since (optional): Time window for topology derivation (default: "1h")
+                    Examples: "30m", "1h", "24h"
+
+Returns:
+  - All cross-service call relationships observed in the time window
+  - Each edge: source service, target service, protocol (HTTP/gRPC/SQL)
+  - Call count and recency per edge
+```
+
+**Example:**
+```json
+{
+  "since": "1h"
+}
+```
+
+**Sample output:**
+```
+Service call graph (last 1h):
+api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)
+user-service → postgres (SQL, 1823 calls, last: 5s ago)
+worker → queue (gRPC, 234 calls, last: 1m ago)
+```
+
+**When to call:** Before investigating cross-service issues. The `coral ask`
+command automatically injects a compact call graph into the AI system prompt,
+so explicit calls are only needed for on-demand inspection.
+
+**Implementation note:** Topology is derived from `beyla_traces` via a
+parent-span self-join and cached with a 30-second TTL.
+
+**See:** [RFDs/092-service-topology.md](../RFDs/092-service-topology.md) for design details
+
 ### Live Debugging
 
 #### `coral_attach_uprobe`
@@ -741,6 +780,8 @@ Next steps:
   - ✅ `coral_discover_functions` - Unified function discovery with embedded metrics
   - ✅ `coral_profile_functions` - Intelligent batch profiling with bottleneck analysis
 - ✅ Service discovery tools
+  - ✅ `coral_list_services` - Dual-source service discovery
+  - ✅ `coral_topology` - Live service dependency graph (RFD 092)
 - ✅ Claude Desktop integration
 - ✅ CLI commands for testing and config generation
 - ✅ Live debugging tools (uprobe attach/detach, session management)

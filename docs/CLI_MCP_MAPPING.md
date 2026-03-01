@@ -20,7 +20,8 @@ integration.
 | Probe Filter Updates      | `coral_update_probe_filter`                                                     | ✅ Available                       |
 | Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
 | Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
-| Service Discovery         | `coral_list_services`                                                           | ✅ Available                       |
+| Service Discovery         | `coral_list_services`, `coral_topology`                                         | ✅ Available                       |
+| Service Topology          | `coral_topology`                                                                | ✅ Available                       |
 | DuckDB Queries            | ❌ No MCP equivalent                                                             | Use `coral_query_*` tools instead |
 | Setup & Configuration     | ❌ No MCP equivalent                                                             | Local operations only             |
 
@@ -66,6 +67,71 @@ discovery similar to `coral colony service list`. For detailed telemetry analysi
     "arguments": {}
 }
 ```
+
+---
+
+## Service Topology
+
+```bash
+# Live service dependency graph derived from observed traces
+coral query topology [--since <duration>] [--format json]
+
+# Examples:
+coral query topology                  # Call graph for the last hour (default)
+coral query topology --since 30m      # Last 30 minutes
+coral query topology --format json    # Machine-readable output
+```
+
+**MCP Equivalent:** `coral_topology`
+
+**Description:** Returns all cross-service call relationships discovered from
+trace data in the given time window. Call this **before** investigating
+cross-service issues to understand which services depend on each other.
+
+**Note:** Topology is derived from `beyla_traces` via a parent-span self-join
+and is materialized with a 30-second cache. The result reflects actual observed
+traffic, not static configuration.
+
+| CLI Parameter        | MCP Parameter | Example              |
+|----------------------|---------------|----------------------|
+| `--since <duration>` | `since`       | `"1h"`, `"30m"`      |
+
+**Example:**
+
+```json
+{
+    "name": "coral_topology",
+    "arguments": {
+        "since": "1h"
+    }
+}
+```
+
+**Response format (text):**
+
+```
+Service call graph (last 1h):
+api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)
+user-service → postgres (SQL, 1823 calls, last: 5s ago)
+worker → queue (gRPC, 234 calls, last: 1m ago)
+```
+
+**Response format (JSON / `--format json`):**
+
+```json
+{
+    "colony_id": "my-colony",
+    "connections": [
+        { "from": "api-gateway", "to": "user-service", "protocol": "HTTP" },
+        { "from": "user-service", "to": "postgres",    "protocol": "SQL"  },
+        { "from": "worker",       "to": "queue",        "protocol": "GRPC" }
+    ]
+}
+```
+
+**`coral ask` integration:** The topology call graph is automatically injected
+into the AI system prompt (compact form) before each `coral ask` session, so
+the LLM already knows the dependency graph without an explicit tool call.
 
 **Response includes:**
 
@@ -117,6 +183,7 @@ The `coral ask` command is a CLI wrapper that:
 may call:
 
 - `coral_query_summary` - Get service health
+- `coral_topology` - Understand service dependency graph (injected automatically into system prompt)
 - `coral_query_metrics` - Get HTTP/gRPC/SQL metrics
 - `coral_query_traces` - Examine slow traces
 - `coral_get_debug_results` - Check uprobe data if available
@@ -732,6 +799,7 @@ coral exec <service> <command> [args...] [flags]
 | Tool Name             | Description                                                         | Key Parameters                                               |
 |-----------------------|---------------------------------------------------------------------|--------------------------------------------------------------|
 | `coral_list_services` | List all services (dual-source: registry + telemetry <br/>observed) | None (returns all with source/status metadata for filtering) |
+| `coral_topology`      | Live service dependency graph from observed trace data              | `since` (optional, default: `"1h"`)                          |
 
 ### Live Debugging
 
@@ -810,12 +878,13 @@ Instead of multiple specific queries, start with:
 
 **Example workflow for "API is slow":**
 
-1. `coral_query_summary` → Identify degraded services
-2. `coral_query_metrics` → Get latency breakdown
-3. `coral_query_traces` → Find slowest traces
-4. `coral_search_functions` → Find relevant functions
-5. `coral_attach_uprobe` → Attach probes to suspect functions
-6. `coral_get_debug_results` → Analyze function-level data
+1. `coral_topology` → Understand which services the API depends on
+2. `coral_query_summary` → Identify degraded services
+3. `coral_query_metrics` → Get latency breakdown
+4. `coral_query_traces` → Find slowest traces
+5. `coral_search_functions` → Find relevant functions
+6. `coral_attach_uprobe` → Attach probes to suspect functions
+7. `coral_get_debug_results` → Analyze function-level data
 
 ### 3. Leverage Source Annotations
 

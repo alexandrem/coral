@@ -10,18 +10,19 @@ import (
 
 // Span represents a filtered OpenTelemetry span for local storage.
 type Span struct {
-	Timestamp   time.Time
-	TraceID     string
-	SpanID      string
-	ServiceName string
-	SpanKind    string
-	DurationMs  float64
-	IsError     bool
-	HTTPStatus  int
-	HTTPMethod  string
-	HTTPRoute   string
-	Attributes  map[string]string
-	SeqID       uint64 // Sequence ID for checkpoint-based polling (RFD 089).
+	Timestamp    time.Time
+	TraceID      string
+	SpanID       string
+	ServiceName  string
+	SpanKind     string
+	DurationMs   float64
+	IsError      bool
+	HTTPStatus   int
+	HTTPMethod   string
+	HTTPRoute    string
+	Attributes   map[string]string
+	ParentSpanID string
+	SeqID        uint64 // Sequence ID for checkpoint-based polling (RFD 089).
 }
 
 // Bucket represents a 1-minute aggregated telemetry bucket.

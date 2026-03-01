@@ -838,13 +838,14 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 
 	for rows.Next() {
 		var seqID uint64
-		var traceID, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var traceID, spanID, serviceName, spanName, spanKind string
+		var parentSpanIDNull sql.NullString
 		var startTime time.Time
 		var durationUs int64
 		var statusCode int32
 		var attributesJSON string
 
-		err := rows.Scan(&seqID, &traceID, &spanID, &parentSpanID, &serviceName, &spanName,
+		err := rows.Scan(&seqID, &traceID, &spanID, &parentSpanIDNull, &serviceName, &spanName,
 			&spanKind, &startTime, &durationUs, &statusCode, &attributesJSON)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
@@ -852,6 +853,11 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 
 		if seqID > maxSeqID {
 			maxSeqID = seqID
+		}
+
+		parentSpanID := ""
+		if parentSpanIDNull.Valid {
+			parentSpanID = parentSpanIDNull.String
 		}
 
 		var attrs map[string]string
@@ -900,7 +906,8 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
 
 	for rows.Next() {
-		var tid, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var tid, spanID, serviceName, spanName, spanKind string
+		var parentSpanIDNull sql.NullString
 		var startTime time.Time
 		var durationUs int64
 		var statusCode int32
@@ -909,7 +916,7 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 		err := rows.Scan(
 			&tid,
 			&spanID,
-			&parentSpanID,
+			&parentSpanIDNull,
 			&serviceName,
 			&spanName,
 			&spanKind,
@@ -920,6 +927,11 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		parentSpanID := ""
+		if parentSpanIDNull.Valid {
+			parentSpanID = parentSpanIDNull.String
 		}
 
 		var attrs map[string]string

@@ -3,6 +3,11 @@ package mcp
 // Input types for MCP tools.
 // Optional fields use pointers to allow nil values.
 
+// TopologyInput is the input for coral_topology (RFD 092).
+type TopologyInput struct {
+	Since *string `json:"since,omitempty" jsonschema:"description=Time window for topology derivation (e.g. '1h' '30m' '24h'\\, default: 1h)"`
+}
+
 // ServiceHealthInput is the input for coral_get_service_health.
 type ServiceHealthInput struct {
 	ServiceFilter *string `json:"service_filter,omitempty" jsonschema:"description=Optional: Filter by service name pattern (e.g. 'api*' 'payment*')"`
