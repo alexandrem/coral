@@ -140,6 +140,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	colonySvc.SetMeshInfoProvider(func() map[string]interface{} {
 		return colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
 	})
+	colonySvc.SetWGStatsProvider(func() (*wireguard.DeviceStats, []*wireguard.PeerConfig) {
+		stats, err := wgDevice.GetStats()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to get WireGuard stats for audit")
+			return nil, wgDevice.ListPeers()
+		}
+		return stats, wgDevice.ListPeers()
+	})
 
 	// Load colony config early (needed by function registry, MCP, and other components).
 	mcpLoader, mcpErr := config.NewLoader()

@@ -60,6 +60,10 @@ service ColonyService {
   // Troubleshoot the WireGuard-based control mesh (RFD 097).
   // Colony pings agents through the mesh and returns statistics.
   rpc MeshPing(MeshPingRequest) returns (MeshPingResponse);
+
+  // Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
+  // against agent-announced STUN endpoints at registration.
+  rpc MeshAudit(MeshAuditRequest) returns (MeshAuditResponse);
 }
 
 message GetStatusRequest {}
@@ -275,4 +279,44 @@ message MeshPingResponse {
   }
 
   repeated AgentPingResult results = 1;
+}
+
+message MeshAuditRequest {
+  // Target agent ID. If empty, audits all connected agents.
+  string agent_id = 1;
+}
+
+message MeshAuditResponse {
+  repeated MeshAuditAgentResult results = 1;
+}
+
+message MeshAuditAgentResult {
+  // Agent identifier.
+  string agent_id = 1;
+
+  // Agent's mesh IP.
+  string mesh_ip = 2;
+
+  // Endpoint Colony's WireGuard currently observes (live UAPI).
+  // Empty if no packets received yet.
+  string colony_observed_endpoint = 3;
+
+  // Endpoint the agent announced at registration (STUN-discovered).
+  // Empty if agent registered without STUN (roaming mode).
+  string agent_registered_endpoint = 4;
+
+  // NAT assessment: "direct", "symmetric", "roaming", "no_handshake", "unexpected", "error".
+  string nat_type = 5;
+
+  // Seconds since last WireGuard handshake. -1 if no handshake ever.
+  int64 handshake_age_seconds = 6;
+
+  // Bytes received by Colony from this agent.
+  int64 rx_bytes = 7;
+
+  // Bytes sent by Colony to this agent.
+  int64 tx_bytes = 8;
+
+  // Error message if this agent could not be assessed.
+  string error = 9;
 }

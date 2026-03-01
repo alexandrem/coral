@@ -15,6 +15,7 @@ Verify user-space cryptography and routing independently of kernel ICMP filterin
 	}
 
 	cmd.AddCommand(newPingCmd())
+	cmd.AddCommand(newAuditCmd())
 
 	return cmd
 }

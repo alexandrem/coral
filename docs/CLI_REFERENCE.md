@@ -103,6 +103,46 @@ coral agent stop
 
 ---
 
+## Mesh Diagnostics
+
+```bash
+# Verify end-to-end mesh connectivity (encrypted UDP ping via Colony)
+coral mesh ping [agent-id] [--count <n>] [--timeout <duration>] [--colony <id>]
+
+# Audit NAT topology: compare Colony's live observations vs agent STUN endpoints
+coral mesh audit [agent-id] [--format <format>] [--colony <id>]
+```
+
+**`coral mesh ping`** sends encrypted UDP pings from the Colony to one or all
+agents through the WireGuard mesh and reports round-trip latency and packet
+loss. No ICMP or OS-level tools required.
+
+**`coral mesh audit`** cross-references two data sources to classify each
+agent's NAT situation without any external tooling:
+
+| NAT Type | Meaning |
+|---|---|
+| `direct` | Cone NAT or public IP — port preserved, stable |
+| `symmetric` | Port differs per destination — WireGuard roaming handles it, no action usually needed |
+| `roaming` | No STUN at registration — Colony learns endpoint from incoming packets only |
+| `no_handshake` | Agent never successfully sent a packet through the mesh |
+| `unexpected` | Different observed IP — possible double NAT or carrier-grade NAT |
+
+```bash
+# Examples
+coral mesh ping                          # Ping all agents
+coral mesh ping prod-agent-01 -n 10      # 10 pings to one agent
+coral mesh audit                         # Audit all agents
+coral mesh audit prod-agent-01           # Audit one agent
+coral mesh audit -o json                 # JSON output for scripting
+coral mesh audit -o json | jq '.[] | select(.nat_type == "symmetric")'
+```
+
+See **[WIREGUARD_TROUBLESHOOTING.md](WIREGUARD_TROUBLESHOOTING.md)** for
+detailed interpretation of results and remediation steps.
+
+---
+
 ## Service Connections
 
 ```bash
