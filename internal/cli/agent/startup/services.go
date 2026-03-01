@@ -670,6 +670,16 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 		wgInfo["peers"] = peerInfos
 		wgInfo["peer_count"] = len(peers)
 
+		// Expose STUN-discovered public endpoints so they appear in GetRuntimeContext().wireguard.endpoints.
+		// MapToMeshTelemetryProto reads wgInfo["endpoints"] as []string.
+		if s.colonyInfo != nil && len(s.colonyInfo.ObservedEndpoints) > 0 {
+			endpoints := make([]string, 0, len(s.colonyInfo.ObservedEndpoints))
+			for _, ep := range s.colonyInfo.ObservedEndpoints {
+				endpoints = append(endpoints, net.JoinHostPort(ep.IP, fmt.Sprintf("%d", ep.Port)))
+			}
+			wgInfo["endpoints"] = endpoints
+		}
+
 		info["status"] = wgInfo
 	}
 

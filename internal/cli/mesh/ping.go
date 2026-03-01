@@ -3,6 +3,9 @@ package mesh
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -120,4 +123,164 @@ func truncate(s string, l int) string {
 		return s[:l-3] + "..."
 	}
 	return s
+}
+
+func newAuditCmd() *cobra.Command {
+	var (
+		colonyID string
+		format   string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "audit [agent-id]",
+		Short: "Audit the mesh topology to detect NAT issues",
+		Long: `Compare Colony's live WireGuard observations against agent-announced STUN endpoints.
+
+Detects:
+  - SYMMETRIC NAT: port seen by Colony differs from agent's STUN-reported port
+  - ROAMING mode: agent registered without STUN endpoint discovery
+  - Stale connections: no handshake for an extended period
+
+Example:
+  coral mesh audit
+  coral mesh audit prod-agent-01
+  coral mesh audit --format json`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var agentID string
+			if len(args) > 0 {
+				agentID = args[0]
+			}
+			ctx := cmd.Context()
+
+			resolver, err := config.NewResolver()
+			if err != nil {
+				return fmt.Errorf("failed to create config resolver: %w", err)
+			}
+			if colonyID == "" {
+				colonyID, err = resolver.ResolveColonyID()
+				if err != nil {
+					return fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
+				}
+			}
+
+			client, _, err := helpers.GetColonyClientWithFallback(ctx, colonyID)
+			if err != nil {
+				return fmt.Errorf("failed to connect to colony: %w", err)
+			}
+
+			resp, err := client.MeshAudit(ctx, connect.NewRequest(&colonyv1.MeshAuditRequest{
+				AgentId: agentID,
+			}))
+			if err != nil {
+				return fmt.Errorf("mesh audit failed: %w", err)
+			}
+
+			if format != string(helpers.FormatTable) {
+				formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
+				if err != nil {
+					return err
+				}
+				return formatter.Format(resp.Msg.Results, os.Stdout)
+			}
+
+			printAuditResults(resp.Msg.Results)
+			return nil
+		},
+	}
+
+	helpers.AddColonyFlag(cmd, &colonyID)
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+	})
+	return cmd
+}
+
+func printAuditResults(results []*colonyv1.MeshAuditAgentResult) {
+	if len(results) == 0 {
+		fmt.Println("No agents connected to the colony.")
+		return
+	}
+
+	fmt.Printf("MESH AUDIT (%d agents)\n\n", len(results))
+	fmt.Printf("%-24s %-14s %-23s %-23s %-12s %-12s %s\n",
+		"AGENT", "MESH IP", "COLONY OBSERVES", "AGENT REGISTERED", "NAT TYPE", "HANDSHAKE", "LINK")
+	fmt.Println(strings.Repeat("-", 115))
+
+	var warnings []string
+	for _, r := range results {
+		observed := r.ColonyObservedEndpoint
+		if observed == "" {
+			observed = "(no packets)"
+		}
+		registered := r.AgentRegisteredEndpoint
+		if registered == "" {
+			registered = "(roaming)"
+		}
+		hsAge := "never"
+		if r.HandshakeAgeSeconds >= 0 {
+			hsAge = formatAge(r.HandshakeAgeSeconds)
+		}
+		natDisplay := r.NatType
+		if r.NatType == "symmetric" {
+			natDisplay = "SYMMETRIC !"
+		}
+		link := formatBytes(r.TxBytes) + "up " + formatBytes(r.RxBytes) + "dn"
+		if r.Error != "" {
+			link = r.Error
+		}
+
+		fmt.Printf("%-24s %-14s %-23s %-23s %-12s %-12s %s\n",
+			truncate(r.AgentId, 24),
+			r.MeshIp,
+			truncate(observed, 23),
+			truncate(registered, 23),
+			natDisplay,
+			hsAge,
+			link,
+		)
+
+		if r.NatType == "symmetric" {
+			warnings = append(warnings, fmt.Sprintf(
+				"! %s: SYMMETRIC NAT -- Colony sees port %s but agent's STUN reported %s.\n  WireGuard roaming handles this while traffic flows, but silence >180s may require agent restart.",
+				r.AgentId, portOf(r.ColonyObservedEndpoint), portOf(r.AgentRegisteredEndpoint),
+			))
+		}
+	}
+
+	if len(warnings) > 0 {
+		fmt.Println()
+		for _, w := range warnings {
+			fmt.Println(w)
+		}
+	}
+}
+
+func formatAge(seconds int64) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%ds ago", seconds)
+	}
+	return fmt.Sprintf("%dm%ds ago", seconds/60, seconds%60)
+}
+
+func formatBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1fGB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1fMB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1fKB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", b)
+	}
+}
+
+func portOf(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return port
 }

@@ -28,6 +28,10 @@ import (
 // MeshInfoProvider is a callback that fetches live WireGuard/mesh statistics.
 type MeshInfoProvider func() map[string]interface{}
 
+// WGStatsProvider returns the WireGuard device's live peer stats and configured peer list.
+// Returns (nil, nil) if the device is not available.
+type WGStatsProvider func() (*wireguard.DeviceStats, []*wireguard.PeerConfig)
+
 // Config contains configuration for the colony server.
 type Config struct {
 	ColonyID           string
@@ -55,6 +59,7 @@ type Server struct {
 	startTime        time.Time
 	logger           zerolog.Logger
 	meshInfoProvider MeshInfoProvider
+	wgStatsProvider  WGStatsProvider
 }
 
 // New creates a new colony server.
@@ -72,6 +77,11 @@ func New(reg *registry.Registry, db *database.Database, caManager *ca.Manager, c
 // SetMeshInfoProvider sets the callback used for providing mesh metrics dynamically.
 func (s *Server) SetMeshInfoProvider(provider MeshInfoProvider) {
 	s.meshInfoProvider = provider
+}
+
+// SetWGStatsProvider sets the callback for accessing WireGuard device stats and peer configs.
+func (s *Server) SetWGStatsProvider(provider WGStatsProvider) {
+	s.wgStatsProvider = provider
 }
 
 // SetEbpfService sets the eBPF query service instance.
