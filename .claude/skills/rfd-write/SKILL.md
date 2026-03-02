@@ -2,6 +2,7 @@
 name: rfd-write
 description: Draft a new RFD for the Coral project. Use when the user asks to write, create, or draft an RFD.
 argument-hint: <rfd-number> <title>
+user-invocable: true
 ---
 
 Draft a new RFD following the Coral template and conventions.
