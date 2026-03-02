@@ -303,11 +303,3 @@ func truncSidebar(s string, n int) string {
 	}
 	return string(runes[:n-1]) + "…"
 }
-
-// maxInt returns the larger of two ints.
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

@@ -64,7 +64,7 @@ func TestTerminalModel_WindowSizeDoesNotPanic(t *testing.T) {
 	model := newTestModel(t)
 
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	assert.NotPanics(t, func() { _ = updated.(tea.Model).View() })
+	assert.NotPanics(t, func() { _ = updated.View() })
 }
 
 func TestTerminalModel_KeyForwardedToMainWhenFocused(t *testing.T) {
@@ -83,5 +83,5 @@ func TestTerminalModel_ViewRendersWithoutPanic(t *testing.T) {
 	// Simulate an initial window size.
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	assert.NotPanics(t, func() { _ = model.(tea.Model).View() })
+	assert.NotPanics(t, func() { _ = model.View() })
 }

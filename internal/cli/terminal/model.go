@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -263,18 +262,4 @@ func openBrowserCmd(url string) tea.Cmd {
 		_ = openURL(url) // best-effort; ignores errors.
 		return nil
 	}
-}
-
-// contextKey is unexported to avoid collisions in context values.
-type contextKey struct{}
-
-// withColonyID attaches a colony ID to a context (used internally).
-func withColonyID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, contextKey{}, id)
-}
-
-// colonyIDFromCtx retrieves the colony ID from a context.
-func colonyIDFromCtx(ctx context.Context) string {
-	v, _ := ctx.Value(contextKey{}).(string)
-	return v
 }

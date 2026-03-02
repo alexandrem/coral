@@ -176,7 +176,7 @@ func pushRenderEvent(buf *bytes.Buffer, skillName string) {
 
 	srv.Push(terminal.RenderEvent{
 		ID:        uuid.New().String(),
-		Ts:        time.Now().UnixMilli(),
+		TS:        time.Now().UnixMilli(),
 		SkillName: skillName,
 		Spec:      *result.Render,
 	})

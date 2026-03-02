@@ -59,7 +59,7 @@ func TestServer_Push_BroadcastsToClients(t *testing.T) {
 
 	event := terminal.RenderEvent{
 		ID:        "test-id",
-		Ts:        time.Now().UnixMilli(),
+		TS:        time.Now().UnixMilli(),
 		SkillName: "test-skill",
 		Spec:      terminal.RenderSpec{Type: "table", Title: "Test Table"},
 	}
@@ -92,7 +92,7 @@ func TestServer_Push_DisconnectedClientDoesNotPanic(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 
 	assert.NotPanics(t, func() {
-		srv.Push(terminal.RenderEvent{ID: "x", Ts: 1, Spec: terminal.RenderSpec{Type: "bar"}})
+		srv.Push(terminal.RenderEvent{ID: "x", TS: 1, Spec: terminal.RenderSpec{Type: "bar"}})
 	})
 }
 

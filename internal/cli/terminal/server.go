@@ -34,8 +34,8 @@ type RenderSpec struct {
 type RenderEvent struct {
 	// ID is a stable UUID per skill run.
 	ID string `json:"id"`
-	// Ts is the event timestamp in Unix milliseconds.
-	Ts int64 `json:"ts"`
+	// TS is the event timestamp in Unix milliseconds.
+	TS int64 `json:"ts"`
 	// SkillName is populated from the executor context when available.
 	SkillName string `json:"skillName,omitempty"`
 	// Spec is forwarded verbatim from SkillResult.render.
@@ -145,7 +145,7 @@ func (s *Server) Push(event RenderEvent) {
 		case ch <- data:
 		default:
 			// Client is too slow; close and remove it.
-			conn.Close()
+			_ = conn.Close()
 			delete(s.clients, conn)
 		}
 	}
@@ -186,7 +186,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Write loop: send buffered messages to this client.
 	go func() {
 		defer func() {
-			conn.Close()
+			_ = conn.Close()
 			s.mu.Lock()
 			delete(s.clients, conn)
 			s.mu.Unlock()
