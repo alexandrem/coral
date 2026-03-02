@@ -188,9 +188,9 @@ func openURL(url string) error {
 	}
 	var c *exec.Cmd
 	if runtime.GOOS == "windows" {
-		c = exec.Command(cmd, "/c", "start", url) //nolint:gosec
+		c = exec.Command(cmd, "/c", "start", url) // #nosec G204
 	} else {
-		c = exec.Command(cmd, url) //nolint:gosec
+		c = exec.Command(cmd, url) // #nosec G204
 	}
 	return c.Start()
 }
