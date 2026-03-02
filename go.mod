@@ -15,10 +15,10 @@ require (
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/pprof v0.0.0-20260202012954-cb029daf43ef
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/invopop/jsonschema v0.13.0
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
-	github.com/gorilla/websocket v1.5.3
 	github.com/mark3labs/mcp-go v0.29.0
 	github.com/openai/openai-go v1.12.0
 	github.com/pion/stun v0.6.1
