@@ -289,6 +289,28 @@ func (f *ComposeFixture) ReloadColonyConfig(ctx context.Context) error {
 	return nil
 }
 
+// CreateToken creates an API token by running the colony binary inside the
+// container and reloading the token store via SIGHUP. It returns the raw
+// token string. Using --recreate makes the operation idempotent across runs.
+func (f *ComposeFixture) CreateToken(ctx context.Context, tokenID, permissions string) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1",
+		colonyBinary, "token", "create", tokenID, "--permissions", permissions, "--recreate")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to create token %q: %w\nOutput: %s", tokenID, err, string(output))
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.HasPrefix(line, "Token: ") {
+			token := strings.TrimPrefix(line, "Token: ")
+			if err := f.ReloadColonyConfig(ctx); err != nil {
+				return "", fmt.Errorf("failed to reload colony config after creating token %q: %w", tokenID, err)
+			}
+			return token, nil
+		}
+	}
+	return "", fmt.Errorf("no token found in output: %s", string(output))
+}
+
 // CreateDotEnvFile creates a .env file with the environment variables needed for the CLI
 // to talk to the colony endpoint hosted in the container.
 func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
@@ -327,21 +349,13 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 		}
 	}
 
-	// Create an admin API token for the CLI
-	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", colonyBinary,
-		"token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
-	tokenOutput, err := tokenCmd.CombinedOutput()
+	// Create an admin API token inside the container so it is written to the
+	// colony's own tokens.yaml without overwriting other tokens.
+	token, err := f.CreateToken(ctx, "e2e-cli-admin", "admin")
 	if err != nil {
-		return fmt.Errorf("failed to run token create in container: %w\nOutput: %s", err, string(tokenOutput))
+		return fmt.Errorf("failed to create admin token: %w", err)
 	}
-	lines = strings.Split(string(tokenOutput), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "Token: ") {
-			token := strings.TrimPrefix(line, "Token: ")
-			envLines = append(envLines, fmt.Sprintf("export CORAL_API_TOKEN=\"%s\"", token))
-			break
-		}
-	}
+	envLines = append(envLines, fmt.Sprintf("export CORAL_API_TOKEN=\"%s\"", token))
 
 	// Add public endpoint (HTTPS) for convenience
 	envLines = append(envLines, "export CORAL_COLONY_ENDPOINT=\"https://localhost:8443\"")
@@ -349,14 +363,8 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 
 	// Write to .env file in the current directory
 	dotEnvPath := ".env"
-	err = os.WriteFile(dotEnvPath, []byte(strings.Join(envLines, "\n")+"\n"), 0644)
-	if err != nil {
+	if err := os.WriteFile(dotEnvPath, []byte(strings.Join(envLines, "\n")+"\n"), 0644); err != nil {
 		return fmt.Errorf("failed to write .env file: %w", err)
-	}
-
-	// Signal colony to reload tokens from disk (SIGHUP).
-	if err := f.ReloadColonyConfig(ctx); err != nil {
-		return fmt.Errorf("failed to reload colony config: %w", err)
 	}
 
 	return nil

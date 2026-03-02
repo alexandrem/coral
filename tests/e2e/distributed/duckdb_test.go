@@ -1,9 +1,6 @@
 package distributed
 
 import (
-	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -20,42 +17,14 @@ type DuckDBSuite struct {
 func (s *DuckDBSuite) SetupSuite() {
 	s.E2EDistributedSuite.SetupSuite()
 
-	// Use local endpoint to create the initial token.
-	localEndpoint := "http://localhost:9000"
 	colonyID := s.fixture.ColonyID
 
-	// Create a temporary CLI env for token creation.
-	tempCliEnv, err := helpers.SetupCLIEnv(s.ctx, colonyID, localEndpoint)
-	s.Require().NoError(err, "Failed to setup temp CLI environment for token creation")
-	defer tempCliEnv.Cleanup()
+	// Create an admin token inside the container so it is added to the colony's
+	// tokens.yaml without overwriting tokens created by other suites.
+	token, err := s.fixture.CreateToken(s.ctx, "duckdb-test", "admin")
+	s.Require().NoError(err, "Failed to create duckdb test token")
 
-	// Create an admin token.
-	result := helpers.ColonyTokenCreate(s.ctx, tempCliEnv.EnvVars(), "duckdb-test", "admin")
-	result.MustSucceed(s.T())
-
-	// Extract token.
-	var token string
-	for _, line := range strings.Split(result.Output, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Token: ") {
-			token = strings.TrimPrefix(line, "Token: ")
-			break
-		}
-	}
-	s.Require().NotEmpty(token, "Failed to extract token from output")
-
-	// Copy tokens.yaml to the colony container.
-	tokensPath := filepath.Join(tempCliEnv.ColonyPath(colonyID), "tokens.yaml")
-	destPath := fmt.Sprintf("coral-e2e-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
-	cmd := exec.Command("docker", "cp", tokensPath, destPath)
-	err = cmd.Run()
-	s.Require().NoError(err, "Failed to copy tokens.yaml to colony container")
-
-	// Reload colony config so it picks up the new token.
-	err = s.fixture.ReloadColonyConfig(s.ctx)
-	s.Require().NoError(err, "Failed to reload colony config")
-
-	// Now setup the permanent CLI environment with public HTTPS endpoint.
+	// Setup the CLI environment with public HTTPS endpoint.
 	colonyEndpoint := "https://localhost:8443"
 	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
