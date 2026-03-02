@@ -2,6 +2,7 @@
 name: rfd-implement
 description: Implement an approved RFD. Use when the user asks to implement an RFD by number.
 argument-hint: <rfd-number>
+user-invocable: true
 ---
 
 Implement an RFD, keeping the document in sync with progress as you work.

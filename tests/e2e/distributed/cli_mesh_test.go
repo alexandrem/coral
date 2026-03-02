@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -83,23 +82,11 @@ func (s *CLIMeshSuite) setupDiscoveryCA(colonyID string) {
 	}
 	s.T().Logf("Colony CA fingerprint: %s", s.caFingerprint)
 
-	// Create a test token for authentication.
-	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), "cli-mesh-ca-test-token", "admin")
-	if result.HasError() {
-		s.T().Logf("Warning: Failed to create test token (CA tests will be skipped): %v", result.Err)
-		return
-	}
-
-	// Extract token from CLI output.
-	for _, line := range strings.Split(result.Output, "\n") {
-		if strings.HasPrefix(line, "Token: ") {
-			s.testToken = strings.TrimPrefix(line, "Token: ")
-			break
-		}
-	}
-
-	if s.testToken != "" {
-		s.copyTokensToColony(colonyID)
+	// Create a test token inside the container so it is added to the colony's
+	// tokens.yaml without overwriting tokens created by other suites.
+	s.testToken, err = s.fixture.CreateToken(s.ctx, "cli-mesh-ca-test-token", "admin")
+	if err != nil {
+		s.T().Logf("Warning: Failed to create test token (CA tests will be skipped): %v", err)
 	}
 }
 
@@ -133,21 +120,6 @@ func (s *CLIMeshSuite) getColonyCAFingerprint(colonyID string) (string, []byte, 
 	fingerprint := "sha256:" + hex.EncodeToString(hash[:])
 
 	return fingerprint, caCertPEM, nil
-}
-
-// copyTokensToColony copies the tokens file to the colony container.
-func (s *CLIMeshSuite) copyTokensToColony(colonyID string) {
-	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
-	destPath := fmt.Sprintf("coral-e2e-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
-
-	cmd := exec.Command("docker", "cp", tokensPath, destPath)
-	if err := cmd.Run(); err != nil {
-		s.T().Logf("Warning: Failed to copy tokens: %v", err)
-	}
-
-	// Restart colony to reload tokens.
-	_ = s.fixture.RestartService(s.ctx, "colony")
-	_ = helpers.WaitForHTTPEndpoint(s.ctx, s.publicEndpoint+"/status", 30*time.Second)
 }
 
 // TearDownSuite cleans up after all tests.
