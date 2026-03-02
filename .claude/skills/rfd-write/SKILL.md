@@ -45,3 +45,26 @@ If the requested scope is too large, pause and propose a split before writing.
 - Use Future Work for anything out of scope — with explicit RFD references where
   possible.
 - Follow all ❌ DO NOT rules from the template's Content Guidelines section.
+
+## Docs Impact Check
+
+Before finalising the Implementation Plan, assess whether the RFD's surface area
+touches any user-facing docs. Add doc-update tasks to the **last phase** for
+every file that will need updating:
+
+| Surface area | Docs to update |
+|---|---|
+| New or changed CLI commands / flags | `docs/CLI.md`, `docs/CLI_REFERENCE.md` |
+| New or changed MCP tools | `docs/MCP.md`, `docs/CLI_MCP_MAPPING.md` |
+| New or changed config keys | `docs/CONFIG.md` |
+| New or changed agent behaviour | `docs/AGENT.md` |
+| New or changed colony/server behaviour | `docs/COLONY.md` |
+| New or changed service-discovery behaviour | `docs/SERVICE_DISCOVERY.md`, `docs/DISCOVERY.md` |
+| New or changed storage/DuckDB behaviour | `docs/STORAGE.md` |
+| New or changed provider support | `docs/PROVIDERS.md` |
+| New or changed SDK/scripting API | `docs/SDK_REFERENCE.md` |
+| New or changed installation/setup steps | `docs/INSTALLATION.md` |
+| New or changed security model | `docs/SECURITY.md` |
+
+Only include tasks for docs that actually apply — do not add spurious doc tasks
+for unrelated files.
