@@ -2,8 +2,11 @@
 package run
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -11,8 +14,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/coral-mesh/coral/internal/config"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/coral-mesh/coral/internal/cli/terminal"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // NewRunCmd creates the 'run' command.
@@ -108,9 +114,13 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	//nolint:gosec // denoPath is from trusted findDeno(), not user input
 	denoCmd := exec.CommandContext(ctx, denoPath, args...)
 
-	// Pass through stdin/stdout/stderr
+	// Capture stdout while still relaying it to the terminal.
+	// io.MultiWriter fans out writes to both os.Stdout and a capture buffer.
+	// This allows the render bridge to inspect the output for a SkillResult.render
+	// field without breaking the existing real-time output behaviour.
+	var stdoutBuf bytes.Buffer
 	denoCmd.Stdin = os.Stdin
-	denoCmd.Stdout = os.Stdout
+	denoCmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 	denoCmd.Stderr = os.Stderr
 
 	// Set environment variables
@@ -120,10 +130,67 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	)
 
 	// Execute
-	if err := denoCmd.Run(); err != nil {
-		return fmt.Errorf("script execution failed: %w", err)
+	runErr := denoCmd.Run()
+
+	// Push render event to the browser dashboard if coral terminal is running.
+	// This is a best-effort operation: errors are silently ignored so they don't
+	// affect the exit code of coral run.
+	pushRenderEvent(&stdoutBuf, filepath.Base(scriptPath))
+
+	if runErr != nil {
+		return fmt.Errorf("script execution failed: %w", runErr)
 	}
 
+	return nil
+}
+
+// skillResultRender is used to extract the render field from stdout JSON.
+type skillResultRender struct {
+	Render *terminal.RenderSpec `json:"render"`
+}
+
+// pushRenderEvent scans captured stdout for a SkillResult.render field and
+// pushes a RenderEvent to the active terminal server. No-op when the server
+// is nil (coral terminal is not running).
+func pushRenderEvent(buf *bytes.Buffer, skillName string) {
+	srv := terminal.GetActiveServer()
+	if srv == nil {
+		return
+	}
+
+	data := buf.Bytes()
+	if len(data) == 0 {
+		return
+	}
+
+	// Find the last JSON object in the output.
+	line := lastJSONLine(data)
+	if len(line) == 0 {
+		return
+	}
+
+	var result skillResultRender
+	if err := json.Unmarshal(line, &result); err != nil || result.Render == nil {
+		return
+	}
+
+	srv.Push(terminal.RenderEvent{
+		ID:        uuid.New().String(),
+		Ts:        time.Now().UnixMilli(),
+		SkillName: skillName,
+		Spec:      *result.Render,
+	})
+}
+
+// lastJSONLine scans data for the last line that looks like a JSON object.
+func lastJSONLine(data []byte) []byte {
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) > 0 && line[0] == '{' {
+			return line
+		}
+	}
 	return nil
 }
 

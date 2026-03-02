@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coral Dashboard</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-monospace,'Cascadia Code','Fira Mono',monospace;background:#0d1117;color:#e6edf3;font-size:13px;line-height:1.5}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#161b22;border-bottom:1px solid #30363d}
+  header h1{font-size:14px;font-weight:600;letter-spacing:.02em}
+  #status{font-size:11px;padding:2px 8px;border-radius:10px;background:#21262d;color:#7d8590}
+  #status.live{background:#1a2e1a;color:#3fb950}
+  #panels{padding:16px;display:flex;flex-direction:column;gap:12px}
+  .panel{background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden}
+  .panel-header{padding:8px 12px;background:#21262d;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center}
+  .panel-title{font-weight:600;font-size:12px;color:#e6edf3}
+  .panel-meta{font-size:11px;color:#7d8590}
+  .panel-body{padding:12px}
+  /* Table renderer */
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;padding:4px 8px;color:#7d8590;font-weight:500;border-bottom:1px solid #30363d;cursor:pointer;user-select:none}
+  th:hover{color:#e6edf3}
+  td{padding:4px 8px;border-bottom:1px solid #21262d}
+  tr:last-child td{border-bottom:none}
+  .status-healthy{color:#3fb950}
+  .status-warning{color:#d29922}
+  .status-critical{color:#f85149}
+  .status-unknown{color:#7d8590}
+  /* Bar renderer */
+  .bar-chart{display:flex;flex-direction:column;gap:6px}
+  .bar-row{display:flex;align-items:center;gap:8px}
+  .bar-label{width:140px;text-align:right;color:#7d8590;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-track{flex:1;background:#21262d;border-radius:2px;height:14px;position:relative}
+  .bar-fill{height:100%;background:#1f6feb;border-radius:2px;transition:width .3s}
+  .bar-fill.over-threshold{background:#f85149}
+  .bar-value{width:60px;font-size:11px;color:#7d8590}
+  .threshold-line{position:absolute;top:0;bottom:0;width:1px;background:#d29922;opacity:.7}
+  /* Timeseries renderer */
+  .timeseries-svg{width:100%;overflow:visible}
+  .ts-axis{stroke:#30363d;stroke-width:1}
+  .ts-line{fill:none;stroke-width:1.5}
+  .ts-label{font-size:10px;fill:#7d8590}
+  .ts-legend{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap}
+  .ts-legend-item{display:flex;align-items:center;gap:4px;font-size:11px;color:#7d8590}
+  .ts-legend-dot{width:10px;height:10px;border-radius:50%}
+  /* JSON fallback */
+  .json-block{font-size:11px;color:#7d8590;white-space:pre-wrap;overflow-x:auto;max-height:300px}
+  .empty{padding:40px 16px;text-align:center;color:#7d8590;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Coral Dashboard</h1>
+  <span id="status">disconnected</span>
+</header>
+<div id="panels"><div class="empty">Waiting for skill results…</div></div>
+<script>
+const COLORS=['#1f6feb','#3fb950','#d29922','#f85149','#a371f7','#79c0ff','#56d364','#ffa657'];
+let sortState={};
+
+function getPort(){
+  const p=new URLSearchParams(location.search).get('port');
+  return p||location.port||'8080';
+}
+
+function connect(){
+  const ws=new WebSocket(`ws://localhost:${getPort()}/ws`);
+  const statusEl=document.getElementById('status');
+
+  ws.onopen=()=>{
+    statusEl.textContent='live';
+    statusEl.className='live';
+  };
+  ws.onclose=()=>{
+    statusEl.textContent='reconnecting…';
+    statusEl.className='';
+    setTimeout(connect,2000);
+  };
+  ws.onerror=()=>ws.close();
+  ws.onmessage=e=>{
+    try{addPanel(JSON.parse(e.data));}catch(_){}
+  };
+}
+
+function addPanel(event){
+  const panels=document.getElementById('panels');
+  // Remove placeholder.
+  const empty=panels.querySelector('.empty');
+  if(empty)empty.remove();
+
+  const ts=new Date(event.ts).toLocaleTimeString();
+  const title=event.spec.title||(event.skillName||event.spec.type);
+
+  const panel=document.createElement('div');
+  panel.className='panel';
+  panel.innerHTML=`
+    <div class="panel-header">
+      <span class="panel-title">${esc(title)}</span>
+      <span class="panel-meta">${esc(ts)}</span>
+    </div>
+    <div class="panel-body">${renderSpec(event.spec,event.id)}</div>`;
+  panels.insertBefore(panel,panels.firstChild);
+}
+
+function renderSpec(spec,id){
+  switch(spec.type){
+    case 'table': return renderTable(spec.payload,id);
+    case 'bar':   return renderBar(spec.payload);
+    case 'timeseries': return renderTimeseries(spec.payload);
+    default: return `<pre class="json-block">${esc(JSON.stringify(spec,null,2))}</pre>`;
+  }
+}
+
+/* ── Table ── */
+function renderTable(p,id){
+  if(!p||!p.columns||!p.rows)return '<em>Invalid table payload</em>';
+  const key=`tbl_${id}`;
+  sortState[key]=sortState[key]||{col:-1,asc:true};
+  let rows=[...p.rows];
+  const st=sortState[key];
+  if(st.col>=0){
+    rows.sort((a,b)=>{
+      const va=a[st.col],vb=b[st.col];
+      if(va<vb)return st.asc?-1:1;
+      if(va>vb)return st.asc?1:-1;
+      return 0;
+    });
+  }
+  const head=p.columns.map((c,i)=>{
+    const arrow=st.col===i?(st.asc?'↑':'↓'):'';
+    return `<th onclick="sortTable('${key}',${i},${p.statusColumn??-1})">${esc(c)} ${arrow}</th>`;
+  }).join('');
+  const body=rows.map(r=>{
+    const cells=r.map((v,i)=>{
+      let cls='';
+      if(i===p.statusColumn){
+        cls=`status-${String(v).toLowerCase()}`;
+      }
+      return `<td class="${cls}">${esc(String(v))}</td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+window.sortTable=function(key,col,scol){
+  const st=sortState[key];
+  if(st.col===col)st.asc=!st.asc;
+  else{st.col=col;st.asc=true;}
+  // Re-render all panels — simplest approach for a dashboard.
+  document.querySelectorAll('.panel').forEach(el=>{
+    const b=el.querySelector('.panel-body');
+    if(b&&b.dataset.id===key.replace('tbl_',''))return;
+  });
+  location.reload();
+};
+
+/* ── Bar ── */
+function renderBar(p){
+  if(!p||!p.labels||!p.values)return '<em>Invalid bar payload</em>';
+  const max=Math.max(...p.values,p.threshold||0,1);
+  const rows=p.labels.map((lbl,i)=>{
+    const pct=Math.round((p.values[i]/max)*100);
+    const over=p.threshold!=null&&p.values[i]>p.threshold;
+    const thPct=p.threshold!=null?Math.round((p.threshold/max)*100):null;
+    const thLine=thPct!=null?`<div class="threshold-line" style="left:${thPct}%"></div>`:'';
+    return `<div class="bar-row">
+      <div class="bar-label">${esc(lbl)}</div>
+      <div class="bar-track">
+        <div class="bar-fill${over?' over-threshold':''}" style="width:${pct}%"></div>
+        ${thLine}
+      </div>
+      <div class="bar-value">${p.values[i]}${p.unit?'&thinsp;'+esc(p.unit):''}</div>
+    </div>`;
+  }).join('');
+  return `<div class="bar-chart">${rows}</div>`;
+}
+
+/* ── Timeseries ── */
+function renderTimeseries(p){
+  if(!p||!p.series||!p.series.length)return '<em>Invalid timeseries payload</em>';
+  const W=600,H=120,PAD={t:10,r:10,b:24,l:40};
+  const iW=W-PAD.l-PAD.r,iH=H-PAD.t-PAD.b;
+  // Collect all points.
+  const allTs=p.series.flatMap(s=>s.points.map(pt=>pt.ts));
+  const allV=p.series.flatMap(s=>s.points.map(pt=>pt.value));
+  const minTs=Math.min(...allTs),maxTs=Math.max(...allTs)||minTs+1;
+  const minV=Math.min(...allV,0),maxV=Math.max(...allV,1);
+  const sx=t=>PAD.l+(t-minTs)/(maxTs-minTs)*iW;
+  const sy=v=>PAD.t+iH-(v-minV)/(maxV-minV)*iH;
+
+  // Axes.
+  let svg=`<svg class="timeseries-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+  svg+=`<line class="ts-axis" x1="${PAD.l}" y1="${PAD.t}" x2="${PAD.l}" y2="${PAD.t+iH}"/>`;
+  svg+=`<line class="ts-axis" x1="${PAD.l}" y1="${PAD.t+iH}" x2="${PAD.l+iW}" y2="${PAD.t+iH}"/>`;
+  // Y labels.
+  [minV,maxV].forEach(v=>{
+    svg+=`<text class="ts-label" x="${PAD.l-4}" y="${sy(v)+4}" text-anchor="end">${round(v)}</text>`;
+  });
+  // Series lines.
+  p.series.forEach((s,i)=>{
+    if(!s.points.length)return;
+    const pts=s.points.map(pt=>`${sx(pt.ts)},${sy(pt.value)}`).join(' ');
+    svg+=`<polyline class="ts-line" points="${pts}" stroke="${COLORS[i%COLORS.length]}"/>`;
+  });
+  svg+='</svg>';
+  const legend=p.series.map((s,i)=>
+    `<div class="ts-legend-item"><div class="ts-legend-dot" style="background:${COLORS[i%COLORS.length]}"></div>${esc(s.label)}</div>`
+  ).join('');
+  return svg+`<div class="ts-legend">${legend}</div>`;
+}
+
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function round(n){return Math.round(n*100)/100;}
+
+connect();
+</script>
+</body>
+</html>

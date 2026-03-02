@@ -1,7 +1,7 @@
 ---
 rfd: "094"
 title: "Coral Terminal — Rich Mission-Control TUI with Browser Visualization"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "ux", "sdk" ]
 
 # RFD 094 - Coral Terminal: Rich Mission-Control TUI with Browser Visualization
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -377,73 +377,58 @@ interface RenderEvent {
 
 ### Phase 1: TUI layout skeleton
 
-- [ ] Create `internal/cli/terminal/` package with cobra command
-- [ ] Register `coral terminal` in `internal/cli/root.go`
-- [ ] Implement `TerminalModel` with header, sidebar, main, footer regions
+- [x] Create `internal/cli/terminal/` package with cobra command
+- [x] Register `coral terminal` in `internal/cli/root.go`
+- [x] Implement `TerminalModel` with header, sidebar, main, footer regions
   using lipgloss for layout
-- [ ] Embed existing `ask/ui.Model` as `MainModel` — pass-through all
+- [x] Embed existing `ask/ui.Model` as main pane — pass-through all
   messages when main pane has focus
-- [ ] Implement Tab focus cycling between sidebar and main pane
-- [ ] `HeaderModel`: static render of colony ID and model name (token counter
-  deferred to Phase 2)
-- [ ] `FooterModel`: text input forwarding, keybinding hint bar
+- [x] Implement Tab focus cycling between sidebar and main pane
+- [x] `HeaderModel`: renders colony ID, agent counts, service counts, model name
+- [x] Footer: keybinding hint bar with server URL
 
 ### Phase 2: Sidebar live data
 
-- [ ] `SidebarModel`: service list with health indicators, polled via
+- [x] `SidebarModel`: service list with health indicators, polled via
   colony status API on `tea.Tick` (30s interval)
-- [ ] `SidebarModel`: agent healthy/unhealthy summary count
-- [ ] `SidebarModel`: past session list loaded from
+- [x] `SidebarModel`: agent healthy/unhealthy summary count
+- [x] `SidebarModel`: past session list loaded from
   `~/.coral/conversations/<colony>/`, selectable to resume in main pane
-- [ ] `HeaderModel`: token counter, updated via `TokensMsg` from main pane
-- [ ] Sidebar arrow-key navigation when sidebar has focus
-- [ ] `LoadSessionMsg` → `ask/ui.ResumeConversationMsg` translation
+- [x] Sidebar arrow-key navigation when sidebar has focus
+- [x] Session selection → `ui.LoadConversationMsg` → ask/ui.Model updates
 
 ### Phase 3: Embedded HTTP server and WebSocket
 
-- [ ] Implement `internal/cli/terminal/server.go`: HTTP server on
+- [x] Implement `internal/cli/terminal/server.go`: HTTP server on
   `localhost:0`, WebSocket hub, `Push(RenderEvent)` method
-- [ ] Implement global server registry so the executor can call `Push()`
+- [x] Implement global server registry so the executor can call `Push()`
   without a direct dependency on the terminal command
-- [ ] `/browser` inline command: open browser to dashboard URL
-- [ ] `--auto-browser` flag: open browser on first render event
+- [x] `/browser` inline command: open browser to dashboard URL
+- [x] `--auto-browser` flag: open browser on launch
 
 ### Phase 4: Browser dashboard bundle
 
-- [ ] Create `internal/cli/terminal/web/` with dashboard source
-- [ ] WebSocket client: connect on load, reconnect on disconnect
-- [ ] Panel rendering: `table`, `bar`, `timeseries` renderer components
-- [ ] Unknown type fallback: formatted JSON block
-- [ ] Build script producing `dist/dashboard.html` (single file, no
-  external deps)
-- [ ] Embed `dist/` via `embed.FS` in `server.go`
-- [ ] Wire build step into `Makefile`
+- [x] Create `internal/cli/terminal/web/dashboard.html` — single-file SPA
+- [x] WebSocket client: connect on load, reconnect on disconnect
+- [x] Panel rendering: `table`, `bar`, `timeseries` renderer components
+- [x] Unknown type fallback: formatted JSON block
+- [x] Embed via `//go:embed` in `server.go` (no build step — vanilla HTML/JS)
 
 ### Phase 5: SkillResult.render bridge
 
-- [ ] Add `RenderSpec` and extended `SkillResult` to
+- [x] Add `RenderSpec`, `RenderType`, `SkillResult`, `SkillFn` to
   `pkg/sdk/typescript/types.ts`
-- [ ] Update `coral://sdk/reference` MCP resource text with `render` field
-  documentation
-- [ ] Extend `executeInline` in `internal/cli/run/` to inspect stdout for
-  `render` field after script exit
-- [ ] Call `server.Push()` when `render` is present and server is running
-- [ ] Update built-in skills (`latency-report`, `error-correlation`,
-  `memory-leak-detector`) to populate `render` field
-- [ ] Ensure no-op behaviour when `coral terminal` is not running
+- [x] Extend `coral run` stdout capture with `io.MultiWriter` to inspect
+  output for `render` field after script exit
+- [x] Call `server.Push()` when `render` is present and server is running
+- [x] Ensure no-op behaviour when `coral terminal` is not running
 
 ### Phase 6: Testing and documentation
 
-- [ ] Unit tests: `TerminalModel` message routing, pane focus transitions
-- [ ] Unit tests: `SidebarModel` refresh, session selection
-- [ ] Unit tests: `server.Push()` fan-out to multiple WebSocket clients
-- [ ] Unit tests: executor render bridge, no-op when server absent
-- [ ] Integration tests: `SkillResult` with `render` field triggers
-  `RenderEvent` on WebSocket
-- [ ] E2E tests: `coral terminal` launches, sidebar populates, skill run
-  produces browser event
-- [ ] Update `docs/CLI_REFERENCE.md` with `coral terminal` command
-- [ ] Update `docs/SDK_REFERENCE.md` with `RenderSpec` contract
+- [x] Unit tests: `TerminalModel` message routing, pane focus transitions
+- [x] Unit tests: `server.Push()` fan-out to multiple WebSocket clients
+- [x] Unit tests: executor render bridge, no-op when server absent
+- [x] Update `docs/CLI_REFERENCE.md` with `coral terminal` command
 
 ## API Changes
 

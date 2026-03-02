@@ -18,6 +18,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
+	github.com/gorilla/websocket v1.5.3
 	github.com/mark3labs/mcp-go v0.29.0
 	github.com/openai/openai-go v1.12.0
 	github.com/pion/stun v0.6.1
