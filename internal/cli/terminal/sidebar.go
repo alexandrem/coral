@@ -75,7 +75,7 @@ type SidebarModel struct {
 func newSidebarModel(colonyID string) SidebarModel {
 	return SidebarModel{
 		colonyID: colonyID,
-		width:    26,
+		width:    sidebarWidth - 1, // inner width; right border makes total = sidebarWidth.
 		height:   24,
 	}
 }

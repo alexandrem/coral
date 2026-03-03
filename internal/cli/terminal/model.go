@@ -215,7 +215,7 @@ func (m TerminalModel) propagateSize() TerminalModel {
 	newMain, _ := m.main.Update(tea.WindowSizeMsg{Width: mainW, Height: bodyH})
 	m.main = newMain.(ui.Model)
 
-	newSidebar, _ := m.sidebar.Update(tea.WindowSizeMsg{Width: sidebarWidth, Height: bodyH})
+	newSidebar, _ := m.sidebar.Update(tea.WindowSizeMsg{Width: sidebarWidth - 1, Height: bodyH})
 	m.sidebar = newSidebar
 
 	m.header.width = m.width
