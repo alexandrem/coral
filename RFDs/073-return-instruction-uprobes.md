@@ -230,13 +230,13 @@ Agent runs periodic cleanup (every 30s) to remove orphaned entries:
 ```go
 // Pseudocode - implementation in Agent
 func cleanupOrphanedEntries() {
-now := time.Now().UnixNano()
-for key, val := range entryTimesMap {
-if now - val.created_at > 60_000_000_000 { // 60 seconds
-delete(entryTimesMap, key)
-metrics.orphaned_entries_cleaned.Inc()
-}
-}
+    now := time.Now().UnixNano()
+    for key, val := range entryTimesMap {
+        if now-val.created_at > 60_000_000_000 { // 60 seconds
+            delete(entryTimesMap, key)
+            metrics.orphaned_entries_cleaned.Inc()
+        }
+    }
 }
 ```
 
@@ -342,7 +342,7 @@ Fallback behavior:
 
 ### Phase 1: SDK Function Size Metadata
 
-- [ ] Extend SDK HTTP API response to include `size_bytes` and `has_size`fields.
+- [ ] Extend SDK HTTP API response to include `size_bytes` and `has_size` fields.
 - [ ] Implement function size calculation from DWARF in SDK metadata provider.
 - [ ] Handle stripped binaries gracefully (return `has_size: false`).
 - [ ] Update `GET /debug/functions/{name}` handler to return size.
@@ -370,23 +370,14 @@ Fallback behavior:
 
 - [ ] Refactor `UprobeCollector` to track multiple return links per session.
 - [ ] Modify `Start()` to attach N return probes based on disassembly.
+- [ ] Populate `duration_ns` field in return events (protobuf field already exists).
 - [ ] Update `Stop()` to close all return probe links.
+- [ ] Implement periodic cleanup goroutine (every 30s, 60s timeout).
+- [ ] Add logging for number of RET instructions found per function.
 - [ ] Test with functions having 1, 3, 5+ return paths.
 
-### Phase 5: Cleanup & Metrics
+### Phase 5: Integration Testing & Documentation
 
-- [ ] Implement periodic cleanup goroutine (every 30s, 60s timeout).
-- [ ] Add metrics: `uprobe_ret_instructions_total{function}`.
-- [ ] Add metrics: `uprobe_duration_seconds{function}` (histogram).
-- [ ] Add metrics: `uprobe_errors_total{function, error_type}`.
-- [ ] Add metrics: `uprobe_active_entries` (gauge).
-- [ ] Add metrics: `uprobe_orphaned_entries_cleaned_total` (counter).
-- [ ] Add logging for number of RET instructions found per function.
-
-### Phase 6: Performance & Integration Testing
-
-- [ ] Populate `duration_ns` field in return events (protobuf field already
-  exists).
 - [ ] Add test helper assertions for duration verification in
   `tests/e2e/distributed/helpers/assertions.go`.
 - [ ] Add `TestUprobeReturnTracing` to E2E test suite (
@@ -398,19 +389,10 @@ Fallback behavior:
   path).
 - [ ] Test recursive functions (nested calls have correct durations).
 - [ ] Test concurrent goroutines calling same function.
-- [ ] Microbenchmark: Measure overhead with `perf` on high-frequency functions.
-- [ ] Performance test: Measure overhead with 5+ return probes per function.
 - [ ] Validate correctness: Compare durations with manual timing (±5%).
 - [ ] Test edge cases: panic/recover, goroutine switches, inline assembly.
-- [ ] Add test for orphaned entry cleanup (trigger panic, verify cleanup after
-  60s).
-
-### Phase 7: Documentation
-
-- [ ] Update debug documentation with RET-uprobe details.
-- [ ] Document Limitations section (x86-64 only, tail calls, panics).
-- [ ] Document BPF map key structure and cleanup mechanism.
-- [ ] Add architecture diagram to documentation.
+- [ ] Add test for orphaned entry cleanup (trigger panic, verify cleanup after 60s).
+- [ ] Update debug documentation with RET-uprobe details and Limitations section.
 
 ## Testing Strategy
 
@@ -506,6 +488,10 @@ Note: These are estimates. Actual measurements will be performed in Phase 6.
   emitted. Entry cleaned up by periodic sweep (acceptable).
 - **Goroutine Switch**: Function blocks and switches goroutine. Entry and return
   on different CPUs. BPF map keyed by stack pointer handles this correctly.
+  Goroutine stack *copying* (triggered by stack growth) does not affect the
+  stack pointer seen at the kernel uprobe boundary — the SP captured in the BPF
+  program is the user-space register value at the moment of kernel trap entry,
+  before any Go runtime stack management occurs.
 - **Recursive Calls**: Function calls itself. Stack pointer in key ensures each
   invocation has unique entry. Inner calls complete first (LIFO order).
 - **Stripped Binaries**: DWARF info missing. SDK returns `has_size: false`.
@@ -550,13 +536,11 @@ This is a **non-breaking enhancement**:
 3. Existing sessions unaffected (graceful upgrade).
 4. New sessions automatically gain duration metrics when `has_size == true`.
 
-**Gradual Rollout:**
+**Rollout:**
 
-1. **Phase 1**: Enable for internal testing only (feature flag or allowlist).
-2. **Phase 2**: Opt-in for specific functions based on user configuration.
-3. **Phase 3**: Enabled by default for all functions with size metadata.
-4. **Monitoring**: Track metrics for error rates, orphaned entries, performance
-   impact.
+Return-Instruction Uprobes are enabled automatically when `has_size == true`.
+Track metrics for error rates, orphaned entries, and performance impact after
+deployment.
 
 **Rollback Plan:**
 
