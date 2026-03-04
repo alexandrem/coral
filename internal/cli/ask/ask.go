@@ -691,3 +691,9 @@ func SaveConversationHistory(colonyID, conversationID string, messages []Message
 func LoadConversationHistory(colonyID, conversationID string) ([]Message, error) {
 	return loadConversationHistory(colonyID, conversationID)
 }
+
+// GenerateConversationID generates a new conversation ID (RFD 051).
+// Exported for use by coral terminal.
+func GenerateConversationID() string {
+	return generateConversationID()
+}

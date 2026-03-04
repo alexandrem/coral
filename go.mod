@@ -15,6 +15,7 @@ require (
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/pprof v0.0.0-20260202012954-cb029daf43ef
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/invopop/jsonschema v0.13.0
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5

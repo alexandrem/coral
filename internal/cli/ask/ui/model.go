@@ -65,6 +65,16 @@ type Model struct {
 
 	// Callback functions (to avoid import cycle)
 	saveConversation func(colonyID, conversationID string, messages []Message) error
+
+	// commandHandler is called for inline commands not handled by the model itself.
+	// Set by coral terminal to handle /browser and other terminal-level commands.
+	commandHandler func(cmd string) tea.Cmd
+}
+
+// SetCommandHandler sets a handler for unrecognised inline commands (e.g. /browser).
+// When set, unrecognised commands are forwarded to fn instead of showing an error.
+func (m *Model) SetCommandHandler(fn func(cmd string) tea.Cmd) {
+	m.commandHandler = fn
 }
 
 // NewModel creates a new interactive model.
