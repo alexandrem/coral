@@ -2923,11 +2923,334 @@ func (x *QueryHistoricalMemoryProfileResponse) GetUniqueStacks() int32 {
 	return 0
 }
 
+// ColonyDeployCorrelationRequest validates and deploys a correlation descriptor
+// to the agent hosting the named service (RFD 091).
+type ColonyDeployCorrelationRequest struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	ServiceName   string                    `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Descriptor_   *v1.CorrelationDescriptor `protobuf:"bytes,2,opt,name=descriptor,proto3" json:"descriptor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ColonyDeployCorrelationRequest) Reset() {
+	*x = ColonyDeployCorrelationRequest{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ColonyDeployCorrelationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ColonyDeployCorrelationRequest) ProtoMessage() {}
+
+func (x *ColonyDeployCorrelationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ColonyDeployCorrelationRequest.ProtoReflect.Descriptor instead.
+func (*ColonyDeployCorrelationRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *ColonyDeployCorrelationRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ColonyDeployCorrelationRequest) GetDescriptor_() *v1.CorrelationDescriptor {
+	if x != nil {
+		return x.Descriptor_
+	}
+	return nil
+}
+
+// ColonyDeployCorrelationResponse confirms descriptor deployment (RFD 091).
+type ColonyDeployCorrelationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CorrelationId string                 `protobuf:"bytes,1,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	AgentId       string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	Success       bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ColonyDeployCorrelationResponse) Reset() {
+	*x = ColonyDeployCorrelationResponse{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ColonyDeployCorrelationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ColonyDeployCorrelationResponse) ProtoMessage() {}
+
+func (x *ColonyDeployCorrelationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ColonyDeployCorrelationResponse.ProtoReflect.Descriptor instead.
+func (*ColonyDeployCorrelationResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *ColonyDeployCorrelationResponse) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *ColonyDeployCorrelationResponse) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *ColonyDeployCorrelationResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ColonyDeployCorrelationResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+// ColonyRemoveCorrelationRequest routes removal to the agent hosting the
+// named service (RFD 091).
+type ColonyRemoveCorrelationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CorrelationId string                 `protobuf:"bytes,1,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	// service_name is optional — used to route removal when correlation_id alone
+	// is insufficient.
+	ServiceName   string `protobuf:"bytes,2,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ColonyRemoveCorrelationRequest) Reset() {
+	*x = ColonyRemoveCorrelationRequest{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ColonyRemoveCorrelationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ColonyRemoveCorrelationRequest) ProtoMessage() {}
+
+func (x *ColonyRemoveCorrelationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ColonyRemoveCorrelationRequest.ProtoReflect.Descriptor instead.
+func (*ColonyRemoveCorrelationRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ColonyRemoveCorrelationRequest) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *ColonyRemoveCorrelationRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+// ColonyRemoveCorrelationResponse confirms removal (RFD 091).
+type ColonyRemoveCorrelationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ColonyRemoveCorrelationResponse) Reset() {
+	*x = ColonyRemoveCorrelationResponse{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ColonyRemoveCorrelationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ColonyRemoveCorrelationResponse) ProtoMessage() {}
+
+func (x *ColonyRemoveCorrelationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ColonyRemoveCorrelationResponse.ProtoReflect.Descriptor instead.
+func (*ColonyRemoveCorrelationResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ColonyRemoveCorrelationResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ColonyRemoveCorrelationResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// ColonyListCorrelationsRequest lists active correlation descriptors (RFD 091).
+type ColonyListCorrelationsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service_name is optional — filters results to a single service.
+	ServiceName   string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ColonyListCorrelationsRequest) Reset() {
+	*x = ColonyListCorrelationsRequest{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ColonyListCorrelationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ColonyListCorrelationsRequest) ProtoMessage() {}
+
+func (x *ColonyListCorrelationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ColonyListCorrelationsRequest.ProtoReflect.Descriptor instead.
+func (*ColonyListCorrelationsRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ColonyListCorrelationsRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+// ColonyListCorrelationsResponse returns active correlation descriptors (RFD 091).
+type ColonyListCorrelationsResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Descriptors   []*v1.CorrelationDescriptor `protobuf:"bytes,1,rep,name=descriptors,proto3" json:"descriptors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ColonyListCorrelationsResponse) Reset() {
+	*x = ColonyListCorrelationsResponse{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ColonyListCorrelationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ColonyListCorrelationsResponse) ProtoMessage() {}
+
+func (x *ColonyListCorrelationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ColonyListCorrelationsResponse.ProtoReflect.Descriptor instead.
+func (*ColonyListCorrelationsResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *ColonyListCorrelationsResponse) GetDescriptors() []*v1.CorrelationDescriptor {
+	if x != nil {
+		return x.Descriptors
+	}
+	return nil
+}
+
 var File_coral_colony_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\n" +
-	"\x1bcoral/colony/v1/debug.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1acoral/agent/v1/debug.proto\"\xb6\x02\n" +
+	"\x1bcoral/colony/v1/debug.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1acoral/agent/v1/debug.proto\x1a coral/agent/v1/correlation.proto\"\xb6\x02\n" +
 	"\x13AttachUprobeRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12#\n" +
 	"\rfunction_name\x18\x02 \x01(\tR\ffunctionName\x125\n" +
@@ -3183,8 +3506,27 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\asuccess\x18\x04 \x01(\bR\asuccess\x12E\n" +
 	"\rtop_functions\x18\x05 \x03(\v2 .coral.agent.v1.TopAllocFunctionR\ftopFunctions\x129\n" +
 	"\ttop_types\x18\x06 \x03(\v2\x1c.coral.agent.v1.TopAllocTypeR\btopTypes\x12#\n" +
-	"\runique_stacks\x18\a \x01(\x05R\funiqueStacks2\xf7\n" +
+	"\runique_stacks\x18\a \x01(\x05R\funiqueStacks\"\x8a\x01\n" +
+	"\x1eColonyDeployCorrelationRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12E\n" +
 	"\n" +
+	"descriptor\x18\x02 \x01(\v2%.coral.agent.v1.CorrelationDescriptorR\n" +
+	"descriptor\"\x93\x01\n" +
+	"\x1fColonyDeployCorrelationResponse\x12%\n" +
+	"\x0ecorrelation_id\x18\x01 \x01(\tR\rcorrelationId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess\"j\n" +
+	"\x1eColonyRemoveCorrelationRequest\x12%\n" +
+	"\x0ecorrelation_id\x18\x01 \x01(\tR\rcorrelationId\x12!\n" +
+	"\fservice_name\x18\x02 \x01(\tR\vserviceName\"Q\n" +
+	"\x1fColonyRemoveCorrelationResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"B\n" +
+	"\x1dColonyListCorrelationsRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\"i\n" +
+	"\x1eColonyListCorrelationsResponse\x12G\n" +
+	"\vdescriptors\x18\x01 \x03(\v2%.coral.agent.v1.CorrelationDescriptorR\vdescriptors2\xdc\r\n" +
 	"\x12ColonyDebugService\x12[\n" +
 	"\fAttachUprobe\x12$.coral.colony.v1.AttachUprobeRequest\x1a%.coral.colony.v1.AttachUprobeResponse\x12j\n" +
 	"\x11UpdateProbeFilter\x12).coral.colony.v1.UpdateProbeFilterRequest\x1a*.coral.colony.v1.UpdateProbeFilterResponse\x12[\n" +
@@ -3199,7 +3541,10 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"ProfileCPU\x12\".coral.colony.v1.ProfileCPURequest\x1a#.coral.colony.v1.ProfileCPUResponse\x12\x82\x01\n" +
 	"\x19QueryHistoricalCPUProfile\x121.coral.colony.v1.QueryHistoricalCPUProfileRequest\x1a2.coral.colony.v1.QueryHistoricalCPUProfileResponse\x12^\n" +
 	"\rProfileMemory\x12%.coral.colony.v1.ProfileMemoryRequest\x1a&.coral.colony.v1.ProfileMemoryResponse\x12\x8b\x01\n" +
-	"\x1cQueryHistoricalMemoryProfile\x124.coral.colony.v1.QueryHistoricalMemoryProfileRequest\x1a5.coral.colony.v1.QueryHistoricalMemoryProfileResponseB\xb5\x01\n" +
+	"\x1cQueryHistoricalMemoryProfile\x124.coral.colony.v1.QueryHistoricalMemoryProfileRequest\x1a5.coral.colony.v1.QueryHistoricalMemoryProfileResponse\x12v\n" +
+	"\x11DeployCorrelation\x12/.coral.colony.v1.ColonyDeployCorrelationRequest\x1a0.coral.colony.v1.ColonyDeployCorrelationResponse\x12v\n" +
+	"\x11RemoveCorrelation\x12/.coral.colony.v1.ColonyRemoveCorrelationRequest\x1a0.coral.colony.v1.ColonyRemoveCorrelationResponse\x12s\n" +
+	"\x10ListCorrelations\x12..coral.colony.v1.ColonyListCorrelationsRequest\x1a/.coral.colony.v1.ColonyListCorrelationsResponseB\xb5\x01\n" +
 	"\x13com.coral.colony.v1B\n" +
 	"DebugProtoP\x01Z4github.com/coral-mesh/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
@@ -3215,7 +3560,7 @@ func file_coral_colony_v1_debug_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_debug_proto_rawDescData
 }
 
-var file_coral_colony_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_coral_colony_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_coral_colony_v1_debug_proto_goTypes = []any{
 	(*AttachUprobeRequest)(nil),                  // 0: coral.colony.v1.AttachUprobeRequest
 	(*UpdateProbeFilterRequest)(nil),             // 1: coral.colony.v1.UpdateProbeFilterRequest
@@ -3257,109 +3602,124 @@ var file_coral_colony_v1_debug_proto_goTypes = []any{
 	(*ProfileMemoryResponse)(nil),                // 37: coral.colony.v1.ProfileMemoryResponse
 	(*QueryHistoricalMemoryProfileRequest)(nil),  // 38: coral.colony.v1.QueryHistoricalMemoryProfileRequest
 	(*QueryHistoricalMemoryProfileResponse)(nil), // 39: coral.colony.v1.QueryHistoricalMemoryProfileResponse
-	nil,                           // 40: coral.colony.v1.SlowOutlier.LabelsEntry
-	(*durationpb.Duration)(nil),   // 41: google.protobuf.Duration
-	(*v1.UprobeConfig)(nil),       // 42: coral.agent.v1.UprobeConfig
-	(*v1.UprobeFilter)(nil),       // 43: coral.agent.v1.UprobeFilter
-	(*timestamppb.Timestamp)(nil), // 44: google.protobuf.Timestamp
-	(*v1.UprobeEvent)(nil),        // 45: coral.agent.v1.UprobeEvent
-	(*v1.StackSample)(nil),        // 46: coral.agent.v1.StackSample
-	(*v1.MemoryStackSample)(nil),  // 47: coral.agent.v1.MemoryStackSample
-	(*v1.MemoryStats)(nil),        // 48: coral.agent.v1.MemoryStats
-	(*v1.TopAllocFunction)(nil),   // 49: coral.agent.v1.TopAllocFunction
-	(*v1.TopAllocType)(nil),       // 50: coral.agent.v1.TopAllocType
+	(*ColonyDeployCorrelationRequest)(nil),       // 40: coral.colony.v1.ColonyDeployCorrelationRequest
+	(*ColonyDeployCorrelationResponse)(nil),      // 41: coral.colony.v1.ColonyDeployCorrelationResponse
+	(*ColonyRemoveCorrelationRequest)(nil),       // 42: coral.colony.v1.ColonyRemoveCorrelationRequest
+	(*ColonyRemoveCorrelationResponse)(nil),      // 43: coral.colony.v1.ColonyRemoveCorrelationResponse
+	(*ColonyListCorrelationsRequest)(nil),        // 44: coral.colony.v1.ColonyListCorrelationsRequest
+	(*ColonyListCorrelationsResponse)(nil),       // 45: coral.colony.v1.ColonyListCorrelationsResponse
+	nil,                                          // 46: coral.colony.v1.SlowOutlier.LabelsEntry
+	(*durationpb.Duration)(nil),                  // 47: google.protobuf.Duration
+	(*v1.UprobeConfig)(nil),                      // 48: coral.agent.v1.UprobeConfig
+	(*v1.UprobeFilter)(nil),                      // 49: coral.agent.v1.UprobeFilter
+	(*timestamppb.Timestamp)(nil),                // 50: google.protobuf.Timestamp
+	(*v1.UprobeEvent)(nil),                       // 51: coral.agent.v1.UprobeEvent
+	(*v1.StackSample)(nil),                       // 52: coral.agent.v1.StackSample
+	(*v1.MemoryStackSample)(nil),                 // 53: coral.agent.v1.MemoryStackSample
+	(*v1.MemoryStats)(nil),                       // 54: coral.agent.v1.MemoryStats
+	(*v1.TopAllocFunction)(nil),                  // 55: coral.agent.v1.TopAllocFunction
+	(*v1.TopAllocType)(nil),                      // 56: coral.agent.v1.TopAllocType
+	(*v1.CorrelationDescriptor)(nil),             // 57: coral.agent.v1.CorrelationDescriptor
 }
 var file_coral_colony_v1_debug_proto_depIdxs = []int32{
-	41, // 0: coral.colony.v1.AttachUprobeRequest.duration:type_name -> google.protobuf.Duration
-	42, // 1: coral.colony.v1.AttachUprobeRequest.config:type_name -> coral.agent.v1.UprobeConfig
-	43, // 2: coral.colony.v1.AttachUprobeRequest.filter:type_name -> coral.agent.v1.UprobeFilter
-	43, // 3: coral.colony.v1.UpdateProbeFilterRequest.filter:type_name -> coral.agent.v1.UprobeFilter
-	44, // 4: coral.colony.v1.AttachUprobeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	44, // 5: coral.colony.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
-	44, // 6: coral.colony.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
-	45, // 7: coral.colony.v1.QueryUprobeEventsResponse.events:type_name -> coral.agent.v1.UprobeEvent
+	47, // 0: coral.colony.v1.AttachUprobeRequest.duration:type_name -> google.protobuf.Duration
+	48, // 1: coral.colony.v1.AttachUprobeRequest.config:type_name -> coral.agent.v1.UprobeConfig
+	49, // 2: coral.colony.v1.AttachUprobeRequest.filter:type_name -> coral.agent.v1.UprobeFilter
+	49, // 3: coral.colony.v1.UpdateProbeFilterRequest.filter:type_name -> coral.agent.v1.UprobeFilter
+	50, // 4: coral.colony.v1.AttachUprobeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	50, // 5: coral.colony.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
+	50, // 6: coral.colony.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
+	51, // 7: coral.colony.v1.QueryUprobeEventsResponse.events:type_name -> coral.agent.v1.UprobeEvent
 	10, // 8: coral.colony.v1.ListDebugSessionsResponse.sessions:type_name -> coral.colony.v1.DebugSession
-	44, // 9: coral.colony.v1.DebugSession.started_at:type_name -> google.protobuf.Timestamp
-	44, // 10: coral.colony.v1.DebugSession.expires_at:type_name -> google.protobuf.Timestamp
-	41, // 11: coral.colony.v1.TraceRequestPathRequest.duration:type_name -> google.protobuf.Duration
-	41, // 12: coral.colony.v1.GetDebugResultsResponse.duration:type_name -> google.protobuf.Duration
+	50, // 9: coral.colony.v1.DebugSession.started_at:type_name -> google.protobuf.Timestamp
+	50, // 10: coral.colony.v1.DebugSession.expires_at:type_name -> google.protobuf.Timestamp
+	47, // 11: coral.colony.v1.TraceRequestPathRequest.duration:type_name -> google.protobuf.Duration
+	47, // 12: coral.colony.v1.GetDebugResultsResponse.duration:type_name -> google.protobuf.Duration
 	15, // 13: coral.colony.v1.GetDebugResultsResponse.statistics:type_name -> coral.colony.v1.DebugStatistics
 	16, // 14: coral.colony.v1.GetDebugResultsResponse.slow_outliers:type_name -> coral.colony.v1.SlowOutlier
 	17, // 15: coral.colony.v1.GetDebugResultsResponse.call_tree:type_name -> coral.colony.v1.CallTree
-	41, // 16: coral.colony.v1.DebugStatistics.duration_p50:type_name -> google.protobuf.Duration
-	41, // 17: coral.colony.v1.DebugStatistics.duration_p95:type_name -> google.protobuf.Duration
-	41, // 18: coral.colony.v1.DebugStatistics.duration_p99:type_name -> google.protobuf.Duration
-	41, // 19: coral.colony.v1.DebugStatistics.duration_max:type_name -> google.protobuf.Duration
-	41, // 20: coral.colony.v1.SlowOutlier.duration:type_name -> google.protobuf.Duration
-	44, // 21: coral.colony.v1.SlowOutlier.timestamp:type_name -> google.protobuf.Timestamp
-	40, // 22: coral.colony.v1.SlowOutlier.labels:type_name -> coral.colony.v1.SlowOutlier.LabelsEntry
+	47, // 16: coral.colony.v1.DebugStatistics.duration_p50:type_name -> google.protobuf.Duration
+	47, // 17: coral.colony.v1.DebugStatistics.duration_p95:type_name -> google.protobuf.Duration
+	47, // 18: coral.colony.v1.DebugStatistics.duration_p99:type_name -> google.protobuf.Duration
+	47, // 19: coral.colony.v1.DebugStatistics.duration_max:type_name -> google.protobuf.Duration
+	47, // 20: coral.colony.v1.SlowOutlier.duration:type_name -> google.protobuf.Duration
+	50, // 21: coral.colony.v1.SlowOutlier.timestamp:type_name -> google.protobuf.Timestamp
+	46, // 22: coral.colony.v1.SlowOutlier.labels:type_name -> coral.colony.v1.SlowOutlier.LabelsEntry
 	18, // 23: coral.colony.v1.CallTree.root:type_name -> coral.colony.v1.CallTreeNode
-	41, // 24: coral.colony.v1.CallTreeNode.total_duration:type_name -> google.protobuf.Duration
-	41, // 25: coral.colony.v1.CallTreeNode.self_duration:type_name -> google.protobuf.Duration
+	47, // 24: coral.colony.v1.CallTreeNode.total_duration:type_name -> google.protobuf.Duration
+	47, // 25: coral.colony.v1.CallTreeNode.self_duration:type_name -> google.protobuf.Duration
 	18, // 26: coral.colony.v1.CallTreeNode.children:type_name -> coral.colony.v1.CallTreeNode
 	21, // 27: coral.colony.v1.QueryFunctionsResponse.results:type_name -> coral.colony.v1.FunctionResult
 	22, // 28: coral.colony.v1.FunctionResult.function:type_name -> coral.colony.v1.FunctionMetadata
 	23, // 29: coral.colony.v1.FunctionResult.search:type_name -> coral.colony.v1.SearchInfo
 	24, // 30: coral.colony.v1.FunctionResult.metrics:type_name -> coral.colony.v1.FunctionMetrics
 	25, // 31: coral.colony.v1.FunctionResult.instrumentation:type_name -> coral.colony.v1.InstrumentationInfo
-	44, // 32: coral.colony.v1.FunctionMetrics.last_measured:type_name -> google.protobuf.Timestamp
-	41, // 33: coral.colony.v1.FunctionMetrics.p50:type_name -> google.protobuf.Duration
-	41, // 34: coral.colony.v1.FunctionMetrics.p95:type_name -> google.protobuf.Duration
-	41, // 35: coral.colony.v1.FunctionMetrics.p99:type_name -> google.protobuf.Duration
-	44, // 36: coral.colony.v1.InstrumentationInfo.last_probed:type_name -> google.protobuf.Timestamp
-	41, // 37: coral.colony.v1.ProfileFunctionsRequest.duration:type_name -> google.protobuf.Duration
+	50, // 32: coral.colony.v1.FunctionMetrics.last_measured:type_name -> google.protobuf.Timestamp
+	47, // 33: coral.colony.v1.FunctionMetrics.p50:type_name -> google.protobuf.Duration
+	47, // 34: coral.colony.v1.FunctionMetrics.p95:type_name -> google.protobuf.Duration
+	47, // 35: coral.colony.v1.FunctionMetrics.p99:type_name -> google.protobuf.Duration
+	50, // 36: coral.colony.v1.InstrumentationInfo.last_probed:type_name -> google.protobuf.Timestamp
+	47, // 37: coral.colony.v1.ProfileFunctionsRequest.duration:type_name -> google.protobuf.Duration
 	28, // 38: coral.colony.v1.ProfileFunctionsResponse.summary:type_name -> coral.colony.v1.ProfileSummary
 	29, // 39: coral.colony.v1.ProfileFunctionsResponse.results:type_name -> coral.colony.v1.ProfileResult
 	31, // 40: coral.colony.v1.ProfileFunctionsResponse.bottlenecks:type_name -> coral.colony.v1.Bottleneck
-	41, // 41: coral.colony.v1.ProfileSummary.duration:type_name -> google.protobuf.Duration
+	47, // 41: coral.colony.v1.ProfileSummary.duration:type_name -> google.protobuf.Duration
 	24, // 42: coral.colony.v1.ProfileResult.metrics:type_name -> coral.colony.v1.FunctionMetrics
 	30, // 43: coral.colony.v1.ProfileResult.calls:type_name -> coral.colony.v1.CallContribution
-	41, // 44: coral.colony.v1.CallContribution.p95:type_name -> google.protobuf.Duration
-	41, // 45: coral.colony.v1.Bottleneck.p95:type_name -> google.protobuf.Duration
-	46, // 46: coral.colony.v1.ProfileCPUResponse.samples:type_name -> coral.agent.v1.StackSample
-	44, // 47: coral.colony.v1.QueryHistoricalCPUProfileRequest.start_time:type_name -> google.protobuf.Timestamp
-	44, // 48: coral.colony.v1.QueryHistoricalCPUProfileRequest.end_time:type_name -> google.protobuf.Timestamp
-	46, // 49: coral.colony.v1.QueryHistoricalCPUProfileResponse.samples:type_name -> coral.agent.v1.StackSample
-	47, // 50: coral.colony.v1.ProfileMemoryResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
-	48, // 51: coral.colony.v1.ProfileMemoryResponse.stats:type_name -> coral.agent.v1.MemoryStats
-	49, // 52: coral.colony.v1.ProfileMemoryResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
-	50, // 53: coral.colony.v1.ProfileMemoryResponse.top_types:type_name -> coral.agent.v1.TopAllocType
-	44, // 54: coral.colony.v1.QueryHistoricalMemoryProfileRequest.start_time:type_name -> google.protobuf.Timestamp
-	44, // 55: coral.colony.v1.QueryHistoricalMemoryProfileRequest.end_time:type_name -> google.protobuf.Timestamp
-	47, // 56: coral.colony.v1.QueryHistoricalMemoryProfileResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
-	49, // 57: coral.colony.v1.QueryHistoricalMemoryProfileResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
-	50, // 58: coral.colony.v1.QueryHistoricalMemoryProfileResponse.top_types:type_name -> coral.agent.v1.TopAllocType
-	0,  // 59: coral.colony.v1.ColonyDebugService.AttachUprobe:input_type -> coral.colony.v1.AttachUprobeRequest
-	1,  // 60: coral.colony.v1.ColonyDebugService.UpdateProbeFilter:input_type -> coral.colony.v1.UpdateProbeFilterRequest
-	4,  // 61: coral.colony.v1.ColonyDebugService.DetachUprobe:input_type -> coral.colony.v1.DetachUprobeRequest
-	6,  // 62: coral.colony.v1.ColonyDebugService.QueryUprobeEvents:input_type -> coral.colony.v1.QueryUprobeEventsRequest
-	8,  // 63: coral.colony.v1.ColonyDebugService.ListDebugSessions:input_type -> coral.colony.v1.ListDebugSessionsRequest
-	11, // 64: coral.colony.v1.ColonyDebugService.TraceRequestPath:input_type -> coral.colony.v1.TraceRequestPathRequest
-	13, // 65: coral.colony.v1.ColonyDebugService.GetDebugResults:input_type -> coral.colony.v1.GetDebugResultsRequest
-	19, // 66: coral.colony.v1.ColonyDebugService.QueryFunctions:input_type -> coral.colony.v1.QueryFunctionsRequest
-	26, // 67: coral.colony.v1.ColonyDebugService.ProfileFunctions:input_type -> coral.colony.v1.ProfileFunctionsRequest
-	32, // 68: coral.colony.v1.ColonyDebugService.ProfileCPU:input_type -> coral.colony.v1.ProfileCPURequest
-	34, // 69: coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile:input_type -> coral.colony.v1.QueryHistoricalCPUProfileRequest
-	36, // 70: coral.colony.v1.ColonyDebugService.ProfileMemory:input_type -> coral.colony.v1.ProfileMemoryRequest
-	38, // 71: coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile:input_type -> coral.colony.v1.QueryHistoricalMemoryProfileRequest
-	3,  // 72: coral.colony.v1.ColonyDebugService.AttachUprobe:output_type -> coral.colony.v1.AttachUprobeResponse
-	2,  // 73: coral.colony.v1.ColonyDebugService.UpdateProbeFilter:output_type -> coral.colony.v1.UpdateProbeFilterResponse
-	5,  // 74: coral.colony.v1.ColonyDebugService.DetachUprobe:output_type -> coral.colony.v1.DetachUprobeResponse
-	7,  // 75: coral.colony.v1.ColonyDebugService.QueryUprobeEvents:output_type -> coral.colony.v1.QueryUprobeEventsResponse
-	9,  // 76: coral.colony.v1.ColonyDebugService.ListDebugSessions:output_type -> coral.colony.v1.ListDebugSessionsResponse
-	12, // 77: coral.colony.v1.ColonyDebugService.TraceRequestPath:output_type -> coral.colony.v1.TraceRequestPathResponse
-	14, // 78: coral.colony.v1.ColonyDebugService.GetDebugResults:output_type -> coral.colony.v1.GetDebugResultsResponse
-	20, // 79: coral.colony.v1.ColonyDebugService.QueryFunctions:output_type -> coral.colony.v1.QueryFunctionsResponse
-	27, // 80: coral.colony.v1.ColonyDebugService.ProfileFunctions:output_type -> coral.colony.v1.ProfileFunctionsResponse
-	33, // 81: coral.colony.v1.ColonyDebugService.ProfileCPU:output_type -> coral.colony.v1.ProfileCPUResponse
-	35, // 82: coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile:output_type -> coral.colony.v1.QueryHistoricalCPUProfileResponse
-	37, // 83: coral.colony.v1.ColonyDebugService.ProfileMemory:output_type -> coral.colony.v1.ProfileMemoryResponse
-	39, // 84: coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile:output_type -> coral.colony.v1.QueryHistoricalMemoryProfileResponse
-	72, // [72:85] is the sub-list for method output_type
-	59, // [59:72] is the sub-list for method input_type
-	59, // [59:59] is the sub-list for extension type_name
-	59, // [59:59] is the sub-list for extension extendee
-	0,  // [0:59] is the sub-list for field type_name
+	47, // 44: coral.colony.v1.CallContribution.p95:type_name -> google.protobuf.Duration
+	47, // 45: coral.colony.v1.Bottleneck.p95:type_name -> google.protobuf.Duration
+	52, // 46: coral.colony.v1.ProfileCPUResponse.samples:type_name -> coral.agent.v1.StackSample
+	50, // 47: coral.colony.v1.QueryHistoricalCPUProfileRequest.start_time:type_name -> google.protobuf.Timestamp
+	50, // 48: coral.colony.v1.QueryHistoricalCPUProfileRequest.end_time:type_name -> google.protobuf.Timestamp
+	52, // 49: coral.colony.v1.QueryHistoricalCPUProfileResponse.samples:type_name -> coral.agent.v1.StackSample
+	53, // 50: coral.colony.v1.ProfileMemoryResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
+	54, // 51: coral.colony.v1.ProfileMemoryResponse.stats:type_name -> coral.agent.v1.MemoryStats
+	55, // 52: coral.colony.v1.ProfileMemoryResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
+	56, // 53: coral.colony.v1.ProfileMemoryResponse.top_types:type_name -> coral.agent.v1.TopAllocType
+	50, // 54: coral.colony.v1.QueryHistoricalMemoryProfileRequest.start_time:type_name -> google.protobuf.Timestamp
+	50, // 55: coral.colony.v1.QueryHistoricalMemoryProfileRequest.end_time:type_name -> google.protobuf.Timestamp
+	53, // 56: coral.colony.v1.QueryHistoricalMemoryProfileResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
+	55, // 57: coral.colony.v1.QueryHistoricalMemoryProfileResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
+	56, // 58: coral.colony.v1.QueryHistoricalMemoryProfileResponse.top_types:type_name -> coral.agent.v1.TopAllocType
+	57, // 59: coral.colony.v1.ColonyDeployCorrelationRequest.descriptor:type_name -> coral.agent.v1.CorrelationDescriptor
+	57, // 60: coral.colony.v1.ColonyListCorrelationsResponse.descriptors:type_name -> coral.agent.v1.CorrelationDescriptor
+	0,  // 61: coral.colony.v1.ColonyDebugService.AttachUprobe:input_type -> coral.colony.v1.AttachUprobeRequest
+	1,  // 62: coral.colony.v1.ColonyDebugService.UpdateProbeFilter:input_type -> coral.colony.v1.UpdateProbeFilterRequest
+	4,  // 63: coral.colony.v1.ColonyDebugService.DetachUprobe:input_type -> coral.colony.v1.DetachUprobeRequest
+	6,  // 64: coral.colony.v1.ColonyDebugService.QueryUprobeEvents:input_type -> coral.colony.v1.QueryUprobeEventsRequest
+	8,  // 65: coral.colony.v1.ColonyDebugService.ListDebugSessions:input_type -> coral.colony.v1.ListDebugSessionsRequest
+	11, // 66: coral.colony.v1.ColonyDebugService.TraceRequestPath:input_type -> coral.colony.v1.TraceRequestPathRequest
+	13, // 67: coral.colony.v1.ColonyDebugService.GetDebugResults:input_type -> coral.colony.v1.GetDebugResultsRequest
+	19, // 68: coral.colony.v1.ColonyDebugService.QueryFunctions:input_type -> coral.colony.v1.QueryFunctionsRequest
+	26, // 69: coral.colony.v1.ColonyDebugService.ProfileFunctions:input_type -> coral.colony.v1.ProfileFunctionsRequest
+	32, // 70: coral.colony.v1.ColonyDebugService.ProfileCPU:input_type -> coral.colony.v1.ProfileCPURequest
+	34, // 71: coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile:input_type -> coral.colony.v1.QueryHistoricalCPUProfileRequest
+	36, // 72: coral.colony.v1.ColonyDebugService.ProfileMemory:input_type -> coral.colony.v1.ProfileMemoryRequest
+	38, // 73: coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile:input_type -> coral.colony.v1.QueryHistoricalMemoryProfileRequest
+	40, // 74: coral.colony.v1.ColonyDebugService.DeployCorrelation:input_type -> coral.colony.v1.ColonyDeployCorrelationRequest
+	42, // 75: coral.colony.v1.ColonyDebugService.RemoveCorrelation:input_type -> coral.colony.v1.ColonyRemoveCorrelationRequest
+	44, // 76: coral.colony.v1.ColonyDebugService.ListCorrelations:input_type -> coral.colony.v1.ColonyListCorrelationsRequest
+	3,  // 77: coral.colony.v1.ColonyDebugService.AttachUprobe:output_type -> coral.colony.v1.AttachUprobeResponse
+	2,  // 78: coral.colony.v1.ColonyDebugService.UpdateProbeFilter:output_type -> coral.colony.v1.UpdateProbeFilterResponse
+	5,  // 79: coral.colony.v1.ColonyDebugService.DetachUprobe:output_type -> coral.colony.v1.DetachUprobeResponse
+	7,  // 80: coral.colony.v1.ColonyDebugService.QueryUprobeEvents:output_type -> coral.colony.v1.QueryUprobeEventsResponse
+	9,  // 81: coral.colony.v1.ColonyDebugService.ListDebugSessions:output_type -> coral.colony.v1.ListDebugSessionsResponse
+	12, // 82: coral.colony.v1.ColonyDebugService.TraceRequestPath:output_type -> coral.colony.v1.TraceRequestPathResponse
+	14, // 83: coral.colony.v1.ColonyDebugService.GetDebugResults:output_type -> coral.colony.v1.GetDebugResultsResponse
+	20, // 84: coral.colony.v1.ColonyDebugService.QueryFunctions:output_type -> coral.colony.v1.QueryFunctionsResponse
+	27, // 85: coral.colony.v1.ColonyDebugService.ProfileFunctions:output_type -> coral.colony.v1.ProfileFunctionsResponse
+	33, // 86: coral.colony.v1.ColonyDebugService.ProfileCPU:output_type -> coral.colony.v1.ProfileCPUResponse
+	35, // 87: coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile:output_type -> coral.colony.v1.QueryHistoricalCPUProfileResponse
+	37, // 88: coral.colony.v1.ColonyDebugService.ProfileMemory:output_type -> coral.colony.v1.ProfileMemoryResponse
+	39, // 89: coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile:output_type -> coral.colony.v1.QueryHistoricalMemoryProfileResponse
+	41, // 90: coral.colony.v1.ColonyDebugService.DeployCorrelation:output_type -> coral.colony.v1.ColonyDeployCorrelationResponse
+	43, // 91: coral.colony.v1.ColonyDebugService.RemoveCorrelation:output_type -> coral.colony.v1.ColonyRemoveCorrelationResponse
+	45, // 92: coral.colony.v1.ColonyDebugService.ListCorrelations:output_type -> coral.colony.v1.ColonyListCorrelationsResponse
+	77, // [77:93] is the sub-list for method output_type
+	61, // [61:77] is the sub-list for method input_type
+	61, // [61:61] is the sub-list for extension type_name
+	61, // [61:61] is the sub-list for extension extendee
+	0,  // [0:61] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_debug_proto_init() }
@@ -3373,7 +3733,7 @@ func file_coral_colony_v1_debug_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_debug_proto_rawDesc), len(file_coral_colony_v1_debug_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

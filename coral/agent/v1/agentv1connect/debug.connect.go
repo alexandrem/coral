@@ -58,6 +58,15 @@ const (
 	// AgentDebugServiceQueryMemoryProfileSamplesProcedure is the fully-qualified name of the
 	// AgentDebugService's QueryMemoryProfileSamples RPC.
 	AgentDebugServiceQueryMemoryProfileSamplesProcedure = "/coral.agent.v1.AgentDebugService/QueryMemoryProfileSamples"
+	// AgentDebugServiceDeployCorrelationProcedure is the fully-qualified name of the
+	// AgentDebugService's DeployCorrelation RPC.
+	AgentDebugServiceDeployCorrelationProcedure = "/coral.agent.v1.AgentDebugService/DeployCorrelation"
+	// AgentDebugServiceRemoveCorrelationProcedure is the fully-qualified name of the
+	// AgentDebugService's RemoveCorrelation RPC.
+	AgentDebugServiceRemoveCorrelationProcedure = "/coral.agent.v1.AgentDebugService/RemoveCorrelation"
+	// AgentDebugServiceListCorrelationsProcedure is the fully-qualified name of the AgentDebugService's
+	// ListCorrelations RPC.
+	AgentDebugServiceListCorrelationsProcedure = "/coral.agent.v1.AgentDebugService/ListCorrelations"
 )
 
 // AgentDebugServiceClient is a client for the coral.agent.v1.AgentDebugService service.
@@ -79,6 +88,13 @@ type AgentDebugServiceClient interface {
 	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryAgentRequest]) (*connect.Response[v1.ProfileMemoryAgentResponse], error)
 	// Query historical memory profile samples from continuous profiling (RFD 077).
 	QueryMemoryProfileSamples(context.Context, *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error)
+	// DeployCorrelation installs a correlation descriptor on the agent (RFD 091).
+	// The agent begins evaluating it against the active event stream immediately.
+	DeployCorrelation(context.Context, *connect.Request[v1.DeployCorrelationRequest]) (*connect.Response[v1.DeployCorrelationResponse], error)
+	// RemoveCorrelation uninstalls an active correlation descriptor (RFD 091).
+	RemoveCorrelation(context.Context, *connect.Request[v1.RemoveCorrelationRequest]) (*connect.Response[v1.RemoveCorrelationResponse], error)
+	// ListCorrelations returns all active descriptors on this agent (RFD 091).
+	ListCorrelations(context.Context, *connect.Request[v1.ListCorrelationsRequest]) (*connect.Response[v1.ListCorrelationsResponse], error)
 }
 
 // NewAgentDebugServiceClient constructs a client for the coral.agent.v1.AgentDebugService service.
@@ -140,6 +156,24 @@ func NewAgentDebugServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(agentDebugServiceMethods.ByName("QueryMemoryProfileSamples")),
 			connect.WithClientOptions(opts...),
 		),
+		deployCorrelation: connect.NewClient[v1.DeployCorrelationRequest, v1.DeployCorrelationResponse](
+			httpClient,
+			baseURL+AgentDebugServiceDeployCorrelationProcedure,
+			connect.WithSchema(agentDebugServiceMethods.ByName("DeployCorrelation")),
+			connect.WithClientOptions(opts...),
+		),
+		removeCorrelation: connect.NewClient[v1.RemoveCorrelationRequest, v1.RemoveCorrelationResponse](
+			httpClient,
+			baseURL+AgentDebugServiceRemoveCorrelationProcedure,
+			connect.WithSchema(agentDebugServiceMethods.ByName("RemoveCorrelation")),
+			connect.WithClientOptions(opts...),
+		),
+		listCorrelations: connect.NewClient[v1.ListCorrelationsRequest, v1.ListCorrelationsResponse](
+			httpClient,
+			baseURL+AgentDebugServiceListCorrelationsProcedure,
+			connect.WithSchema(agentDebugServiceMethods.ByName("ListCorrelations")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -153,6 +187,9 @@ type agentDebugServiceClient struct {
 	queryCPUProfileSamples    *connect.Client[v1.QueryCPUProfileSamplesRequest, v1.QueryCPUProfileSamplesResponse]
 	profileMemory             *connect.Client[v1.ProfileMemoryAgentRequest, v1.ProfileMemoryAgentResponse]
 	queryMemoryProfileSamples *connect.Client[v1.QueryMemoryProfileSamplesRequest, v1.QueryMemoryProfileSamplesResponse]
+	deployCorrelation         *connect.Client[v1.DeployCorrelationRequest, v1.DeployCorrelationResponse]
+	removeCorrelation         *connect.Client[v1.RemoveCorrelationRequest, v1.RemoveCorrelationResponse]
+	listCorrelations          *connect.Client[v1.ListCorrelationsRequest, v1.ListCorrelationsResponse]
 }
 
 // StartUprobeCollector calls coral.agent.v1.AgentDebugService.StartUprobeCollector.
@@ -195,6 +232,21 @@ func (c *agentDebugServiceClient) QueryMemoryProfileSamples(ctx context.Context,
 	return c.queryMemoryProfileSamples.CallUnary(ctx, req)
 }
 
+// DeployCorrelation calls coral.agent.v1.AgentDebugService.DeployCorrelation.
+func (c *agentDebugServiceClient) DeployCorrelation(ctx context.Context, req *connect.Request[v1.DeployCorrelationRequest]) (*connect.Response[v1.DeployCorrelationResponse], error) {
+	return c.deployCorrelation.CallUnary(ctx, req)
+}
+
+// RemoveCorrelation calls coral.agent.v1.AgentDebugService.RemoveCorrelation.
+func (c *agentDebugServiceClient) RemoveCorrelation(ctx context.Context, req *connect.Request[v1.RemoveCorrelationRequest]) (*connect.Response[v1.RemoveCorrelationResponse], error) {
+	return c.removeCorrelation.CallUnary(ctx, req)
+}
+
+// ListCorrelations calls coral.agent.v1.AgentDebugService.ListCorrelations.
+func (c *agentDebugServiceClient) ListCorrelations(ctx context.Context, req *connect.Request[v1.ListCorrelationsRequest]) (*connect.Response[v1.ListCorrelationsResponse], error) {
+	return c.listCorrelations.CallUnary(ctx, req)
+}
+
 // AgentDebugServiceHandler is an implementation of the coral.agent.v1.AgentDebugService service.
 type AgentDebugServiceHandler interface {
 	// Start a uprobe collector on an agent.
@@ -214,6 +266,13 @@ type AgentDebugServiceHandler interface {
 	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryAgentRequest]) (*connect.Response[v1.ProfileMemoryAgentResponse], error)
 	// Query historical memory profile samples from continuous profiling (RFD 077).
 	QueryMemoryProfileSamples(context.Context, *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error)
+	// DeployCorrelation installs a correlation descriptor on the agent (RFD 091).
+	// The agent begins evaluating it against the active event stream immediately.
+	DeployCorrelation(context.Context, *connect.Request[v1.DeployCorrelationRequest]) (*connect.Response[v1.DeployCorrelationResponse], error)
+	// RemoveCorrelation uninstalls an active correlation descriptor (RFD 091).
+	RemoveCorrelation(context.Context, *connect.Request[v1.RemoveCorrelationRequest]) (*connect.Response[v1.RemoveCorrelationResponse], error)
+	// ListCorrelations returns all active descriptors on this agent (RFD 091).
+	ListCorrelations(context.Context, *connect.Request[v1.ListCorrelationsRequest]) (*connect.Response[v1.ListCorrelationsResponse], error)
 }
 
 // NewAgentDebugServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -271,6 +330,24 @@ func NewAgentDebugServiceHandler(svc AgentDebugServiceHandler, opts ...connect.H
 		connect.WithSchema(agentDebugServiceMethods.ByName("QueryMemoryProfileSamples")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentDebugServiceDeployCorrelationHandler := connect.NewUnaryHandler(
+		AgentDebugServiceDeployCorrelationProcedure,
+		svc.DeployCorrelation,
+		connect.WithSchema(agentDebugServiceMethods.ByName("DeployCorrelation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentDebugServiceRemoveCorrelationHandler := connect.NewUnaryHandler(
+		AgentDebugServiceRemoveCorrelationProcedure,
+		svc.RemoveCorrelation,
+		connect.WithSchema(agentDebugServiceMethods.ByName("RemoveCorrelation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentDebugServiceListCorrelationsHandler := connect.NewUnaryHandler(
+		AgentDebugServiceListCorrelationsProcedure,
+		svc.ListCorrelations,
+		connect.WithSchema(agentDebugServiceMethods.ByName("ListCorrelations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentDebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentDebugServiceStartUprobeCollectorProcedure:
@@ -289,6 +366,12 @@ func NewAgentDebugServiceHandler(svc AgentDebugServiceHandler, opts ...connect.H
 			agentDebugServiceProfileMemoryHandler.ServeHTTP(w, r)
 		case AgentDebugServiceQueryMemoryProfileSamplesProcedure:
 			agentDebugServiceQueryMemoryProfileSamplesHandler.ServeHTTP(w, r)
+		case AgentDebugServiceDeployCorrelationProcedure:
+			agentDebugServiceDeployCorrelationHandler.ServeHTTP(w, r)
+		case AgentDebugServiceRemoveCorrelationProcedure:
+			agentDebugServiceRemoveCorrelationHandler.ServeHTTP(w, r)
+		case AgentDebugServiceListCorrelationsProcedure:
+			agentDebugServiceListCorrelationsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -328,4 +411,16 @@ func (UnimplementedAgentDebugServiceHandler) ProfileMemory(context.Context, *con
 
 func (UnimplementedAgentDebugServiceHandler) QueryMemoryProfileSamples(context.Context, *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples is not implemented"))
+}
+
+func (UnimplementedAgentDebugServiceHandler) DeployCorrelation(context.Context, *connect.Request[v1.DeployCorrelationRequest]) (*connect.Response[v1.DeployCorrelationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.DeployCorrelation is not implemented"))
+}
+
+func (UnimplementedAgentDebugServiceHandler) RemoveCorrelation(context.Context, *connect.Request[v1.RemoveCorrelationRequest]) (*connect.Response[v1.RemoveCorrelationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.RemoveCorrelation is not implemented"))
+}
+
+func (UnimplementedAgentDebugServiceHandler) ListCorrelations(context.Context, *connect.Request[v1.ListCorrelationsRequest]) (*connect.Response[v1.ListCorrelationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.ListCorrelations is not implemented"))
 }
