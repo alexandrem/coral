@@ -12,6 +12,16 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type uprobeEntryKey struct {
+	PidTgid  uint64
+	StackPtr uint64
+}
+
+type uprobeEntryValue struct {
+	TimestampNs uint64
+	CreatedAt   uint64
+}
+
 type uprobeFilterConfig struct {
 	MinDurationNs uint64
 	MaxDurationNs uint64

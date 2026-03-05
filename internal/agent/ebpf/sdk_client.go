@@ -64,6 +64,8 @@ func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string
 		BinaryPath   string                     `json:"binary_path"`
 		Offset       uint64                     `json:"offset"`
 		PID          int                        `json:"pid"`
+		SizeBytes    uint64                     `json:"size_bytes"`
+		HasSize      bool                       `json:"has_size"`
 		Arguments    []*ArgumentMetadataJSON    `json:"arguments"`
 		ReturnValues []*ReturnValueMetadataJSON `json:"return_values"`
 	}
@@ -79,12 +81,14 @@ func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string
 		Str("binary", meta.BinaryPath).
 		Msg("Got function metadata from SDK")
 
-	// Map to native struct
+	// Map to native struct.
 	nativeMeta := &FunctionMetadata{
 		Name:       meta.Name,
 		BinaryPath: meta.BinaryPath,
 		Offset:     meta.Offset,
 		Pid:        uint32(meta.PID),
+		SizeBytes:  meta.SizeBytes,
+		HasSize:    meta.HasSize,
 	}
 
 	for _, arg := range meta.Arguments {
