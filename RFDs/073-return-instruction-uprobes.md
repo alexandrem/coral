@@ -1,7 +1,7 @@
 ---
 rfd: "073"
 title: "Return-Instruction Uprobes for Go"
-state: "in-progress"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "ebpf", "linux" ]
 
 # RFD 073 - Return-Instruction Uprobes for Go
 
-**Status:** 🔄 In Progress
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -378,6 +378,10 @@ Fallback behavior:
 
 ### Phase 5: Integration Testing & Documentation
 
+E2E integration tests require the full Linux distributed test environment
+(docker compose, agent, colony, SDK app). These are deferred to a follow-up
+change since they cannot be validated on macOS. See **Future Work** below.
+
 - [ ] Add test helper assertions for duration verification in
   `tests/e2e/distributed/helpers/assertions.go`.
 - [ ] Add `TestUprobeReturnTracing` to E2E test suite (
@@ -475,7 +479,7 @@ provides instrumented functions:
 | Complex function (5 RETs) | 6 total (1 entry + 5 RETs) | < 2%                  | < 5%                    |
 | 3 concurrent sessions     | 18 total (3 × 6)           | < 4%                  | < 10%                   |
 
-Note: These are estimates. Actual measurements will be performed in Phase 6.
+Note: These are estimates. Actual measurements will be performed in Phase 5.
 
 ### Edge Cases
 
@@ -581,6 +585,16 @@ If issues arise:
 
 ## Future Work
 
+**E2E Integration Tests** (Follow-up)
+
+- Add `TestUprobeReturnTracing` to `tests/e2e/distributed/debug_test.go`.
+- Add helper assertions `AssertReturnEventDuration` and
+  `AssertEntryReturnPaired` in `tests/e2e/distributed/helpers/assertions.go`.
+- Test multiple return paths, recursive functions, concurrent goroutines.
+- Validate duration correctness (±5% of expected sleep time).
+- Test orphaned entry cleanup after panic.
+- Requires Linux distributed test environment (docker compose).
+
 **ARM64 Support** (Future - RFD TBD)
 
 - Extend disassembly to ARM64 architecture.
@@ -621,26 +635,36 @@ If issues arise:
 
 ## Implementation Status
 
-**Core Capability:** 🔄 In Progress
+**Core Capability:** 🎉 Implemented
 
-Starting with Phase 1 (SDK function size metadata), then BPF changes, disassembly, uprobe attachment, and integration tests.
+Return-Instruction Uprobes are fully implemented. The agent automatically
+disassembles functions and attaches uprobes to RET instructions when function
+size metadata is available from the SDK.
 
-**Prerequisites:**
+**What was built:**
 
-- ✅ RFD 061 (eBPF Uprobe Mechanism) - Implemented
-- ✅ RFD 066 (SDK HTTP API) - Implemented
+- ✅ SDK function size metadata (`size_bytes`, `has_size`) extracted from DWARF
+  `DW_AT_high_pc` / `DW_AT_low_pc` attributes. Propagated through HTTP API,
+  binary scanner, and discovery service.
+- ✅ BPF map key updated to `{pid_tgid, stack_ptr}` for recursion safety.
+  BPF value includes `created_at` for orphaned entry cleanup.
+- ✅ x86-64 disassembler (`internal/agent/ebpf/disasm/`) using
+  `golang.org/x/arch/x86/x86asm` with `Disassembler` interface for future
+  ARM64 support. Unit tests for RET detection (single, multiple, zero RETs).
+- ✅ `UprobeCollector.Start()` automatically disassembles the function and
+  attaches uprobes to each RET instruction. Falls back to entry-only when
+  disassembly fails or size is unavailable.
+- ✅ `AttachResult.ReturnLinks` tracks multiple return probe links; all closed
+  on `Stop()`.
+- ✅ Periodic cleanup goroutine (every 30s) removes orphaned BPF map entries
+  older than 60s.
+- ✅ `duration_ns` field in `UprobeEvent` protobuf is now populated by the BPF
+  return handler.
 
-**Dependency Notes:**
+**What remains (E2E testing):**
 
-This RFD extends RFD 066 by adding function size metadata to the HTTP API.
-The Agent only requires the `size_bytes` field to enable return
-probes - other metadata fields are optional for this feature.
-
-**Integration Status:**
-
-- ⏳ SDK function size metadata - Not started
-- ⏳ Agent disassembly implementation - Not started
-- ⏳ Multiple return probe attachment - Not started
+E2E integration tests (`TestUprobeReturnTracing`) require the full Linux
+distributed test environment. See Phase 5 and Future Work.
 
 ## Appendix
 
