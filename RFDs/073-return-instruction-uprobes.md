@@ -1,7 +1,7 @@
 ---
 rfd: "073"
 title: "Return-Instruction Uprobes for Go"
-state: "draft"
+state: "in-progress"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "ebpf", "linux" ]
 
 # RFD 073 - Return-Instruction Uprobes for Go
 
-**Status:** 🚧 Draft
+**Status:** 🔄 In Progress
 
 ## Summary
 
@@ -342,38 +342,38 @@ Fallback behavior:
 
 ### Phase 1: SDK Function Size Metadata
 
-- [ ] Extend SDK HTTP API response to include `size_bytes` and `has_size` fields.
-- [ ] Implement function size calculation from DWARF in SDK metadata provider.
-- [ ] Handle stripped binaries gracefully (return `has_size: false`).
-- [ ] Update `GET /debug/functions/{name}` handler to return size.
-- [ ] Update `GET /debug/functions/export` to include size in bulk export.
-- [ ] Test with sample Go functions of varying sizes and stripped binaries.
+- [x] Extend SDK HTTP API response to include `size_bytes` and `has_size` fields.
+- [x] Implement function size calculation from DWARF in SDK metadata provider.
+- [x] Handle stripped binaries gracefully (return `has_size: false`).
+- [x] Update `GET /debug/functions/{name}` handler to return size.
+- [x] Update `GET /debug/functions/export` to include size in bulk export.
+- [x] Test with sample Go functions of varying sizes and stripped binaries.
 
 ### Phase 2: BPF Program Enhancement
 
-- [ ] Update BPF map key to include stack pointer (`pid_tgid` + `stack_ptr`).
-- [ ] Add `created_at` field to BPF map value for cleanup.
-- [ ] Update entry uprobe BPF program to use new key structure.
-- [ ] Update return uprobe BPF program to use new key structure.
+- [x] Update BPF map key to include stack pointer (`pid_tgid` + `stack_ptr`).
+- [x] Add `created_at` field to BPF map value for cleanup.
+- [x] Update entry uprobe BPF program to use new key structure.
+- [x] Update return uprobe BPF program to use new key structure.
 - [ ] Test recursion: verify nested calls have independent durations.
 
 ### Phase 3: Binary Disassembly
 
-- [ ] Add dependency: `golang.org/x/arch/x86/x86asm`.
-- [ ] Implement architecture abstraction interface (`Disassembler`).
-- [ ] Implement x86-64 disassembler with RET instruction detection.
-- [ ] Add unit tests for disassembly with known function binaries.
-- [ ] Handle disassembly errors gracefully (log and fallback to entry-only).
-- [ ] Test with tail-call optimized functions (no RET instructions).
+- [x] Add dependency: `golang.org/x/arch/x86/x86asm`.
+- [x] Implement architecture abstraction interface (`Disassembler`).
+- [x] Implement x86-64 disassembler with RET instruction detection.
+- [x] Add unit tests for disassembly with known function binaries.
+- [x] Handle disassembly errors gracefully (log and fallback to entry-only).
+- [x] Test with tail-call optimized functions (no RET instructions).
 
 ### Phase 4: Multiple Uprobe Attachment
 
-- [ ] Refactor `UprobeCollector` to track multiple return links per session.
-- [ ] Modify `Start()` to attach N return probes based on disassembly.
-- [ ] Populate `duration_ns` field in return events (protobuf field already exists).
-- [ ] Update `Stop()` to close all return probe links.
-- [ ] Implement periodic cleanup goroutine (every 30s, 60s timeout).
-- [ ] Add logging for number of RET instructions found per function.
+- [x] Refactor `UprobeCollector` to track multiple return links per session.
+- [x] Modify `Start()` to attach N return probes based on disassembly.
+- [x] Populate `duration_ns` field in return events (protobuf field already exists).
+- [x] Update `Stop()` to close all return probe links.
+- [x] Implement periodic cleanup goroutine (every 30s, 60s timeout).
+- [x] Add logging for number of RET instructions found per function.
 - [ ] Test with functions having 1, 3, 5+ return paths.
 
 ### Phase 5: Integration Testing & Documentation
@@ -621,9 +621,9 @@ If issues arise:
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🔄 In Progress
 
-This RFD is in draft stage. Implementation will begin after approval.
+Starting with Phase 1 (SDK function size metadata), then BPF changes, disassembly, uprobe attachment, and integration tests.
 
 **Prerequisites:**
 

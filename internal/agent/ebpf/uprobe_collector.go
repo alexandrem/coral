@@ -20,6 +20,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/bpfgen"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/disasm"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 )
 
@@ -51,6 +52,8 @@ type UprobeCollector struct {
 	// Function discovery
 	discoveryService *DiscoveryService
 	funcOffset       uint64
+	funcSizeBytes    uint64
+	hasFuncSize      bool
 	binaryPath       string
 	pid              uint32
 
@@ -130,11 +133,15 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	c.funcOffset = result.Metadata.Offset
 	c.binaryPath = result.Metadata.BinaryPath
 	c.pid = result.Metadata.Pid
+	c.funcSizeBytes = result.Metadata.SizeBytes
+	c.hasFuncSize = result.Metadata.HasSize
 
 	c.logger.Info().
 		Str("binary", c.binaryPath).
 		Uint64("offset", c.funcOffset).
 		Uint32("pid", c.pid).
+		Uint64("size_bytes", c.funcSizeBytes).
+		Bool("has_size", c.hasFuncSize).
 		Str("discovery_method", string(result.Method)).
 		Msg("Successfully discovered function metadata")
 
@@ -153,34 +160,71 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to write initial filter config: %w", err)
 	}
 
-	// Step 3: Attach uprobe using shared attacher.
-	// NOTE: Uretprobes are disabled for Go programs due to runtime incompatibility.
-	// Go uses a custom calling convention and stack management that conflicts with
-	// uretprobe's return address manipulation, causing "unexpected return pc" crashes.
-	// We only attach to function entry and won't capture return/duration information.
-	// TODO: disassemble function and attach many uprobes for RET (Return-Instruction Uprobes).
+	// Step 3: Attach uprobe to function entry.
+	attachCfg := uprobe.AttachConfig{
+		PID:          c.pid,
+		Offset:       c.funcOffset,
+		BinaryPath:   c.binaryPath,
+		AttachReturn: false, // Uretprobes disabled for Go; we use RET-instruction uprobes instead.
+		PIDFilter:    0,     // Trace all processes using this binary (inode). Avoids PID namespace issues.
+		Logger:       c.logger,
+	}
+
 	c.attachResult, err = uprobe.AttachUprobe(
-		uprobe.AttachConfig{
-			PID:          c.pid,
-			Offset:       c.funcOffset,
-			BinaryPath:   c.binaryPath,
-			AttachReturn: false, // Disabled for Go programs
-			PIDFilter:    0,     // Trace all processes using this binary (inode). Avoids PID namespace issues.
-			Logger:       c.logger,
-		},
+		attachCfg,
 		c.objs.UprobeEntry,
-		nil, // No return probe
+		nil, // No uretprobe (incompatible with Go)
 		c.objs.Events,
 	)
 	if err != nil {
-		c.objs.Close() // nolint:errcheck
+		c.objs.Close() //nolint:errcheck
 		return fmt.Errorf("failed to attach uprobe: %w", err)
+	}
+
+	// Step 4: Attach return probes to RET instructions (RFD 073).
+	// Disassemble function to find all RET instruction offsets, then attach
+	// uprobes to each one. Falls back to entry-only if disassembly fails.
+	if c.hasFuncSize && c.funcSizeBytes > 0 {
+		resolvedPath := fmt.Sprintf("/proc/%d/exe", c.pid)
+		d := disasm.NewX86Disassembler()
+		retOffsets, disasmErr := d.FindRETOffsets(resolvedPath, c.funcOffset, c.funcSizeBytes)
+		if disasmErr != nil {
+			c.logger.Warn().Err(disasmErr).
+				Msg("Could not disassemble function, duration metrics unavailable")
+		} else if len(retOffsets) == 0 {
+			c.logger.Warn().
+				Msg("No RET instructions found (tail-call optimized?), duration metrics unavailable")
+		} else {
+			c.logger.Info().
+				Int("ret_count", len(retOffsets)).
+				Msg("Found RET instructions, attaching return probes")
+
+			returnLinks, retErr := uprobe.AttachReturnProbes(attachCfg, c.objs.UprobeReturn, retOffsets)
+			if retErr != nil {
+				c.logger.Warn().Err(retErr).
+					Msg("Failed to attach return probes, continuing with entry-only")
+			} else {
+				c.attachResult.ReturnLinks = returnLinks
+				c.logger.Info().
+					Int("return_probes", len(returnLinks)).
+					Msg("Successfully attached return probes to RET instructions")
+			}
+		}
+	} else {
+		c.logger.Info().
+			Msg("Function size not available, entry-only probe (no duration metrics)")
 	}
 
 	// Store reader reference for easy access.
 	c.reader = c.attachResult.Reader
 
 	go c.readEvents()
+
+	// Start periodic cleanup of orphaned BPF map entries (RFD 073).
+	// Entries older than 60s are removed (caused by panics, SIGKILL, etc.).
+	if len(c.attachResult.ReturnLinks) > 0 {
+		go c.cleanupOrphanedEntries()
+	}
 
 	c.logger.Info().Msg("Uprobe collector started successfully")
 	return nil
@@ -314,6 +358,55 @@ func (c *UprobeCollector) readEvents() {
 			Str("event_type", event.EventType).
 			Uint64("duration_ns", event.DurationNs).
 			Msg("Collected uprobe event")
+	}
+}
+
+// cleanupOrphanedEntries periodically removes stale entries from the BPF entry_times map.
+// Orphaned entries occur when functions panic, are killed, or enter infinite loops (RFD 073).
+func (c *UprobeCollector) cleanupOrphanedEntries() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.doCleanup()
+		}
+	}
+}
+
+// doCleanup iterates the entry_times map and removes entries older than 60s.
+func (c *UprobeCollector) doCleanup() {
+	if c.objs == nil || c.objs.EntryTimes == nil {
+		return
+	}
+
+	const maxAgeNs = 60_000_000_000 // 60 seconds
+	now := uint64(time.Now().UnixNano())
+
+	var key bpfgen.UprobeEntryKey
+	var val bpfgen.UprobeEntryValue
+	var keysToDelete []bpfgen.UprobeEntryKey
+
+	iter := c.objs.EntryTimes.Iterate()
+	for iter.Next(&key, &val) {
+		if now-val.CreatedAt > maxAgeNs {
+			keysToDelete = append(keysToDelete, key)
+		}
+	}
+
+	for _, k := range keysToDelete {
+		if err := c.objs.EntryTimes.Delete(k); err != nil {
+			c.logger.Debug().Err(err).Msg("Failed to delete orphaned entry")
+		}
+	}
+
+	if len(keysToDelete) > 0 {
+		c.logger.Info().
+			Int("cleaned", len(keysToDelete)).
+			Msg("Cleaned orphaned entry_times entries")
 	}
 }
 

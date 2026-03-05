@@ -52,22 +52,29 @@ type FunctionMetadataProvider struct {
 
 // BasicInfo contains minimal function metadata for listing and discovery.
 type BasicInfo struct {
-	Name   string `json:"name"`
-	Offset uint64 `json:"offset"`
-	File   string `json:"file,omitempty"`
-	Line   int    `json:"line,omitempty"`
+	Name      string `json:"name"`
+	Offset    uint64 `json:"offset"`
+	File      string `json:"file,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	SizeBytes uint64 `json:"size_bytes,omitempty"`
+	HasSize   bool   `json:"has_size,omitempty"`
 }
 
 // FunctionMetadata contains all information needed for uprobe attachment.
 type FunctionMetadata struct {
-	Name       string
-	BinaryPath string
-	Offset     uint64
-	PID        uint32
+	Name       string `json:"name"`
+	BinaryPath string `json:"binary_path"`
+	Offset     uint64 `json:"offset"`
+	PID        uint32 `json:"pid"`
+
+	// Function size in bytes from DWARF (DW_AT_high_pc - DW_AT_low_pc).
+	// Used by the agent to disassemble the function and find RET instructions (RFD 073).
+	SizeBytes uint64 `json:"size_bytes"`
+	HasSize   bool   `json:"has_size"`
 
 	// Argument and return value metadata (from DWARF).
-	Arguments    []*ArgumentMetadata
-	ReturnValues []*ReturnValueMetadata
+	Arguments    []*ArgumentMetadata    `json:"arguments"`
+	ReturnValues []*ReturnValueMetadata `json:"return_values"`
 }
 
 // ArgumentMetadata describes a function argument.
@@ -313,11 +320,30 @@ func (p *FunctionMetadataProvider) buildIndex() error {
 				}
 			}
 
+			// Calculate function size from DW_AT_high_pc (RFD 073).
+			var sizeBytes uint64
+			var hasSize bool
+			if highPC, ok := entry.Val(dwarf.AttrHighpc).(uint64); ok {
+				if highPC > lowPC {
+					sizeBytes = highPC - lowPC
+				} else {
+					sizeBytes = highPC
+				}
+				hasSize = sizeBytes > 0
+			} else if highPCVal, ok := entry.Val(dwarf.AttrHighpc).(int64); ok {
+				if highPCVal > 0 {
+					sizeBytes = uint64(highPCVal)
+					hasSize = true
+				}
+			}
+
 			info := &BasicInfo{
-				Name:   name,
-				Offset: fileOffset,
-				File:   file,
-				Line:   line,
+				Name:      name,
+				Offset:    fileOffset,
+				File:      file,
+				Line:      line,
+				SizeBytes: sizeBytes,
+				HasSize:   hasSize,
 			}
 
 			index = append(index, info)
@@ -528,36 +554,46 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 	p.logger.Debug("Searching for function details", "function", functionName)
 
 	var (
-		offset  uint64
-		args    []*ArgumentMetadata
-		retVals []*ReturnValueMetadata
-		err     error
+		metadata *FunctionMetadata
+		err      error
 	)
 
 	if p.dwarf != nil {
-		offset, args, retVals, err = p.searchDWARFForFunction(functionName)
+		result, dwarfErr := p.searchDWARFForFunction(functionName)
+		if dwarfErr != nil {
+			err = dwarfErr
+		} else {
+			metadata = &FunctionMetadata{
+				Name:         functionName,
+				BinaryPath:   p.binaryPath,
+				Offset:       result.Offset,
+				PID:          uint32(p.pid),
+				SizeBytes:    result.SizeBytes,
+				HasSize:      result.HasSize,
+				Arguments:    result.Arguments,
+				ReturnValues: result.ReturnValues,
+			}
+		}
 	} else {
-		// Fallback to symbol table
-		offset, err = p.searchReflectionForFunction(functionName)
-		if err == nil {
-			// Found in symbol table.
-			// We don't have args/retVals from symbols.
-			args = []*ArgumentMetadata{}
-			retVals = []*ReturnValueMetadata{}
+		// Fallback to symbol table.
+		offset, symErr := p.searchReflectionForFunction(functionName)
+		if symErr != nil {
+			err = symErr
+		} else {
+			// Found in symbol table. No args/retVals or size from symbols.
+			metadata = &FunctionMetadata{
+				Name:         functionName,
+				BinaryPath:   p.binaryPath,
+				Offset:       offset,
+				PID:          uint32(p.pid),
+				Arguments:    []*ArgumentMetadata{},
+				ReturnValues: []*ReturnValueMetadata{},
+			}
 		}
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("function %s not found: %w", functionName, err)
-	}
-
-	metadata := &FunctionMetadata{
-		Name:         functionName,
-		BinaryPath:   p.binaryPath,
-		Offset:       offset,
-		PID:          uint32(p.pid),
-		Arguments:    args,
-		ReturnValues: retVals,
 	}
 
 	// Cache the result in LRU cache.
@@ -624,10 +660,19 @@ func (p *FunctionMetadataProvider) CountFunctions(pattern string) int {
 	return count
 }
 
+// dwarfFunctionResult holds the result of a DWARF function search.
+type dwarfFunctionResult struct {
+	Offset       uint64
+	SizeBytes    uint64
+	HasSize      bool
+	Arguments    []*ArgumentMetadata
+	ReturnValues []*ReturnValueMetadata
+}
+
 // searchDWARFForFunction searches DWARF debug info for a function and extracts metadata.
 func (p *FunctionMetadataProvider) searchDWARFForFunction(
 	funcName string,
-) (uint64, []*ArgumentMetadata, []*ReturnValueMetadata, error) {
+) (*dwarfFunctionResult, error) {
 	reader := p.dwarf.Reader()
 
 	for {
@@ -651,18 +696,44 @@ func (p *FunctionMetadataProvider) searchDWARFForFunction(
 				// Parse function arguments and return values.
 				args, retVals := p.parseFunctionParameters(reader, entry)
 
-				// Convert virtual address to file offset by subtracting base address
+				// Convert virtual address to file offset by subtracting base address.
 				fileOffset := lowPC
 				if p.baseAddr > 0 {
 					fileOffset = lowPC - p.baseAddr
 				}
 
-				return fileOffset, args, retVals, nil
+				// Calculate function size from DW_AT_high_pc (RFD 073).
+				// DW_AT_high_pc can be either an absolute address or a relative offset
+				// depending on the DWARF form used.
+				result := &dwarfFunctionResult{
+					Offset:       fileOffset,
+					Arguments:    args,
+					ReturnValues: retVals,
+				}
+				if highPC, ok := entry.Val(dwarf.AttrHighpc).(uint64); ok {
+					// High PC is an offset from low PC (DWARF4+ constant form).
+					if highPC > lowPC {
+						// Absolute address.
+						result.SizeBytes = highPC - lowPC
+					} else {
+						// Relative offset.
+						result.SizeBytes = highPC
+					}
+					result.HasSize = result.SizeBytes > 0
+				} else if highPCAddr, ok := entry.Val(dwarf.AttrHighpc).(int64); ok {
+					// Some DWARF versions use signed offset.
+					if highPCAddr > 0 {
+						result.SizeBytes = uint64(highPCAddr)
+						result.HasSize = true
+					}
+				}
+
+				return result, nil
 			}
 		}
 	}
 
-	return 0, nil, nil, fmt.Errorf("function not found in DWARF symbols")
+	return nil, fmt.Errorf("function not found in DWARF symbols")
 }
 
 // parseFunctionParameters extracts argument and return value metadata from a function entry.
