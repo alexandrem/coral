@@ -12,6 +12,7 @@ require (
 	github.com/cilium/ebpf v0.16.0
 	github.com/coral-mesh/coral-crypto v0.1.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/google/cel-go v0.27.0
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/pprof v0.0.0-20260202012954-cb029daf43ef
 	github.com/google/uuid v1.6.0
@@ -77,7 +78,6 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/google/cel-go v0.27.0 // indirect
 	github.com/google/flatbuffers v25.1.24+incompatible // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
