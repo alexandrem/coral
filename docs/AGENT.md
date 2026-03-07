@@ -465,14 +465,14 @@ coral debug cpu-profile --service api \
     --since "2025-12-15 14:00:00" \
     --until "2025-12-15 15:00:00"
 
-# Generate flame graph (requires flamegraph.pl)
-coral debug cpu-profile --service api --since 5m | \
-    flamegraph.pl > cpu.svg
+# Generate interactive SVG flame graph
+coral debug cpu-profile --service api --since 5m --format svg > cpu.svg
 ```
 
 **Output Format:**
 
-Profiles are returned in "folded stack" format compatible with flamegraph.pl:
+Profiles are returned in "folded stack" format by default, or as interactive SVG
+flame graphs with `--format svg`:
 
 ```
 main;processRequest;parseJSON;unmarshal 847

@@ -461,9 +461,9 @@ function tracing by showing exactly where CPU time is spent.
 - **Historical queries** - Query continuous profiling data with `coral query cpu-profile`
 - **Low overhead** - 99Hz sampling (< 1% CPU overhead)
 - **Production safe** - No code modifications required
-- **Flame graph compatible** - Output in folded stack format for flamegraph.pl
+- **Native flame graphs** - Generate interactive SVG flame graphs with `--format svg`
 - **Stack traces** - Captures both user and kernel stack traces
-- **Flexible output** - Folded format (default) or JSON
+- **Flexible output** - Folded format (default), JSON, or SVG flame graph
 
 **On-Demand Profiling:**
 
@@ -471,8 +471,8 @@ function tracing by showing exactly where CPU time is spent.
 # Capture 30s CPU profile and output folded format
 coral profile cpu --service api --duration 30
 
-# Generate flamegraph SVG (requires flamegraph.pl)
-coral profile cpu --service api --duration 30 | scripts/flamegraph.pl > cpu.svg
+# Generate interactive SVG flame graph (no external tools needed)
+coral profile cpu --service api --duration 30 --format svg > cpu.svg
 
 # Profile with JSON output
 coral profile cpu --service api --duration 10 --format json
@@ -488,7 +488,7 @@ coral query cpu-profile --service api --since 1h
 coral query cpu-profile --service api --since 2h --until 1h
 
 # Generate flame graph from historical data
-coral query cpu-profile --service api --since 1h | flamegraph.pl > cpu-historical.svg
+coral query cpu-profile --service api --since 1h --format svg > cpu-historical.svg
 ```
 
 **Advanced Options:**
@@ -520,15 +520,11 @@ Each line shows:
 **Generating Flame Graphs:**
 
 ```bash
-# Install flamegraph.pl (one-time setup)
-git clone https://github.com/brendangregg/FlameGraph
-cd FlameGraph
-
-# Generate CPU flame graph (on-demand)
-coral profile cpu --service api --duration 30 | ./flamegraph.pl > cpu.svg
+# Generate interactive SVG flame graph (built-in, no external tools needed)
+coral profile cpu --service api --duration 30 --format svg > cpu.svg
 
 # Generate flame graph from historical data
-coral query cpu-profile --service api --since 1h | ./flamegraph.pl > cpu-historical.svg
+coral query cpu-profile --service api --since 1h --format svg > cpu-historical.svg
 
 # Open in browser
 open cpu.svg
@@ -554,16 +550,13 @@ open cpu.svg
 1. **Identify high CPU usage:**
    `coral ask "Why is the API using so much CPU?"`
 
-2. **Collect on-demand CPU profile:**
-   `coral profile cpu --service api --duration 30 > profile.folded`
+2. **Collect on-demand CPU profile as flame graph:**
+   `coral profile cpu --service api --duration 30 --format svg > cpu.svg`
 
 3. **Or query historical data:**
-   `coral query cpu-profile --service api --since 1h > profile-historical.folded`
+   `coral query cpu-profile --service api --since 1h --format svg > cpu-historical.svg`
 
-4. **Generate flame graph:**
-   `cat profile.folded | scripts/flamegraph.pl > cpu.svg`
-
-5. **Analyze results:**
+4. **Analyze results:**
    Open `cpu.svg` in browser to identify hot code paths
 
 6. **Deep dive with uprobes:**
@@ -583,7 +576,7 @@ showing exactly where memory is allocated.
 - **Historical queries** - Query continuous profiling data with `coral query memory-profile`
 - **Low overhead** - <1% CPU overhead for continuous mode
 - **Production safe** - No code modifications required
-- **Flame graph compatible** - Output in folded stack format for flamegraph.pl
+- **Native flame graphs** - Generate interactive SVG flame graphs with `--format svg`
 - **Summary format** - Human/LLM readable output with top allocators
 - **Type breakdown** - Categorize allocations by type (slice, map, object, etc.)
 
@@ -593,8 +586,8 @@ showing exactly where memory is allocated.
 # Capture 30s memory profile
 coral profile memory --service api --duration 30
 
-# Generate flamegraph SVG (requires flamegraph.pl)
-coral profile memory --service api --duration 30 --format folded | scripts/flamegraph.pl > memory.svg
+# Generate interactive SVG flame graph (no external tools needed)
+coral profile memory --service api --duration 30 --format svg > memory.svg
 
 # Profile with JSON output
 coral profile memory --service api --duration 10 --format json
@@ -628,11 +621,11 @@ coral query memory-profile --service api --since 1h --show-types
 #   12.1%  290.4 MB string
 ```
 
-**Historical Profiling (Folded Format - For Flamegraphs):**
+**Historical Profiling (SVG Flame Graph):**
 
 ```bash
 # Generate flame graph from historical data
-coral query memory-profile --service api --since 1h --format folded | flamegraph.pl > memory-historical.svg
+coral query memory-profile --service api --since 1h --format svg > memory-historical.svg
 ```
 
 **Advanced Options:**
@@ -650,7 +643,8 @@ coral query memory-profile --service api --since 2h --until 1h
 - **summary** (default) - Human/LLM readable format with top allocators and
   percentages. Function names are shortened (e.g., `github.com/myapp/orders.ProcessOrder`
   becomes `orders.ProcessOrder`).
-- **folded** - Flamegraph-compatible format for visualization tools.
+- **folded** - Folded stack format for external visualization tools.
+- **svg** - Interactive SVG flame graph (zoom, search, tooltips).
 
 **When to Use Memory Profiling:**
 
@@ -672,7 +666,7 @@ coral query memory-profile --service api --since 2h --until 1h
    `coral query memory-profile --service api --since 1h --show-types`
 
 4. **Generate flame graph:**
-   `coral query memory-profile --service api --since 1h --format folded | scripts/flamegraph.pl > memory.svg`
+   `coral query memory-profile --service api --since 1h --format svg > memory.svg`
 
 5. **Analyze results:**
    Open `memory.svg` in browser to identify allocation hotspots
