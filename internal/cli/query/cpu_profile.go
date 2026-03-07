@@ -12,6 +12,7 @@ import (
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/flamegraph"
 )
 
 // NewCPUProfileCmd creates the cpu-profile query command.
@@ -45,8 +46,8 @@ Examples:
   # Filter by build ID
   coral query cpu-profile --service api --build-id abc123 --since 24h
 
-  # Generate flamegraph
-  coral query cpu-profile --service api --since 1h | flamegraph.pl > cpu-historical.svg`,
+  # Generate interactive SVG flame graph
+  coral query cpu-profile --service api --since 1h --format svg > cpu.svg`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if serviceName == "" {
 				return fmt.Errorf("--service is required")
@@ -119,23 +120,43 @@ Examples:
 			fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(resp.Msg.Samples))
 			fmt.Fprintf(os.Stderr, "Total samples: %d\n\n", resp.Msg.TotalSamples)
 
-			// Output folded stack format to stdout.
-			for _, sample := range resp.Msg.Samples {
-				if len(sample.FrameNames) == 0 {
-					continue
-				}
-
-				// Folded format: frame1;frame2;frame3 count
-				// Stack frames from gRPC response are in the correct order (root to leaf).
-				// Reverse them for flamegraph.pl compatibility (innermost first).
-				for i := len(sample.FrameNames) - 1; i >= 0; i-- {
-					fmt.Print(sample.FrameNames[i])
-					if i > 0 {
-						fmt.Print(";")
+			switch format {
+			case "svg":
+				stacks := make([]flamegraph.FoldedStack, 0, len(resp.Msg.Samples))
+				for _, s := range resp.Msg.Samples {
+					if len(s.FrameNames) == 0 {
+						continue
 					}
+					// Reverse frames: response has root-to-leaf, but we re-reverse
+					// to match the convention used by cpuSamplesToFolded.
+					frames := make([]string, len(s.FrameNames))
+					for i, f := range s.FrameNames {
+						frames[len(s.FrameNames)-1-i] = f
+					}
+					stacks = append(stacks, flamegraph.FoldedStack{
+						Frames: frames,
+						Value:  int64(s.Count),
+					})
 				}
-
-				fmt.Printf(" %d\n", sample.Count)
+				return flamegraph.Render(os.Stdout, stacks, flamegraph.Options{
+					Title:     "CPU Flame Graph (Historical)",
+					CountName: "samples",
+					Colors:    flamegraph.PaletteHot,
+				})
+			default:
+				// Output folded stack format to stdout.
+				for _, sample := range resp.Msg.Samples {
+					if len(sample.FrameNames) == 0 {
+						continue
+					}
+					for i := len(sample.FrameNames) - 1; i >= 0; i-- {
+						fmt.Print(sample.FrameNames[i])
+						if i > 0 {
+							fmt.Print(";")
+						}
+					}
+					fmt.Printf(" %d\n", sample.Count)
+				}
 			}
 
 			return nil
@@ -146,7 +167,7 @@ Examples:
 	cmd.Flags().StringVar(&since, "since", "1h", "Query from this time ago (e.g., '1h', '30m', '24h')")
 	cmd.Flags().StringVar(&until, "until", "", "Query until this time ago (default: now)")
 	cmd.Flags().StringVar(&buildID, "build-id", "", "Filter by specific build ID")
-	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded, json")
+	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded, svg")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 
