@@ -825,7 +825,7 @@ continuous_profiling:
 - Stack traces from CPU samples (user + kernel space)
 - Binary build IDs for version tracking
 - Sample counts per unique stack trace
-- Compatible with flamegraph.pl for visualization
+- Native SVG flame graph generation with `--format svg`
 
 **Storage and Retention:**
 
@@ -852,8 +852,8 @@ coral debug cpu-profile --service api \
     --since "2025-12-15 14:00:00" \
     --until "2025-12-15 15:00:00"
 
-# Generate flame graph
-coral debug cpu-profile --service api --since 5m | flamegraph.pl > cpu.svg
+# Generate interactive SVG flame graph
+coral debug cpu-profile --service api --since 5m --format svg > cpu.svg
 ```
 
 **Disabling Continuous Profiling:**
@@ -954,7 +954,7 @@ continuous_profiling:
 - Allocation bytes and object counts per stack
 - Top allocating functions (pre-computed, with shortened names)
 - Top allocation types (slice, map, object, string, etc.)
-- Compatible with flamegraph.pl for visualization
+- Native SVG flame graph generation with `--format svg`
 
 **Storage and Retention:**
 
@@ -979,8 +979,8 @@ coral query memory-profile --service api --since 1h
 # Include allocation type breakdown
 coral query memory-profile --service api --since 1h --show-types
 
-# Generate flame graph from historical data
-coral query memory-profile --service api --since 1h --format folded | flamegraph.pl > memory.svg
+# Generate interactive SVG flame graph from historical data
+coral query memory-profile --service api --since 1h --format svg > memory.svg
 ```
 
 **Output Format (Summary - Default):**

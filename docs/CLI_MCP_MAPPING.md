@@ -292,7 +292,7 @@ coral query logs [service] [--since <duration>] [--level debug|info|warn|error] 
 ### Historical Memory Profiles
 
 ```bash
-coral query memory-profile --service <name> [--since <duration>] [--format summary|folded] [--show-types]
+coral query memory-profile --service <name> [--since <duration>] [--format summary|folded|svg] [--show-types]
 ```
 
 **MCP Equivalent:** `coral_query_memory_profile`
@@ -341,7 +341,7 @@ Top Memory Allocators:
 ### On-Demand Memory Profiling
 
 ```bash
-coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json]
+coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json|svg]
 ```
 
 **MCP Equivalent:** `coral_profile_memory`
