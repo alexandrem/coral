@@ -10,8 +10,11 @@ applications **without SDK integration** (if the binary has debug symbols).
 
 > **Production Note:** Most production Go binaries use `-ldflags="-w -s"` to
 > fully strip debug symbols. For these binaries, **SDK integration is required
-**.
+> **.
 > Agentless mode is best for development builds and legacy apps with symbols.
+>
+> **See also**: [Go Function Inlining & Tracing](GO_INLINING_AND_TRACING.md) for
+> details on how compiler optimizations affect discovery.
 
 ## How It Works
 
@@ -187,12 +190,12 @@ If you see these symptoms, frame pointers are likely missing:
 
 ### Platform Matrix
 
-| Platform                    | Frame Pointers Default | Build Flag Required      |
-|-----------------------------|------------------------|--------------------------|
-| AMD64 (x86_64)              | ✅ Yes (Go 1.7+)        | None                     |
-| ARM64 (Apple Silicon)       | ❌ No                   | `-tags=framepointer`     |
-| ARM64 (AWS Graviton)        | ❌ No                   | `-tags=framepointer`     |
-| ARM32                       | ❌ No                   | `-tags=framepointer`     |
+| Platform              | Frame Pointers Default | Build Flag Required  |
+|-----------------------|------------------------|----------------------|
+| AMD64 (x86_64)        | ✅ Yes (Go 1.7+)        | None                 |
+| ARM64 (Apple Silicon) | ❌ No                   | `-tags=framepointer` |
+| ARM64 (AWS Graviton)  | ❌ No                   | `-tags=framepointer` |
+| ARM32                 | ❌ No                   | `-tags=framepointer` |
 
 ### System Requirements
 
