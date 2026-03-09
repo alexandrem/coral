@@ -161,12 +161,17 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	}
 
 	// Step 3: Attach uprobe to function entry.
+	// Use c.pid as PIDFilter so perf_event_open uses pid=c.pid, cpu=-1 (all CPUs).
+	// With PIDFilter=0 the kernel uses pid=-1, cpu=0 (CPU 0 only), which misses
+	// goroutines that migrate to other CPUs during a blocking call (e.g. time.Sleep).
+	// c.pid is valid here because sdk-app and agent share the same PID namespace
+	// (pid: "service:agent-1" in docker-compose).
 	attachCfg := uprobe.AttachConfig{
 		PID:          c.pid,
 		Offset:       c.funcOffset,
 		BinaryPath:   c.binaryPath,
-		AttachReturn: false, // Uretprobes disabled for Go; we use RET-instruction uprobes instead.
-		PIDFilter:    0,     // Trace all processes using this binary (inode). Avoids PID namespace issues.
+		AttachReturn: false,      // Uretprobes disabled for Go; we use RET-instruction uprobes instead.
+		PIDFilter:    int(c.pid), //nolint:gosec // G115: PID is always a small positive integer.
 		Logger:       c.logger,
 	}
 

@@ -222,6 +222,7 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	s.Run("UprobeTracing", debugSuite.TestUprobeTracing)
 	s.Run("UprobeCallTree", debugSuite.TestUprobeCallTree)
 	s.Run("MultiAgentDebugSession", debugSuite.TestMultiAgentDebugSession)
+	s.Run("UprobeReturnTracing", debugSuite.TestUprobeReturnTracing)
 	s.Run("UprobeFilterAttach", debugSuite.TestUprobeFilterAttach)
 	s.Run("UprobeFilterLiveUpdate", debugSuite.TestUprobeFilterLiveUpdate)
 

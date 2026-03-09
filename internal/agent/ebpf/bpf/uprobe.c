@@ -123,9 +123,10 @@ int uprobe_entry(struct pt_regs *ctx) {
     return 0;
 }
 
-// Return uprobe handler - attached to RET instructions (RFD 073).
-// Also used as uretprobe handler for non-Go programs.
-SEC("uretprobe/function_return")
+// Return uprobe handler - attached as regular uprobe to RET instructions (RFD 073).
+// Uses uprobe (not uretprobe) section because we attach to specific RET instruction
+// offsets rather than using the kernel's uretprobe mechanism.
+SEC("uprobe/function_return")
 int uprobe_return(struct pt_regs *ctx) {
     __u64 pid_tid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tid >> 32;

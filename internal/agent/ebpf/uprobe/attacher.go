@@ -26,8 +26,10 @@ type AttachConfig struct {
 	AttachReturn bool
 
 	// PIDFilter is the PID value for UprobeOptions.
-	// Use 0 to trace all processes using the binary (avoids PID namespace issues).
-	// Use specific PID to trace only that process.
+	// Use the target process PID (recommended) so perf_event_open uses
+	// pid=PIDFilter, cpu=-1, which fires on all CPUs for that process.
+	// Use 0 (pid=-1, cpu=0) only as a last resort: it fires on CPU 0 only
+	// and will miss goroutines that migrate CPUs during blocking calls.
 	PIDFilter int
 
 	// Logger for debug/error messages.

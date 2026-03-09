@@ -17,6 +17,22 @@ type UprobeEntryKey = uprobeEntryKey
 type UprobeEntryValue = uprobeEntryValue
 
 // LoadObjects loads the compiled eBPF programs and maps into the kernel.
+// Fixes the uprobe_return program's attach type: the .o declares it as
+// uretprobe (SEC("uretprobe/...")) but RFD 073 attaches it as a regular
+// uprobe to RET instruction offsets.
 func LoadObjects(obj *Objects, opts *ceebpf.CollectionOptions) error {
-	return loadUprobeObjects(obj, opts)
+	spec, err := loadUprobe()
+	if err != nil {
+		return err
+	}
+
+	// RFD 073 attaches uprobe_return as a regular uprobe to RET instruction offsets,
+	// not via the kernel's uretprobe mechanism. Clear any uretprobe attach type that
+	// cilium/ebpf infers from the ELF section name, so the kernel accepts attachment.
+	// Safe to keep after the .o is regenerated with the corrected SEC("uprobe/...").
+	if prog, ok := spec.Programs["uprobe_return"]; ok {
+		prog.AttachType = ceebpf.AttachNone
+	}
+
+	return spec.LoadAndAssign(obj, opts)
 }
