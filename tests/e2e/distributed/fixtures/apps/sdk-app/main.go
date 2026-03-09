@@ -16,6 +16,8 @@ import (
 // Business logic functions for uprobe tracing tests.
 
 // ProcessPayment processes a payment transaction.
+//
+//go:noinline
 func ProcessPayment(amount float64, currency string) error {
 	// Simulate some work.
 	time.Sleep(50 * time.Millisecond)
@@ -28,6 +30,8 @@ func ProcessPayment(amount float64, currency string) error {
 }
 
 // ValidateCard validates a credit card number.
+//
+//go:noinline
 func ValidateCard(cardNumber string) (bool, error) {
 	// Simulate validation work.
 	time.Sleep(20 * time.Millisecond)
@@ -40,6 +44,8 @@ func ValidateCard(cardNumber string) (bool, error) {
 }
 
 // CalculateTotal calculates the total with tax.
+//
+//go:noinline
 func CalculateTotal(subtotal float64, taxRate float64) float64 {
 	time.Sleep(10 * time.Millisecond)
 	return subtotal * (1 + taxRate)
