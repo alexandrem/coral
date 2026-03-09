@@ -714,6 +714,11 @@ func (s *DebugSuite) TestUprobeReturnTracing() {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 
+		if resp.StatusCode != http.StatusOK {
+			s.T().Logf("  %s: SDK metadata request failed with status %d: %s", funcName, resp.StatusCode, string(body))
+			continue
+		}
+
 		var meta struct {
 			Name      string `json:"name"`
 			Offset    uint64 `json:"offset"`
@@ -722,7 +727,7 @@ func (s *DebugSuite) TestUprobeReturnTracing() {
 			PID       int    `json:"pid"`
 		}
 		if err := json.Unmarshal(body, &meta); err != nil {
-			s.T().Logf("  %s: failed to parse metadata: %v (body: %s)", funcName, err, string(body))
+			s.T().Logf("  %s: failed to parse metadata JSON: %v (body: %s)", funcName, err, string(body))
 			continue
 		}
 

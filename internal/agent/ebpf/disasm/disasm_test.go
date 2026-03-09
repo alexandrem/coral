@@ -89,3 +89,53 @@ func TestFindRETOffsets_BadPath(t *testing.T) {
 	_, err := d.FindRETOffsets("/nonexistent/binary", 0, 100)
 	assert.Error(t, err)
 }
+
+// ARM64 RET instruction: 0xD65F03C0 stored little-endian as [0xC0, 0x03, 0x5F, 0xD6].
+
+func TestFindRETInstructionsARM64_SimpleRET(t *testing.T) {
+	// MOV x0, xzr (NOP equivalent) followed by RET X30.
+	// MOV x0, xzr = 0xAA1F03E0 → [E0 03 1F AA]
+	// RET X30     = 0xD65F03C0 → [C0 03 5F D6]
+	code := []byte{
+		0xE0, 0x03, 0x1F, 0xAA, // mov x0, xzr
+		0xC0, 0x03, 0x5F, 0xD6, // ret
+	}
+	offsets, err := findRETInstructionsARM64(code)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{4}, offsets)
+}
+
+func TestFindRETInstructionsARM64_MultipleRET(t *testing.T) {
+	// Two return paths: NOP-equiv, RET, NOP-equiv, NOP-equiv, RET
+	nop := []byte{0xE0, 0x03, 0x1F, 0xAA} // mov x0, xzr
+	ret := []byte{0xC0, 0x03, 0x5F, 0xD6} // ret
+	code := append(append(append(append(nop, ret...), nop...), nop...), ret...)
+	offsets, err := findRETInstructionsARM64(code)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{4, 16}, offsets)
+}
+
+func TestFindRETInstructionsARM64_NoRET(t *testing.T) {
+	// Tail call: B (branch) instead of RET
+	// B #0 = 0x14000000 → [00 00 00 14]
+	code := []byte{
+		0xE0, 0x03, 0x1F, 0xAA, // mov x0, xzr
+		0x00, 0x00, 0x00, 0x14, // b
+	}
+	offsets, err := findRETInstructionsARM64(code)
+	require.NoError(t, err)
+	assert.Empty(t, offsets)
+}
+
+func TestFindRETInstructionsARM64_EmptyCode(t *testing.T) {
+	offsets, err := findRETInstructionsARM64([]byte{})
+	require.NoError(t, err)
+	assert.Empty(t, offsets)
+}
+
+func TestFindRETInstructionsARM64_OnlyRET(t *testing.T) {
+	code := []byte{0xC0, 0x03, 0x5F, 0xD6} // ret
+	offsets, err := findRETInstructionsARM64(code)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{0}, offsets)
+}

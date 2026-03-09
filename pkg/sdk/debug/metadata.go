@@ -542,13 +542,16 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 		return cached, nil
 	}
 
-	// Check if it exists in index
+	// Note: We used to check the indexMap here for a fast-fail, but that was too strict
+	// as it didn't account for name variations (e.g. package prefixes) that the
+	// search functions below handle correctly.
 	p.mu.RLock()
-	if _, ok := p.indexMap[functionName]; !ok {
-		p.mu.RUnlock()
-		return nil, fmt.Errorf("function %s not found", functionName)
-	}
+	_, inIndex := p.indexMap[functionName]
 	p.mu.RUnlock()
+
+	if !inIndex {
+		p.logger.Debug("Function not in primary index, performing full search", "function", functionName)
+	}
 
 	// Search DWARF for function details.
 	p.logger.Debug("Searching for function details", "function", functionName)
