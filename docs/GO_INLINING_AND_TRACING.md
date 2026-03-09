@@ -4,8 +4,8 @@
 
 Go's compiler is highly aggressive about inlining small, simple functions to
 improve runtime performance. While this is great for application speed, it
-creates core challenges for **dynamic instrumentation** (uprobes) and *
-*automated discovery** (semantic indexing).
+creates core challenges for **dynamic instrumentation** (uprobes) and \*
+\*automated discovery\*\* (semantic indexing).
 
 ## The Inlining Problem
 
@@ -30,7 +30,7 @@ standalone entity in the compiled binary. This results in several "blind spots":
 ## Function Materialization States
 
 | State                         | Compiler Behavior                                                                        | Coral Support                                                                                                                        |
-|:------------------------------|:-----------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------|
+| :---------------------------- | :--------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
 | **Materialized** (Standalone) | Logic is complex enough that the compiler keeps it as a standalone function.             | **Full Support**: Indexed, Embeddings, Entry Probes, Return Probes.                                                                  |
 | **Inlined but Exported**      | Logic is inlined for speed, but a "residual" symbol is kept (e.g., for external access). | **Partial Support**: Metadata indexed, Entry probes work, but **Return probes (size/RET) may fail** if DWARF metadata is incomplete. |
 | **Fully Inlined & Pruned**    | Logic is copy-pasted into callers and the symbol is deleted.                             | **No Support**: Function is invisible to all telemetry and discovery.                                                                |
@@ -80,6 +80,38 @@ return subtotal * (1 + taxRate)
 ### Discovery vs. Observability
 
 If a function is inlined, its **logic** is still present inside its callers.
-While the "leaf" function _itself_ won't be indexed, semantic search on the *
-*caller** will likely still pick up the intent of the logic, as the code is
+While the "leaf" function _itself_ won't be indexed, semantic search on the
+**caller** will likely still pick up the intent of the logic, as the code is
 physically present inside the caller's binary footprint.
+
+## Duration Tracing Challenges in Go
+
+### Goroutine Migration
+
+Go's scheduler frequently moves goroutines between OS threads (TIDs), especially
+after blocking calls like `time.Sleep`.
+Standard eBPF templates often use `bpf_get_current_pid_tgid()` as a lookup key,
+which includes the TID. If a goroutine migrates, the return probe will fire on a
+different TID than the entry probe, resulting in a "missing" entry timestamp and
+0ns duration.
+
+Coral solves this by using a `(TGID, StackPointer)` key, which remains stable
+across thread migrations.
+
+### Missing Return Events & Noise
+
+In high-concurrency environments or systems with background workloads, you may
+observe an **imbalance** between function entries and returns (e.g., more
+entries than returns). This is typically caused by:
+
+1. **Partial Capture**: Probes were attached while a background call was
+   already in progress (missing the entry) or detached while a call was still
+   active (missing the return).
+2. **Concurrency Collisions**: Because Go's goroutines have unique stacks,
+   the `(TGID, SP)` key is usually safe. However, in extreme cases where
+   thousands of goroutines are rapidly recycled, two different goroutines
+   might occasionally share the same stack address memory, causing entry
+   timestamp overwrites in the BPF map.
+3. **In-flight Work**: In E2E tests, background workloads can result in
+   captured entries that do not reach their return point before the telemetry
+   is queried.
