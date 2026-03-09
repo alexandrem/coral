@@ -90,9 +90,9 @@ int uprobe_entry(struct pt_regs *ctx) {
     __u64 ts = bpf_ktime_get_ns();
 
     // Store entry timestamp with stack pointer for recursion safety (RFD 073).
-    // PT_REGS_SP() resolves to ctx->rsp on x86-64 and ctx->sp on ARM64.
+    // Use only TGID (Process ID) to support Go goroutine migration between threads.
     struct entry_key key = {
-        .pid_tgid = pid_tid,
+        .pid_tgid = pid_tid >> 32,
         .stack_ptr = PT_REGS_SP(ctx),
     };
 
@@ -136,9 +136,9 @@ int uprobe_return(struct pt_regs *ctx) {
     __u64 ts = bpf_ktime_get_ns();
 
     // Look up entry timestamp using stack pointer key (RFD 073).
-    // PT_REGS_SP() resolves to ctx->rsp on x86-64 and ctx->sp on ARM64.
+    // Use only TGID (Process ID) to support Go goroutine migration between threads.
     struct entry_key key = {
-        .pid_tgid = pid_tid,
+        .pid_tgid = pid_tid >> 32,
         .stack_ptr = PT_REGS_SP(ctx),
     };
 
