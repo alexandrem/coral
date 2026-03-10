@@ -4,8 +4,7 @@
 
 Go's compiler is highly aggressive about inlining small, simple functions to
 improve runtime performance. While this is great for application speed, it
-creates core challenges for **dynamic instrumentation** (uprobes) and \*
-\*automated discovery\*\* (semantic indexing).
+creates core challenges for **dynamic instrumentation** (uprobes) and **automated discovery** (semantic indexing).
 
 ## The Inlining Problem
 
@@ -73,7 +72,7 @@ you want to ensure it is always discoverable and traceable, you can use the
 // We use //go:noinline to ensure it is always visible in Coral telemetry.
 //go:noinline
 func CalculateTotal(subtotal float64, taxRate float64) float64 {
-return subtotal * (1 + taxRate)
+    return subtotal * (1 + taxRate)
 }
 ```
 
