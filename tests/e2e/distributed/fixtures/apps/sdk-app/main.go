@@ -51,6 +51,25 @@ func CalculateTotal(subtotal float64, taxRate float64) float64 {
 	return subtotal * (1 + taxRate)
 }
 
+// RecursiveSum sums integers from 1 to n recursively.
+//
+// Used to test that return-instruction uprobes correctly track nested recursive
+// calls with independent (TGID, SP) keys.
+//
+//go:noinline
+func RecursiveSum(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	// A brief pause ensures goroutine schedule points are exercised and
+	// duration measurements remain non-trivial.
+	if n == 1 {
+		time.Sleep(5 * time.Millisecond)
+		return 1
+	}
+	return n + RecursiveSum(n-1)
+}
+
 func main() {
 	// Setup logger.
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -73,6 +92,7 @@ func main() {
 	// HTTP server for health checks and triggering workload.
 	http.HandleFunc("/health", handleHealth)
 	http.HandleFunc("/trigger", handleTrigger)
+	http.HandleFunc("/trigger-recursive", handleTriggerRecursive)
 
 	go func() {
 		logger.Info("Starting HTTP server", "port", 3001)
@@ -124,6 +144,14 @@ func handleTrigger(w http.ResponseWriter, r *http.Request) {
 	logger.Info("Operations completed", "valid", valid, "total", total)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf(`{"status":"success","total":%.2f}`, total)))
+}
+
+func handleTriggerRecursive(w http.ResponseWriter, r *http.Request) {
+	// Trigger a recursive function call to verify that return-instruction uprobes
+	// correctly track nested calls with independent durations.
+	result := RecursiveSum(5)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf(`{"status":"success","result":%d}`, result)))
 }
 
 func runWorkload(logger *slog.Logger) {
