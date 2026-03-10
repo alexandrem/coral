@@ -441,7 +441,7 @@ operator visibility and incident cleanup.
 - [x] Add `correlation_triggers` table to colony DuckDB for `TriggerEvent`
   records.
 - [x] Expose `ListCorrelations` and remove CLI commands.
-- [ ] Add MCP tool `coral_deploy_correlation` for LLM use.
+- [x] Add MCP tool `coral_deploy_correlation` for LLM use.
 
 ### Phase 5: Testing
 
@@ -486,13 +486,13 @@ colony's debug session audit log (same table as `debug_sessions`, RFD 059).
 ✅ Colony `ColonyDebugService` correlation routing with CEL pre-validation before forwarding to agent
 ✅ `correlation_triggers` DuckDB table for `TriggerEvent` persistence
 ✅ `coral debug correlations` CLI command (list + remove)
+✅ MCP tools `coral_deploy_correlation`, `coral_remove_correlation`, `coral_list_correlations` for LLM-driven correlation lifecycle
 ✅ 20+ unit tests covering all six strategies, window expiry, cooldown, CEL validation, and engine lifecycle
 
 Deferred to Future Work:
 - `goroutine_snapshot` and `cpu_profile` action dispatch from the correlation engine (requires agent-side RPC loopback)
 - `emit_event` async streaming from agent to colony
 - Integration and E2E tests against live uprobe sessions
-- MCP tool `coral_deploy_correlation` for LLM use
 
 ## Future Work
 
@@ -515,12 +515,6 @@ streaming RPC from agent → colony or a persistent callback channel.
 Deploy `rate_gate` and `causal_pair` descriptors against a live uprobe session
 in the distributed test environment and verify `TriggerEvent` fires at the
 correct count / join condition.
-
-**LLM-facing MCP tools** (follow-up RFD)
-
-Expose `coral_deploy_correlation` and `coral_list_correlations` as MCP tools
-so the colony LLM can manage the full lifecycle without human CLI interaction.
-Colony routing is now complete; the MCP wrapper is the only remaining step.
 
 **Argument-based correlation** (Future RFD)
 
