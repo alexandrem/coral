@@ -588,7 +588,7 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 				Name:         functionName,
 				BinaryPath:   p.binaryPath,
 				Offset:       offset,
-				PID:          uint32(p.pid),
+				PID:          uint32(p.pid), // #nosec:G115
 				Arguments:    []*ArgumentMetadata{},
 				ReturnValues: []*ReturnValueMetadata{},
 			}

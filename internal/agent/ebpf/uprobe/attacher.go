@@ -123,7 +123,7 @@ func AttachReturnProbes(
 		if err != nil {
 			// Clean up previously attached links on error.
 			for _, prev := range links {
-				prev.Close() //nolint:errcheck
+				prev.Close() // #nosec:G104
 			}
 			return nil, fmt.Errorf("attach return uprobe at offset 0x%x: %w", absOffset, err)
 		}
