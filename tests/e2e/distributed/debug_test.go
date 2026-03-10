@@ -494,7 +494,7 @@ func (s *DebugSuite) TestMultiAgentDebugSession() {
 // 3. Trigger workload — session must remain active with the filter set
 // 4. Detach and verify no errors
 func (s *DebugSuite) TestUprobeFilterAttach() {
-	s.T().Log("Testing uprobe attach with kernel-level duration filter (RFD 090)...")
+	s.T().Log("Testing uprobe attach with kernel-level duration filter...")
 
 	fixture := s.fixture
 
@@ -580,7 +580,7 @@ func (s *DebugSuite) TestUprobeFilterAttach() {
 // 5. Generate more workload — collector must still be running
 // 6. Detach cleanly
 func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
-	s.T().Log("Testing live probe filter update without session interruption (RFD 090)...")
+	s.T().Log("Testing live probe filter update without session interruption...")
 
 	fixture := s.fixture
 
@@ -687,7 +687,7 @@ func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
 // 4. Remove the descriptor via RemoveCorrelation
 // 5. Verify ListCorrelations no longer returns it
 func (s *DebugSuite) TestCorrelationDeployAndRemove() {
-	s.T().Log("Testing correlation descriptor deploy/list/remove lifecycle (RFD 091)...")
+	s.T().Log("Testing correlation descriptor deploy/list/remove lifecycle...")
 
 	fixture := s.fixture
 
