@@ -105,7 +105,7 @@ func readFunctionBytes(binaryPath string, funcOffset, funcSize uint64) ([]byte, 
 	defer f.Close() //nolint:errcheck
 
 	buf := make([]byte, funcSize)
-	n, err := f.ReadAt(buf, int64(funcOffset))
+	n, err := f.ReadAt(buf, int64(funcOffset)) // #nosec:G115
 	if err != nil {
 		return nil, fmt.Errorf("read function bytes at offset 0x%x: %w", funcOffset, err)
 	}

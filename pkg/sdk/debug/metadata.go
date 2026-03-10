@@ -570,7 +570,7 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 				Name:         functionName,
 				BinaryPath:   p.binaryPath,
 				Offset:       result.Offset,
-				PID:          uint32(p.pid),
+				PID:          uint32(p.pid), // #nosec:G115
 				SizeBytes:    result.SizeBytes,
 				HasSize:      result.HasSize,
 				Arguments:    result.Arguments,
