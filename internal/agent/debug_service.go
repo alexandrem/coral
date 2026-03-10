@@ -485,6 +485,61 @@ func (s *DebugService) QueryMemoryProfileSamples(
 	}, nil
 }
 
+// DeployCorrelation installs a CorrelationDescriptor on the agent's correlation
+// engine and begins evaluating it against the active event stream (RFD 091).
+func (s *DebugService) DeployCorrelation(
+	ctx context.Context,
+	req *agentv1.DeployCorrelationRequest,
+) (*agentv1.DeployCorrelationResponse, error) {
+	if req.Descriptor_ == nil {
+		return nil, fmt.Errorf("descriptor is required")
+	}
+	d := req.Descriptor_
+	engine := s.agent.GetCorrelationEngine()
+	if engine == nil {
+		return nil, fmt.Errorf("correlation engine not available")
+	}
+	if err := engine.Deploy(d, nil); err != nil {
+		s.logger.Error().Err(err).Str("id", d.Id).Msg("Failed to deploy correlation")
+		return nil, fmt.Errorf("deploy correlation: %w", err)
+	}
+	s.logger.Info().
+		Str("id", d.Id).
+		Str("strategy", d.Strategy.String()).
+		Msg("Correlation descriptor deployed.")
+	return &agentv1.DeployCorrelationResponse{CorrelationId: d.Id}, nil
+}
+
+// RemoveCorrelation uninstalls an active correlation descriptor (RFD 091).
+func (s *DebugService) RemoveCorrelation(
+	ctx context.Context,
+	req *agentv1.RemoveCorrelationRequest,
+) (*agentv1.RemoveCorrelationResponse, error) {
+	engine := s.agent.GetCorrelationEngine()
+	if engine == nil {
+		return nil, fmt.Errorf("correlation engine not available")
+	}
+	if !engine.Remove(req.CorrelationId) {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("correlation %s not found", req.CorrelationId))
+	}
+	return &agentv1.RemoveCorrelationResponse{}, nil
+}
+
+// ListCorrelations returns all active correlation descriptors (RFD 091).
+func (s *DebugService) ListCorrelations(
+	ctx context.Context,
+	req *agentv1.ListCorrelationsRequest,
+) (*agentv1.ListCorrelationsResponse, error) {
+	engine := s.agent.GetCorrelationEngine()
+	if engine == nil {
+		return &agentv1.ListCorrelationsResponse{}, nil
+	}
+	return &agentv1.ListCorrelationsResponse{
+		Descriptors: engine.List(),
+	}, nil
+}
+
 // DebugServiceAdapter adapts DebugService to the Connect RPC handler interface.
 type DebugServiceAdapter struct {
 	service *DebugService
@@ -585,6 +640,42 @@ func (a *DebugServiceAdapter) QueryMemoryProfileSamples(
 	req *connect.Request[agentv1.QueryMemoryProfileSamplesRequest],
 ) (*connect.Response[agentv1.QueryMemoryProfileSamplesResponse], error) {
 	resp, err := a.service.QueryMemoryProfileSamples(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// DeployCorrelation implements the Connect RPC handler interface (RFD 091).
+func (a *DebugServiceAdapter) DeployCorrelation(
+	ctx context.Context,
+	req *connect.Request[agentv1.DeployCorrelationRequest],
+) (*connect.Response[agentv1.DeployCorrelationResponse], error) {
+	resp, err := a.service.DeployCorrelation(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// RemoveCorrelation implements the Connect RPC handler interface (RFD 091).
+func (a *DebugServiceAdapter) RemoveCorrelation(
+	ctx context.Context,
+	req *connect.Request[agentv1.RemoveCorrelationRequest],
+) (*connect.Response[agentv1.RemoveCorrelationResponse], error) {
+	resp, err := a.service.RemoveCorrelation(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// ListCorrelations implements the Connect RPC handler interface (RFD 091).
+func (a *DebugServiceAdapter) ListCorrelations(
+	ctx context.Context,
+	req *connect.Request[agentv1.ListCorrelationsRequest],
+) (*connect.Response[agentv1.ListCorrelationsResponse], error) {
+	resp, err := a.service.ListCorrelations(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

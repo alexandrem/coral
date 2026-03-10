@@ -14,12 +14,20 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
+// EventSubscriber is a callback invoked with new UprobeEvents when GetEvents
+// is called. Used by the correlation engine (RFD 091) to receive events in
+// near-real-time without requiring a separate polling goroutine.
+type EventSubscriber func(events []*meshv1.EbpfEvent)
+
 // Manager handles eBPF collector lifecycle.
 type Manager struct {
 	logger     zerolog.Logger
 	collectors map[string]*runningCollector
 	mu         sync.RWMutex
 	caps       *agentv1.EbpfCapabilities
+	// subscriber is an optional callback invoked when GetEvents returns events.
+	subscriber EventSubscriber
+	subMu      sync.RWMutex
 }
 
 // runningCollector tracks a single active collector instance.
@@ -171,6 +179,15 @@ func (m *Manager) StopCollector(collectorID string) error {
 	return nil
 }
 
+// SetEventSubscriber registers a callback to receive all UprobeEvents returned
+// by GetEvents. Only one subscriber is supported; subsequent calls replace
+// the previous subscriber. Pass nil to unsubscribe (RFD 091).
+func (m *Manager) SetEventSubscriber(sub EventSubscriber) {
+	m.subMu.Lock()
+	m.subscriber = sub
+	m.subMu.Unlock()
+}
+
 // GetEvents retrieves events from a running collector.
 func (m *Manager) GetEvents(collectorID string) ([]*meshv1.EbpfEvent, error) {
 	m.mu.RLock()
@@ -199,7 +216,16 @@ func (m *Manager) GetEvents(collectorID string) ([]*meshv1.EbpfEvent, error) {
 		return nil, fmt.Errorf("collector not found: %s", collectorID)
 	}
 
-	return running.collector.GetEvents()
+	events, err := running.collector.GetEvents()
+	if err == nil && len(events) > 0 {
+		m.subMu.RLock()
+		sub := m.subscriber
+		m.subMu.RUnlock()
+		if sub != nil {
+			sub(events)
+		}
+	}
+	return events, err
 }
 
 // UpdateFilter updates the kernel-level event filter for an active uprobe collector
