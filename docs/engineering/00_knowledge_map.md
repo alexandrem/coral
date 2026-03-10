@@ -9,7 +9,7 @@ This repository contains the architectural and engineering knowledge distilled f
 
 ## 2. Telemetry Collection (The Edge)
 
-- **03_ebpf_instrumentation_engine**: Zero-instrumentation monitoring, kernel-side filtering, and eBPF managers.
+- **03_ebpf_instrumentation_engine**: Zero-instrumentation monitoring, kernel-side filtering, and stateful edge correlation.
 - **04_binary_function_indexing_and_metadata**: 3-tier discovery pipeline, semantic enrichment (xxHash3 SimHash), and DuckDB symbol caching.
 - **05_otlp_ingestion_and_transformation**: Native support for OpenTelemetry protocol and internal data mapping.
 - **06_system_host_metrics_collection**: High-precision infrastructure metrics collection using `gopsutil`.
