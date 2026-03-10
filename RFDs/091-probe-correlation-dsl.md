@@ -430,8 +430,6 @@ operator visibility and incident cleanup.
 - [x] Implement `DeployCorrelation`, `RemoveCorrelation`, `ListCorrelations`
   RPC handlers in the agent debug service.
 - [x] Wire events from `UprobeCollector` instances into `Engine.OnEvent`.
-- [ ] Implement `goroutine_snapshot` and `cpu_profile` action dispatch. *(deferred — see Future Work)*
-- [ ] Implement `emit_event` action: stream `TriggerEvent` back to colony. *(deferred — see Future Work)*
 
 ### Phase 4: Colony Routing and Storage
 
