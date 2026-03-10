@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -86,6 +88,144 @@ func filterEvents(events []*meshv1.EbpfEvent, req *agentv1.QueryUprobeEventsRequ
 		}
 	}
 	return filteredEvents
+}
+
+// --- Correlation integration tests (RFD 091) ---
+
+// newTestAgent creates an Agent wired with a correlation engine for testing.
+func newTestAgent(t *testing.T) *Agent {
+	t.Helper()
+	a, err := New(Config{AgentID: "test-agent", Context: context.Background()})
+	require.NoError(t, err)
+	return a
+}
+
+// makeUprobeEvent creates a minimal UprobeEvent for correlation testing.
+func makeUprobeEvent(fn string, durationNs uint64) *agentv1.UprobeEvent {
+	return &agentv1.UprobeEvent{
+		FunctionName: fn,
+		DurationNs:   durationNs,
+		EventType:    "return",
+		ServiceName:  "svc",
+		Labels:       map[string]string{},
+	}
+}
+
+// TestCorrelationIntegration_RateGate deploys a rate_gate descriptor and verifies
+// the engine fires after the threshold count is reached within the window.
+func TestCorrelationIntegration_RateGate(t *testing.T) {
+	a := newTestAgent(t)
+	svc := NewDebugService(a, a.logger)
+	engine := a.GetCorrelationEngine()
+	require.NotNil(t, engine)
+
+	desc := &agentv1.CorrelationDescriptor{
+		Id:       "corr-rate-gate",
+		Strategy: agentv1.StrategyKind_RATE_GATE,
+		Source: &agentv1.SourceSpec{
+			Probe:      "db.Query",
+			FilterExpr: "event.duration_ns > 50000000", // >50ms
+		},
+		Window:    durationpb.New(500 * time.Millisecond),
+		Threshold: 3,
+		Action:    &agentv1.ActionSpec{Kind: agentv1.ActionKind_EMIT_EVENT},
+	}
+
+	// Deploy via RPC handler.
+	resp, err := svc.DeployCorrelation(context.Background(), &agentv1.DeployCorrelationRequest{
+		Descriptor_: desc,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "corr-rate-gate", resp.CorrelationId)
+
+	// Verify it appears in ListCorrelations.
+	list, err := svc.ListCorrelations(context.Background(), &agentv1.ListCorrelationsRequest{})
+	require.NoError(t, err)
+	assert.Len(t, list.Descriptors, 1)
+
+	// Feed 2 slow events — below threshold, no action yet.
+	var firedActions []*agentv1.TriggerEvent
+	for i := 0; i < 2; i++ {
+		actions := engine.OnEvent(makeUprobeEvent("db.Query", 100_000_000)) // 100ms
+		for _, a := range actions {
+			if a.TriggerEvent != nil {
+				firedActions = append(firedActions, a.TriggerEvent)
+			}
+		}
+	}
+	assert.Empty(t, firedActions, "expected no trigger before threshold")
+
+	// 3rd slow event crosses the threshold.
+	actions := engine.OnEvent(makeUprobeEvent("db.Query", 100_000_000))
+	for _, a := range actions {
+		if a.TriggerEvent != nil {
+			firedActions = append(firedActions, a.TriggerEvent)
+		}
+	}
+	require.Len(t, firedActions, 1, "expected trigger at threshold")
+	assert.Equal(t, "corr-rate-gate", firedActions[0].CorrelationId)
+	assert.Equal(t, "RATE_GATE", firedActions[0].Strategy)
+
+	// Fast events (below filter) must not count.
+	actions = engine.OnEvent(makeUprobeEvent("db.Query", 10_000_000)) // 10ms — below filter
+	assert.Empty(t, actions, "fast event should not trigger")
+
+	// Remove via RPC and verify list is empty.
+	_, err = svc.RemoveCorrelation(context.Background(), &agentv1.RemoveCorrelationRequest{
+		CorrelationId: "corr-rate-gate",
+	})
+	require.NoError(t, err)
+	list, _ = svc.ListCorrelations(context.Background(), &agentv1.ListCorrelationsRequest{})
+	assert.Empty(t, list.Descriptors)
+}
+
+// TestCorrelationIntegration_CausalPair verifies that a causal_pair descriptor
+// only fires when events from source A and source B share the same join field.
+func TestCorrelationIntegration_CausalPair(t *testing.T) {
+	a := newTestAgent(t)
+	engine := a.GetCorrelationEngine()
+	require.NotNil(t, engine)
+
+	svc := NewDebugService(a, a.logger)
+
+	desc := &agentv1.CorrelationDescriptor{
+		Id:       "corr-causal",
+		Strategy: agentv1.StrategyKind_CAUSAL_PAIR,
+		SourceA: &agentv1.SourceSpec{
+			Probe:      "db.Query",
+			FilterExpr: "event.duration_ns > 100000000", // >100ms
+		},
+		SourceB: &agentv1.SourceSpec{
+			Probe: "http.ServeHTTP",
+		},
+		JoinOn: "trace_id",
+		Window: durationpb.New(200 * time.Millisecond),
+		Action: &agentv1.ActionSpec{Kind: agentv1.ActionKind_EMIT_EVENT},
+	}
+
+	_, err := svc.DeployCorrelation(context.Background(), &agentv1.DeployCorrelationRequest{
+		Descriptor_: desc,
+	})
+	require.NoError(t, err)
+
+	// A slow DB event on trace "t1".
+	dbEvent := makeUprobeEvent("db.Query", 200_000_000) // 200ms
+	dbEvent.Labels = map[string]string{"trace_id": "t1"}
+	actions := engine.OnEvent(dbEvent)
+	assert.Empty(t, actions, "no trigger: B not seen yet")
+
+	// HTTP event on a different trace — must NOT fire (mismatched join).
+	httpWrong := makeUprobeEvent("http.ServeHTTP", 0)
+	httpWrong.Labels = map[string]string{"trace_id": "t2"}
+	actions = engine.OnEvent(httpWrong)
+	assert.Empty(t, actions, "no trigger: trace_id mismatch")
+
+	// HTTP event on the same trace — MUST fire.
+	httpMatch := makeUprobeEvent("http.ServeHTTP", 0)
+	httpMatch.Labels = map[string]string{"trace_id": "t1"}
+	actions = engine.OnEvent(httpMatch)
+	require.Len(t, actions, 1, "expected trigger on matching trace_id")
+	assert.Equal(t, "corr-causal", actions[0].CorrelationID)
 }
 
 func TestUpdateProbeFilter(t *testing.T) {

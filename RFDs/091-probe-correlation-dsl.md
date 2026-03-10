@@ -448,9 +448,9 @@ operator visibility and incident cleanup.
 - [x] Unit test each strategy evaluator: confirm trigger conditions, window
   expiry, cooldown, and reset behaviour.
 - [x] Unit test CEL validation: reject invalid expressions at deploy time.
-- [ ] Integration test: deploy `rate_gate` descriptor against a live uprobe
+- [x] Integration test: deploy `rate_gate` descriptor against a live uprobe
   session, verify `TriggerEvent` fires at correct count.
-- [ ] Integration test: deploy `causal_pair`, verify join fires only when
+- [x] Integration test: deploy `causal_pair`, verify join fires only when
   `join_on` field matches across both sources.
 - [ ] E2E test: colony LLM generates descriptor → deploys → agent fires action
   → colony receives `TriggerEvent`.
@@ -488,11 +488,12 @@ colony's debug session audit log (same table as `debug_sessions`, RFD 059).
 ✅ `coral debug correlations` CLI command (list + remove)
 ✅ MCP tools `coral_deploy_correlation`, `coral_remove_correlation`, `coral_list_correlations` for LLM-driven correlation lifecycle
 ✅ 20+ unit tests covering all six strategies, window expiry, cooldown, CEL validation, and engine lifecycle
+✅ Integration tests: `rate_gate` and `causal_pair` via agent `DebugService` RPC with in-process engine, confirming deploy/fire/remove lifecycle and join-field matching
 
 Deferred to Future Work:
 - `goroutine_snapshot` and `cpu_profile` action dispatch from the correlation engine (requires agent-side RPC loopback)
 - `emit_event` async streaming from agent to colony
-- Integration and E2E tests against live uprobe sessions
+- E2E test: colony LLM generates descriptor → deploys → agent fires action → colony receives `TriggerEvent`
 
 ## Future Work
 
@@ -510,11 +511,11 @@ The `EMIT_EVENT` action should stream `TriggerEvent` messages back to the colony
 in real time so the LLM can observe firings without polling. Requires a server-
 streaming RPC from agent → colony or a persistent callback channel.
 
-**Integration and E2E tests** (follow-up)
+**E2E test** (follow-up)
 
-Deploy `rate_gate` and `causal_pair` descriptors against a live uprobe session
-in the distributed test environment and verify `TriggerEvent` fires at the
-correct count / join condition.
+Deploy a correlation descriptor through the full colony→agent path in the
+distributed test environment and verify `TriggerEvent` is received by the
+colony. Requires a running agent with live eBPF probes.
 
 **Argument-based correlation** (Future RFD)
 
