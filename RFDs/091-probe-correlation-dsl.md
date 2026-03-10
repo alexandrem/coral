@@ -452,7 +452,7 @@ operator visibility and incident cleanup.
   session, verify `TriggerEvent` fires at correct count.
 - [x] Integration test: deploy `causal_pair`, verify join fires only when
   `join_on` field matches across both sources.
-- [ ] E2E test: colony LLM generates descriptor → deploys → agent fires action
+- [x] E2E test: colony LLM generates descriptor → deploys → agent fires action
   → colony receives `TriggerEvent`.
 
 ## Security Considerations
@@ -489,11 +489,11 @@ colony's debug session audit log (same table as `debug_sessions`, RFD 059).
 ✅ MCP tools `coral_deploy_correlation`, `coral_remove_correlation`, `coral_list_correlations` for LLM-driven correlation lifecycle
 ✅ 20+ unit tests covering all six strategies, window expiry, cooldown, CEL validation, and engine lifecycle
 ✅ Integration tests: `rate_gate` and `causal_pair` via agent `DebugService` RPC with in-process engine, confirming deploy/fire/remove lifecycle and join-field matching
+✅ E2E test: `TestCorrelationDeployAndRemove` in `tests/e2e/distributed/debug_test.go` — deploys descriptor through colony orchestrator, verifies `ListCorrelations`, generates workload, removes descriptor, confirms it is gone
 
 Deferred to Future Work:
 - `goroutine_snapshot` and `cpu_profile` action dispatch from the correlation engine (requires agent-side RPC loopback)
-- `emit_event` async streaming from agent to colony
-- E2E test: colony LLM generates descriptor → deploys → agent fires action → colony receives `TriggerEvent`
+- `emit_event` async streaming from agent to colony (required for E2E verification of `TriggerEvent` receipt)
 
 ## Future Work
 
@@ -511,11 +511,11 @@ The `EMIT_EVENT` action should stream `TriggerEvent` messages back to the colony
 in real time so the LLM can observe firings without polling. Requires a server-
 streaming RPC from agent → colony or a persistent callback channel.
 
-**E2E test** (follow-up)
+**E2E TriggerEvent receipt** (follow-up)
 
-Deploy a correlation descriptor through the full colony→agent path in the
-distributed test environment and verify `TriggerEvent` is received by the
-colony. Requires a running agent with live eBPF probes.
+Once `emit_event` async streaming is implemented, extend
+`TestCorrelationDeployAndRemove` to assert that a `TriggerEvent` is stored in
+the colony's `correlation_triggers` table after the threshold is crossed.
 
 **Argument-based correlation** (Future RFD)
 

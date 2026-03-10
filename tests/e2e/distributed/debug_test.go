@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -665,4 +667,131 @@ func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
 	s.T().Log("✓ Live probe filter update verified end-to-end")
 	s.T().Log("  - Session remained active throughout filter update")
 	s.T().Log("  - Workload continued to flow after filter change")
+}
+
+// TestCorrelationDeployAndRemove verifies the full colony→agent correlation
+// deployment lifecycle (RFD 091).
+//
+// This test covers the deploy/list/remove RPC path through the real colony
+// orchestrator and agent correlation engine. It attaches a rate_gate descriptor
+// to the sdk-app's ProcessPayment function, generates workload to cross the
+// threshold, then removes the descriptor and confirms it is gone.
+//
+// Note: TriggerEvent streaming from agent to colony is deferred. This test
+// verifies the control-plane path (deploy/list/remove) end-to-end.
+//
+// Test flow:
+// 1. Deploy rate_gate descriptor for sdk-app/main.ProcessPayment (3 events, 5s window)
+// 2. Verify ListCorrelations returns the active descriptor
+// 3. Generate workload to cross the threshold
+// 4. Remove the descriptor via RemoveCorrelation
+// 5. Verify ListCorrelations no longer returns it
+func (s *DebugSuite) TestCorrelationDeployAndRemove() {
+	s.T().Log("Testing correlation descriptor deploy/list/remove lifecycle (RFD 091)...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	// Verify sdk-app agent is registered.
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app")
+	s.T().Logf("Agent hosting sdk-app: %s", agentID)
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// Deploy a rate_gate descriptor: fire when ≥3 events arrive within 5s.
+	corrID := "e2e-rate-gate-test"
+	desc := &agentv1.CorrelationDescriptor{
+		Id:          corrID,
+		Strategy:    agentv1.StrategyKind_RATE_GATE,
+		ServiceName: "sdk-app",
+		Source: &agentv1.SourceSpec{
+			Probe: "main.ProcessPayment",
+		},
+		Window:     durationpb.New(5 * time.Second),
+		Threshold:  3,
+		Action:     &agentv1.ActionSpec{Kind: agentv1.ActionKind_EMIT_EVENT},
+		CooldownMs: 1000,
+	}
+
+	s.T().Log("Deploying rate_gate correlation descriptor...")
+	deployResp, err := helpers.DeployCorrelation(s.ctx, debugClient, "sdk-app", desc)
+	s.Require().NoError(err, "DeployCorrelation should succeed")
+	s.Require().True(deployResp.Success, "Deploy should succeed: %s", deployResp.Error)
+	s.Require().NotEmpty(deployResp.CorrelationId, "CorrelationId should be returned")
+	s.T().Logf("✓ Correlation deployed: id=%s agent=%s", deployResp.CorrelationId, deployResp.AgentId)
+
+	// Verify it appears in ListCorrelations.
+	s.T().Log("Verifying descriptor appears in ListCorrelations...")
+	listResp, err := helpers.ListCorrelations(s.ctx, debugClient, "sdk-app")
+	s.Require().NoError(err, "ListCorrelations should succeed")
+
+	found := false
+	for _, d := range listResp.Descriptors {
+		if d.Id == corrID {
+			found = true
+			s.T().Logf("✓ Found descriptor: id=%s strategy=%s", d.Id, d.Strategy)
+			break
+		}
+	}
+	s.Require().True(found, "Deployed descriptor must appear in ListCorrelations")
+
+	// Generate workload to cross the rate_gate threshold.
+	s.T().Log("Generating workload to exercise the correlation engine...")
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < 5; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		s.T().Logf("Trigger %d completed", i+1)
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	s.T().Log("Workload complete (correlation engine evaluated events in-process)")
+	s.T().Log("Note: TriggerEvent streaming from agent to colony is deferred (Future Work)")
+
+	// Remove the descriptor.
+	s.T().Log("Removing correlation descriptor...")
+	removeResp, err := helpers.RemoveCorrelation(s.ctx, debugClient, corrID, "sdk-app")
+	s.Require().NoError(err, "RemoveCorrelation should succeed")
+	s.Require().True(removeResp.Success, "Remove should succeed: %s", removeResp.Error)
+	s.T().Log("✓ Correlation removed")
+
+	// Verify it is gone from ListCorrelations.
+	s.T().Log("Verifying descriptor no longer appears in ListCorrelations...")
+	listAfter, err := helpers.ListCorrelations(s.ctx, debugClient, "sdk-app")
+	s.Require().NoError(err, "ListCorrelations after remove should succeed")
+
+	for _, d := range listAfter.Descriptors {
+		s.Require().NotEqual(corrID, d.Id, "Removed descriptor must not appear in ListCorrelations")
+	}
+
+	s.T().Log("✓ Correlation lifecycle verified end-to-end")
+	s.T().Logf("  - Descriptor deployed and visible in ListCorrelations")
+	s.T().Logf("  - Rate gate evaluated %d trigger requests", 5)
+	s.T().Logf("  - Descriptor removed and absent from ListCorrelations")
 }

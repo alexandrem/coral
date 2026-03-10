@@ -224,6 +224,7 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	s.Run("MultiAgentDebugSession", debugSuite.TestMultiAgentDebugSession)
 	s.Run("UprobeFilterAttach", debugSuite.TestUprobeFilterAttach)
 	s.Run("UprobeFilterLiveUpdate", debugSuite.TestUprobeFilterLiveUpdate)
+	s.Run("CorrelationDeployAndRemove", debugSuite.TestCorrelationDeployAndRemove)
 
 	if !s.T().Failed() {
 		s.onDemandProbesPassed = true
