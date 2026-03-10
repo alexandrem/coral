@@ -403,13 +403,13 @@ change since they cannot be validated on macOS. See **Future Work** below.
 - [x] Verify duration events emitted for all return paths (error + success).
 - [x] Test return probe attachment to `main.ProcessPayment` (simple return
   path).
-- [ ] Test recursive functions (nested calls have correct durations).
-- [ ] Test concurrent goroutines calling same function.
+- [x] Test recursive functions (nested calls have correct durations).
+- [x] Test concurrent goroutines calling same function.
 - [x] Validate correctness: Compare durations with manual timing (±50%).
 - [ ] Test edge cases: panic/recover, goroutine switches, inline assembly.
 - [ ] Add test for orphaned entry cleanup (trigger panic, verify cleanup after
   60s).
-- [ ] Update debug documentation with RET-uprobe details and Limitations
+- [x] Update debug documentation with RET-uprobe details and Limitations
   section.
 
 ## Testing Strategy
@@ -589,14 +589,24 @@ deployment.
 
 ## Future Work
 
-**E2E Integration Tests** (Partial — core tests done)
+**E2E Integration Tests** (Core scenarios complete)
 
 - ✅ `TestUprobeReturnTracing` added to `tests/e2e/distributed/debug_test.go`.
+- ✅ `TestUprobeRecursiveFunction` verifies per-frame `(TGID, SP)` key uniqueness.
+- ✅ `TestUprobeConcurrentGoroutines` verifies concurrent call isolation.
 - ✅ `AssertReturnEventDuration` and `CountEventsByType` helpers added.
 - ✅ Tests ProcessPayment (~50ms) and ValidateCard (~20ms, multiple return
   paths) with duration verification (±50%).
-- Remaining: recursive functions, concurrent goroutines, orphaned entry cleanup
-  after panic. These edge cases can be added incrementally.
+- ✅ `RecursiveSum` function added to sdk-app for recursion testing.
+- Remaining: panic/recover orphaned entry cleanup (requires 60s wait),
+  inline assembly edge cases. Deferred — see Future Work.
+
+**Panic/Recover & Orphaned Entry Cleanup Tests** (Future — Complex E2E)
+
+- Test that panicking goroutines don't accumulate orphaned BPF map entries.
+- Test orphaned entry cleanup: trigger panic, verify 60s sweep removes the
+  entry. Requires dedicated `/panic-and-recover` endpoint and long test timeout.
+- Test inline assembly edge cases (validate fallback to entry-only).
 
 **Disassembly Caching** (Future - Performance Optimization)
 
@@ -663,9 +673,17 @@ size metadata is available from the SDK.
 
 - ✅ `TestUprobeReturnTracing` verifies return events with duration for
   `ProcessPayment` (~50ms) and `ValidateCard` (~20ms, multiple return paths).
+- ✅ `TestUprobeRecursiveFunction` verifies that nested recursive calls each
+  produce independent return events via unique `(TGID, SP)` BPF map keys.
+- ✅ `TestUprobeConcurrentGoroutines` verifies that concurrent goroutine calls
+  are tracked without BPF map cross-contamination.
 - ✅ Helper assertions: `AssertReturnEventDuration`, `CountEventsByType`.
-- Remaining edge cases (recursion, concurrency, panic cleanup) tracked in
-  Phase 5 checklist.
+- ✅ `docs/LIVE_DEBUGGING.md` updated with RET-instruction uprobes section and
+  Limitations table.
+- ✅ `RecursiveSum` function and `/trigger-recursive` endpoint added to sdk-app
+  fixture for recursion testing.
+- Remaining edge cases (panic/recover cleanup after 60s, inline assembly)
+  tracked in Future Work.
 
 ## Appendix
 
