@@ -161,6 +161,64 @@ func ProfileCPU(
 	return resp.Msg, nil
 }
 
+// DeployCorrelation deploys a correlation descriptor via the colony (RFD 091).
+func DeployCorrelation(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	serviceName string,
+	descriptor *agentv1.CorrelationDescriptor,
+) (*colonyv1.ColonyDeployCorrelationResponse, error) {
+	req := connect.NewRequest(&colonyv1.ColonyDeployCorrelationRequest{
+		ServiceName: serviceName,
+		Descriptor_: descriptor,
+	})
+
+	resp, err := client.DeployCorrelation(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy correlation: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// RemoveCorrelation removes an active correlation descriptor (RFD 091).
+func RemoveCorrelation(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	correlationID string,
+	serviceName string,
+) (*colonyv1.ColonyRemoveCorrelationResponse, error) {
+	req := connect.NewRequest(&colonyv1.ColonyRemoveCorrelationRequest{
+		CorrelationId: correlationID,
+		ServiceName:   serviceName,
+	})
+
+	resp, err := client.RemoveCorrelation(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove correlation: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// ListCorrelations returns active correlation descriptors from all agents (RFD 091).
+func ListCorrelations(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	serviceName string,
+) (*colonyv1.ColonyListCorrelationsResponse, error) {
+	req := connect.NewRequest(&colonyv1.ColonyListCorrelationsRequest{
+		ServiceName: serviceName,
+	})
+
+	resp, err := client.ListCorrelations(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list correlations: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
 // QueryMemoryProfileSamples queries the agent's continuous memory profile storage.
 func QueryMemoryProfileSamples(
 	ctx context.Context,

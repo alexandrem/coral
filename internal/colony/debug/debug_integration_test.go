@@ -69,6 +69,18 @@ func (m *mockDebugClient) UpdateProbeFilter(ctx context.Context, req *connect.Re
 	return connect.NewResponse(&agentv1.UpdateProbeFilterResponse{}), nil
 }
 
+func (m *mockDebugClient) DeployCorrelation(ctx context.Context, req *connect.Request[agentv1.DeployCorrelationRequest]) (*connect.Response[agentv1.DeployCorrelationResponse], error) {
+	return connect.NewResponse(&agentv1.DeployCorrelationResponse{}), nil
+}
+
+func (m *mockDebugClient) RemoveCorrelation(ctx context.Context, req *connect.Request[agentv1.RemoveCorrelationRequest]) (*connect.Response[agentv1.RemoveCorrelationResponse], error) {
+	return connect.NewResponse(&agentv1.RemoveCorrelationResponse{}), nil
+}
+
+func (m *mockDebugClient) ListCorrelations(ctx context.Context, req *connect.Request[agentv1.ListCorrelationsRequest]) (*connect.Response[agentv1.ListCorrelationsResponse], error) {
+	return connect.NewResponse(&agentv1.ListCorrelationsResponse{}), nil
+}
+
 // mockAgentClient implements agentv1connect.AgentServiceClient for testing.
 type mockAgentClient struct {
 	listServicesFunc func(context.Context, *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error)

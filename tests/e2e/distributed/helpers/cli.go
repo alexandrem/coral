@@ -696,3 +696,34 @@ func (r *CLIResult) MustFail(t *testing.T) {
 		t.Fatalf("CLI command should have failed but succeeded\nOutput: %s", r.Output)
 	}
 }
+
+// DebugCorrelations executes `coral debug correlations [--service s]`.
+func DebugCorrelations(ctx context.Context, env *CLITestEnv, service string) *CLIResult {
+	args := []string{"debug", "correlations"}
+	if service != "" {
+		args = append(args, "--service", service)
+	}
+	return env.Run(ctx, args...)
+}
+
+// DebugCorrelationsJSON executes `coral debug correlations --format json` and parses the output.
+func DebugCorrelationsJSON(ctx context.Context, env *CLITestEnv, service string) (map[string]interface{}, error) {
+	args := []string{"debug", "correlations", "--format", "json"}
+	if service != "" {
+		args = append(args, "--service", service)
+	}
+	result := env.Run(ctx, args...)
+	if result.Err != nil {
+		return nil, fmt.Errorf("debug correlations failed: %w\nOutput: %s", result.Err, result.Output)
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(result.Output), &out); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON output: %w\nOutput: %s", err, result.Output)
+	}
+	return out, nil
+}
+
+// DebugCorrelationsRemove executes `coral debug correlations remove <id>`.
+func DebugCorrelationsRemove(ctx context.Context, env *CLITestEnv, correlationID string) *CLIResult {
+	return env.Run(ctx, "debug", "correlations", "remove", correlationID)
+}

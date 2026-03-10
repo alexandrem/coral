@@ -224,6 +224,7 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	s.Run("MultiAgentDebugSession", debugSuite.TestMultiAgentDebugSession)
 	s.Run("UprobeFilterAttach", debugSuite.TestUprobeFilterAttach)
 	s.Run("UprobeFilterLiveUpdate", debugSuite.TestUprobeFilterLiveUpdate)
+	s.Run("CorrelationDeployAndRemove", debugSuite.TestCorrelationDeployAndRemove)
 
 	if !s.T().Failed() {
 		s.onDemandProbesPassed = true
@@ -330,6 +331,21 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_AskConfigUnknownProvider", cliAskConfigSuite.TestAskConfigUnknownProvider)
 	s.Run("CLI_AskConfigListProvidersShowsModels", cliAskConfigSuite.TestAskConfigListProvidersShowsModels)
 	s.Run("CLI_AskConfigMissingAPIKeyEnvVar", cliAskConfigSuite.TestAskConfigMissingAPIKeyEnvVar)
+
+	// Run CLIDebugCorrelationsSuite (coral debug correlations — RFD 091).
+	cliDebugCorrSuite := &CLIDebugCorrelationsSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliDebugCorrSuite.SetT(s.T())
+	cliDebugCorrSuite.SetupSuite()
+	defer cliDebugCorrSuite.TearDownSuite()
+
+	s.Run("CLI_DebugCorrelationsListEmpty", cliDebugCorrSuite.TestCorrelationsListEmpty)
+	s.Run("CLI_DebugCorrelationsListShowsDeployed", cliDebugCorrSuite.TestCorrelationsListShowsDeployed)
+	s.Run("CLI_DebugCorrelationsListJSON", cliDebugCorrSuite.TestCorrelationsListJSON)
+	s.Run("CLI_DebugCorrelationsListServiceFilter", cliDebugCorrSuite.TestCorrelationsListServiceFilter)
+	s.Run("CLI_DebugCorrelationsRemove", cliDebugCorrSuite.TestCorrelationsRemove)
+	s.Run("CLI_DebugCorrelationsRemoveNotFound", cliDebugCorrSuite.TestCorrelationsRemoveNotFound)
 
 	// Discovery CA tests (RFD 085) - using CLIMeshSuite.
 	s.Run("CLI_AddRemoteConnectionFailsWithoutCA", cliMeshSuite.TestAddRemoteConnectionFailsWithoutCA)

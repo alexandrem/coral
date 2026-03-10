@@ -2043,7 +2043,7 @@ var File_coral_agent_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\n" +
-	"\x1acoral/agent/v1/debug.proto\x12\x0ecoral.agent.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xbe\x02\n" +
+	"\x1acoral/agent/v1/debug.proto\x12\x0ecoral.agent.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\x1a coral/agent/v1/correlation.proto\"\xbe\x02\n" +
 	"\x1bStartUprobeCollectorRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12#\n" +
@@ -2215,7 +2215,7 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\n" +
 	"max_seq_id\x18\x04 \x01(\x04R\bmaxSeqId\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x05 \x01(\tR\tsessionId2\x8d\a\n" +
+	"session_id\x18\x05 \x01(\tR\tsessionId2\xc8\t\n" +
 	"\x11AgentDebugService\x12q\n" +
 	"\x14StartUprobeCollector\x12+.coral.agent.v1.StartUprobeCollectorRequest\x1a,.coral.agent.v1.StartUprobeCollectorResponse\x12n\n" +
 	"\x13StopUprobeCollector\x12*.coral.agent.v1.StopUprobeCollectorRequest\x1a+.coral.agent.v1.StopUprobeCollectorResponse\x12h\n" +
@@ -2225,7 +2225,10 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"ProfileCPU\x12&.coral.agent.v1.ProfileCPUAgentRequest\x1a'.coral.agent.v1.ProfileCPUAgentResponse\x12w\n" +
 	"\x16QueryCPUProfileSamples\x12-.coral.agent.v1.QueryCPUProfileSamplesRequest\x1a..coral.agent.v1.QueryCPUProfileSamplesResponse\x12f\n" +
 	"\rProfileMemory\x12).coral.agent.v1.ProfileMemoryAgentRequest\x1a*.coral.agent.v1.ProfileMemoryAgentResponse\x12\x80\x01\n" +
-	"\x19QueryMemoryProfileSamples\x120.coral.agent.v1.QueryMemoryProfileSamplesRequest\x1a1.coral.agent.v1.QueryMemoryProfileSamplesResponseB\xae\x01\n" +
+	"\x19QueryMemoryProfileSamples\x120.coral.agent.v1.QueryMemoryProfileSamplesRequest\x1a1.coral.agent.v1.QueryMemoryProfileSamplesResponse\x12h\n" +
+	"\x11DeployCorrelation\x12(.coral.agent.v1.DeployCorrelationRequest\x1a).coral.agent.v1.DeployCorrelationResponse\x12h\n" +
+	"\x11RemoveCorrelation\x12(.coral.agent.v1.RemoveCorrelationRequest\x1a).coral.agent.v1.RemoveCorrelationResponse\x12e\n" +
+	"\x10ListCorrelations\x12'.coral.agent.v1.ListCorrelationsRequest\x1a(.coral.agent.v1.ListCorrelationsResponseB\xae\x01\n" +
 	"\x12com.coral.agent.v1B\n" +
 	"DebugProtoP\x01Z2github.com/coral-mesh/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
 
@@ -2271,9 +2274,15 @@ var file_coral_agent_v1_debug_proto_goTypes = []any{
 	(*QueryMemoryProfileSamplesRequest)(nil),  // 25: coral.agent.v1.QueryMemoryProfileSamplesRequest
 	(*MemoryProfileSample)(nil),               // 26: coral.agent.v1.MemoryProfileSample
 	(*QueryMemoryProfileSamplesResponse)(nil), // 27: coral.agent.v1.QueryMemoryProfileSamplesResponse
-	nil,                           // 28: coral.agent.v1.UprobeEvent.LabelsEntry
-	(*durationpb.Duration)(nil),   // 29: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 30: google.protobuf.Timestamp
+	nil,                               // 28: coral.agent.v1.UprobeEvent.LabelsEntry
+	(*durationpb.Duration)(nil),       // 29: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),     // 30: google.protobuf.Timestamp
+	(*DeployCorrelationRequest)(nil),  // 31: coral.agent.v1.DeployCorrelationRequest
+	(*RemoveCorrelationRequest)(nil),  // 32: coral.agent.v1.RemoveCorrelationRequest
+	(*ListCorrelationsRequest)(nil),   // 33: coral.agent.v1.ListCorrelationsRequest
+	(*DeployCorrelationResponse)(nil), // 34: coral.agent.v1.DeployCorrelationResponse
+	(*RemoveCorrelationResponse)(nil), // 35: coral.agent.v1.RemoveCorrelationResponse
+	(*ListCorrelationsResponse)(nil),  // 36: coral.agent.v1.ListCorrelationsResponse
 }
 var file_coral_agent_v1_debug_proto_depIdxs = []int32{
 	29, // 0: coral.agent.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
@@ -2305,16 +2314,22 @@ var file_coral_agent_v1_debug_proto_depIdxs = []int32{
 	16, // 26: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
 	19, // 27: coral.agent.v1.AgentDebugService.ProfileMemory:input_type -> coral.agent.v1.ProfileMemoryAgentRequest
 	25, // 28: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:input_type -> coral.agent.v1.QueryMemoryProfileSamplesRequest
-	5,  // 29: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
-	7,  // 30: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
-	12, // 31: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
-	4,  // 32: coral.agent.v1.AgentDebugService.UpdateProbeFilter:output_type -> coral.agent.v1.UpdateProbeFilterResponse
-	15, // 33: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
-	18, // 34: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
-	24, // 35: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
-	27, // 36: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
-	29, // [29:37] is the sub-list for method output_type
-	21, // [21:29] is the sub-list for method input_type
+	31, // 29: coral.agent.v1.AgentDebugService.DeployCorrelation:input_type -> coral.agent.v1.DeployCorrelationRequest
+	32, // 30: coral.agent.v1.AgentDebugService.RemoveCorrelation:input_type -> coral.agent.v1.RemoveCorrelationRequest
+	33, // 31: coral.agent.v1.AgentDebugService.ListCorrelations:input_type -> coral.agent.v1.ListCorrelationsRequest
+	5,  // 32: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
+	7,  // 33: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
+	12, // 34: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
+	4,  // 35: coral.agent.v1.AgentDebugService.UpdateProbeFilter:output_type -> coral.agent.v1.UpdateProbeFilterResponse
+	15, // 36: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
+	18, // 37: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
+	24, // 38: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
+	27, // 39: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
+	34, // 40: coral.agent.v1.AgentDebugService.DeployCorrelation:output_type -> coral.agent.v1.DeployCorrelationResponse
+	35, // 41: coral.agent.v1.AgentDebugService.RemoveCorrelation:output_type -> coral.agent.v1.RemoveCorrelationResponse
+	36, // 42: coral.agent.v1.AgentDebugService.ListCorrelations:output_type -> coral.agent.v1.ListCorrelationsResponse
+	32, // [32:43] is the sub-list for method output_type
+	21, // [21:32] is the sub-list for method input_type
 	21, // [21:21] is the sub-list for extension type_name
 	21, // [21:21] is the sub-list for extension extendee
 	0,  // [0:21] is the sub-list for field type_name
@@ -2326,6 +2341,7 @@ func file_coral_agent_v1_debug_proto_init() {
 		return
 	}
 	file_coral_agent_v1_agent_proto_init()
+	file_coral_agent_v1_correlation_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
