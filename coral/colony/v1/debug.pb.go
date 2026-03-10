@@ -3105,8 +3105,6 @@ func (x *ColonyRemoveCorrelationRequest) GetServiceName() string {
 // ColonyRemoveCorrelationResponse confirms removal (RFD 091).
 type ColonyRemoveCorrelationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3139,20 +3137,6 @@ func (x *ColonyRemoveCorrelationResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ColonyRemoveCorrelationResponse.ProtoReflect.Descriptor instead.
 func (*ColonyRemoveCorrelationResponse) Descriptor() ([]byte, []int) {
 	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{43}
-}
-
-func (x *ColonyRemoveCorrelationResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *ColonyRemoveCorrelationResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // ColonyListCorrelationsRequest lists active correlation descriptors (RFD 091).
@@ -3519,10 +3503,8 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\asuccess\x18\x04 \x01(\bR\asuccess\"j\n" +
 	"\x1eColonyRemoveCorrelationRequest\x12%\n" +
 	"\x0ecorrelation_id\x18\x01 \x01(\tR\rcorrelationId\x12!\n" +
-	"\fservice_name\x18\x02 \x01(\tR\vserviceName\"Q\n" +
-	"\x1fColonyRemoveCorrelationResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"B\n" +
+	"\fservice_name\x18\x02 \x01(\tR\vserviceName\"!\n" +
+	"\x1fColonyRemoveCorrelationResponse\"B\n" +
 	"\x1dColonyListCorrelationsRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\"i\n" +
 	"\x1eColonyListCorrelationsResponse\x12G\n" +

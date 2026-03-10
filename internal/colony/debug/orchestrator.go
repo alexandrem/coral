@@ -1043,6 +1043,7 @@ func (o *Orchestrator) RemoveCorrelation(
 ) (*connect.Response[debugpb.ColonyRemoveCorrelationResponse], error) {
 	// Look up the correlation in all connected agents.
 	entries := o.registry.ListAll()
+	var found bool
 	for _, entry := range entries {
 		client := o.clientFactory(
 			http.DefaultClient,
@@ -1057,9 +1058,15 @@ func (o *Orchestrator) RemoveCorrelation(
 				Str("agent_id", entry.AgentID).
 				Str("correlation_id", req.Msg.CorrelationId).
 				Msg("Failed to remove correlation from agent.")
+		} else {
+			found = true
 		}
 	}
-	return connect.NewResponse(&debugpb.ColonyRemoveCorrelationResponse{Success: true}), nil
+	if !found {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("correlation %s not found", req.Msg.CorrelationId))
+	}
+	return connect.NewResponse(&debugpb.ColonyRemoveCorrelationResponse{}), nil
 }
 
 // ListCorrelations returns descriptors across all agents, optionally filtered

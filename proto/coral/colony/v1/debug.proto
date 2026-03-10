@@ -425,10 +425,7 @@ message ColonyRemoveCorrelationRequest {
 }
 
 // ColonyRemoveCorrelationResponse confirms removal (RFD 091).
-message ColonyRemoveCorrelationResponse {
-  bool   success = 1;
-  string error   = 2;
-}
+message ColonyRemoveCorrelationResponse {}
 
 // ColonyListCorrelationsRequest lists active correlation descriptors (RFD 091).
 message ColonyListCorrelationsRequest {

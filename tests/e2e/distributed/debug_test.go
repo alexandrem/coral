@@ -776,9 +776,8 @@ func (s *DebugSuite) TestCorrelationDeployAndRemove() {
 
 	// Remove the descriptor.
 	s.T().Log("Removing correlation descriptor...")
-	removeResp, err := helpers.RemoveCorrelation(s.ctx, debugClient, corrID, "sdk-app")
+	_, err = helpers.RemoveCorrelation(s.ctx, debugClient, corrID, "sdk-app")
 	s.Require().NoError(err, "RemoveCorrelation should succeed")
-	s.Require().True(removeResp.Success, "Remove should succeed: %s", removeResp.Error)
 	s.T().Log("✓ Correlation removed")
 
 	// Verify it is gone from ListCorrelations.

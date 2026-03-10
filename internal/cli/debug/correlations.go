@@ -124,15 +124,11 @@ func newCorrelationsRemoveCmd() *cobra.Command {
 			}
 
 			correlationID := args[0]
-			resp, err := client.RemoveCorrelation(ctx, connect.NewRequest(&colonypb.ColonyRemoveCorrelationRequest{
+			_, err = client.RemoveCorrelation(ctx, connect.NewRequest(&colonypb.ColonyRemoveCorrelationRequest{
 				CorrelationId: correlationID,
 			}))
 			if err != nil {
 				return fmt.Errorf("failed to remove correlation: %w", err)
-			}
-
-			if !resp.Msg.Success {
-				return fmt.Errorf("removal failed: %s", resp.Msg.Error)
 			}
 
 			fmt.Printf("Correlation %s removed.\n", correlationID)

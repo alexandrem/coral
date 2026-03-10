@@ -519,7 +519,10 @@ func (s *DebugService) RemoveCorrelation(
 	if engine == nil {
 		return nil, fmt.Errorf("correlation engine not available")
 	}
-	engine.Remove(req.CorrelationId)
+	if !engine.Remove(req.CorrelationId) {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("correlation %s not found", req.CorrelationId))
+	}
 	return &agentv1.RemoveCorrelationResponse{}, nil
 }
 

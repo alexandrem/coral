@@ -242,13 +242,9 @@ func (s *Server) registerRemoveCorrelationTool() {
 			ServiceName:   serviceName,
 		})
 
-		resp, err := s.debugService.RemoveCorrelation(ctx, req)
+		_, err = s.debugService.RemoveCorrelation(ctx, req)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to remove correlation: %v", err)), nil
-		}
-
-		if !resp.Msg.Success {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to remove correlation: %s", resp.Msg.Error)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Correlation %s removed successfully.", input.CorrelationID)), nil
