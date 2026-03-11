@@ -4,25 +4,25 @@ This repository contains the architectural and engineering knowledge distilled f
 
 ## 1. Core Foundations
 
-- **01_system_architecture**: High-level component interactions and the pull-based telemetry model.
-- **02_mesh_networking_and_connectivity**: WireGuard overlay networking, NAT traversal, and persistent IPAM.
+- **[01_system_architecture](01_system_architecture.md)**: High-level component interactions and the pull-based telemetry model.
+- **[02_mesh_networking_and_connectivity](02_mesh_networking_and_connectivity.md)**: WireGuard overlay networking, NAT traversal, and persistent IPAM.
 
 ## 2. Telemetry Collection (The Edge)
 
-- **03_ebpf_instrumentation_engine**: Zero-instrumentation monitoring, kernel-side filtering, and stateful edge correlation.
-- **04_binary_function_indexing_and_metadata**: 3-tier discovery pipeline, semantic enrichment (xxHash3 SimHash), and DuckDB symbol caching.
-- **05_otlp_ingestion_and_transformation**: Native support for OpenTelemetry protocol and internal data mapping.
-- **06_system_host_metrics_collection**: High-precision infrastructure metrics collection using `gopsutil`.
+- **[03_ebpf_instrumentation_engine](03_ebpf_instrumentation_engine.md)**: Zero-instrumentation monitoring, kernel-side filtering, and stateful edge correlation.
+- **[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)**: 3-tier discovery pipeline, semantic enrichment (xxHash3 SimHash), and DuckDB symbol caching.
+- **[05_otlp_ingestion_and_transformation](05_otlp_ingestion_and_transformation.md)**: Native support for OpenTelemetry protocol and internal data mapping.
+- **[06_system_host_metrics_collection](06_system_host_metrics_collection.md)**: High-precision infrastructure metrics collection using `gopsutil`.
 
 ## 3. The Data Backbone
 
-- **07_data_strategy_and_persistence**: Strategic use of DuckDB at the edge vs. central data aggregation.
-- **08_reliable_telemetry_polling**: Detailed exploration of sequence-based checkpoints and gap recovery logic.
+- **[07_data_strategy_and_persistence](07_data_strategy_and_persistence.md)**: Strategic use of DuckDB at the edge vs. central data aggregation.
+- **[08_reliable_telemetry_polling](08_reliable_telemetry_polling.md)**: Detailed exploration of sequence-based checkpoints and gap recovery logic.
 
 ## 4. Intelligence & Analysis
 
-- **09_sdk_and_scripting_capabilities**: Application-level Go SDK and automated analysis via sandboxed TypeScript scripts.
-- **10_mcp_and_llm_interfacing**: Integration with LLMs via Model Context Protocol and the local Agent reasoning loop.
+- **[09_sdk_and_scripting_capabilities](09_sdk_and_scripting_capabilities.md)**: Application-level Go SDK and automated analysis via sandboxed TypeScript scripts.
+- **[10_mcp_and_llm_interfacing](10_mcp_and_llm_interfacing.md)**: Integration with LLMs via Model Context Protocol and the local Agent reasoning loop.
 
 ---
 
