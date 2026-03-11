@@ -29,35 +29,95 @@ kernel.
 
 - **Uprobe Collector**: Attaches probes to user-space functions to capture
   `timestamp_ns`, `PID`, `TID`, and `duration_ns`.
-    - **Return-Instruction Uprobes (RFD 073)**: Traditional `uretprobes` are
-      incompatible with
-      Go's stack management (split stacks can cause "unexpected return pc"
-      crashes).
-      To solve this, Coral uses a **disassembly-based technique**:
-        1. **SDK Interrogation**: Retrieves function offset and size from the
-           SDK (derived from `DW_AT_high_pc` / `DW_AT_low_pc`).
-        2. **Binary Disassembly**: The agent reads the target binary from
-           `/proc/{pid}/exe` and uses `x86asm` or `arm64asm` (via
-           `internal/agent/ebpf/disasm`) to find all possible `RET`
-           instructions.
-        3. **Multi-Point Attachment**: For a single function, the agent attaches
-           an entry uprobe AND N return uprobes (one per `RET` instruction
-           found).
-        4. **BPF Map Coordination**: On entry, a timestamp is stored in BPF. On
-           any `RET` hit, the BPF program calculates the delta and emits a
-           duration event.
-    - **Orphaned Entry Cleanup**: Since Go panics can unwind the stack without
-      hitting a `RET`, a background janitor (every 30s) sweeps the BPF map for
-      entries older than 60s to prevent memory leaks.
+  - **Return-Instruction Uprobes (RFD 073)**: Traditional `uretprobes` are
+    incompatible with
+    Go's stack management (split stacks can cause "unexpected return pc"
+    crashes).
+    To solve this, Coral uses a **disassembly-based technique**:
+    1. **SDK Interrogation**: Retrieves function offset and size from the
+       SDK (derived from `DW_AT_high_pc` / `DW_AT_low_pc`).
+    2. **Binary Disassembly**: The agent reads the target binary from
+       `/proc/{pid}/exe` and uses `x86asm` or `arm64asm` (via
+       `internal/agent/ebpf/disasm`) to find all possible `RET`
+       instructions.
+    3. **Multi-Point Attachment**: For a single function, the agent attaches
+       an entry uprobe AND N return uprobes (one per `RET` instruction
+       found).
+    4. **BPF Map Coordination**: On entry, a timestamp is stored in BPF. On
+       any `RET` hit, the BPF program calculates the delta and emits a
+       duration event.
+  - **Orphaned Entry Cleanup**: Since Go panics can unwind the stack without
+    hitting a `RET`, a background janitor (every 30s) sweeps the BPF map for
+    entries older than 60s to prevent memory leaks.
 - **Syscall Stats Collector**: Monitors system-wide or process-specific syscall
   frequency and latency.
 - **Beyla Integration**: Leverages Beyla's auto-instrumentation for
-  protocol-specific (HTTP/gRPC/SQL) RED metrics.
+  protocol-specific (HTTP/gRPC/SQL) RED metrics and distributed traces.
+  - **Bridging**: The Coral agent acts as a controller for the Beyla process,
+    managing its configuration, lifecycle, and data ingestion via an embedded
+    OTLP receiver.
+
+## Beyla Integration & Bridging Architecture
+
+Beyla is integrated into the Coral ecosystem as a "managed sub-process" rather
+than a library. This provides process isolation and allows the agent to treat
+Beyla as a high-performance protocol parser while maintaining Coral's
+distributed storage and query philosophy.
+
+### Process Management (`internal/agent/beyla/manager.go`)
+
+The `Manager` is responsible for the end-to-end lifecycle of the Beyla binary:
+
+- **Embedded Distribution**: Beyla binaries (x86_64, ARM64) are embedded into the
+  Coral Agent binary during build-time using `go generate`. On startup, the
+  Agent extracts the appropriate binary to a temporary directory.
+- **Dynamic Configuration**: On every service discovery change (e.g., a new port
+  becomes active), the `Manager` generates a fresh Beyla YAML configuration
+  file. This enables **Runtime Service Tracking (RFD 053)** without manual
+  restarts.
+- **Sub-process Supervision**: Beyla runs as an external process supervised via
+  `os/exec`. Terminal output (`stdout`/`stderr`) is wrapped and piped into
+  Coral's `zerolog` system for unified debugging.
+
+### Data Bridging & OTLP Loopback
+
+Beyla exports metrics and traces using the **OpenTelemetry Protocol (OTLP)**.
+Coral bridges this data into its own engine via a local gRPC/HTTP loopback:
+
+- **Dedicated Receiver**: The Agent starts a dedicated OTLP receiver instance
+  listening on `127.0.0.1:4319` (gRPC) and `4320` (HTTP). This is separate from
+  the "User OTLP Receiver" (4317/4318) to prevent ingestion crosstalk and enable
+  different security policies.
+- **OTLP Loopback**: Beyla is configured to export to these loopback addresses.
+  This allows Coral to capture "auto-instrumented" data using the same
+  high-performance pipeline as manual instrumentation.
+- **Transformation Pipeline (`transformer.go`)**: OTEL metric batches and trace
+  spans are intercepted and transformed:
+  - **Metrics**: Standard OTLP metrics (e.g., `http.server.duration`) are
+    converted into `EbpfEvent` protobufs.
+  - **Traces**: Distributed trace spans are captured and routed to dedicated
+    Beyla trace storage.
+
+### Distributed Pull-Based Storage
+
+Unlike standard OTEL setups that "push" to a central collector, Coral implements
+a **Pull-Based Edge Storage** model (RFD 032):
+
+1. **Local Buffering**: Beyla data is stored in the agent's local DuckDB
+   (`beyla_metrics_local`, `beyla_traces_local`) with a short-term retention (
+   default: 1 hour).
+2. **Colony Polling**: The Colony periodically polls agents via the
+   `QueryBeylaMetrics` RPC. Only summarized or requested data is pulled across
+   the network, reducing bandwidth significantly in high-throughput
+   environments.
+3. **Sequence Tracking**: The bridge implements `seq_id` (Sequence ID) tracking (
+   RFD 089) to ensure the Colony can resume polling from the exact last-seen
+   event, providing gapless reliability.
 
 ## Capacity Detection
 
-The system performs runtime capability detection (`detect.go`) checking for *
-*BTF (BPF Type Format)** and **CO-RE (Compile Once - Run Everywhere)** support.
+The system performs runtime capability detection (`detect.go`) checking for \*
+\*BTF (BPF Type Format)** and **CO-RE (Compile Once - Run Everywhere)\*\* support.
 This ensures the agent can adapt its eBPF programs to the specific kernel
 version without requiring local headers or recompilation.
 
@@ -97,13 +157,13 @@ and enables millisecond-latency action dispatch.
   eBPF event path.
 - **Go Strategy Engine**: Patterns are evaluated by optimized `Evaluator`
   state machines:
-    - `rate_gate`: N events matching a filter within window T.
-    - `causal_pair`: Event A followed by Event B (joined on `join_on` field like
-      `trace_id`).
-    - `absence`: Lack of event A for duration T.
-    - `percentile_alarm`: Rolling percentile (P99) exceeds a threshold.
-    - `edge_trigger`: First transition from fast to slow.
-    - `sequence`: Strictly ordered event sequence (A then B).
+  - `rate_gate`: N events matching a filter within window T.
+  - `causal_pair`: Event A followed by Event B (joined on `join_on` field like
+    `trace_id`).
+  - `absence`: Lack of event A for duration T.
+  - `percentile_alarm`: Rolling percentile (P99) exceeds a threshold.
+  - `edge_trigger`: First transition from fast to slow.
+  - `sequence`: Strictly ordered event sequence (A then B).
 
 ### Edge Action Dispatch
 
