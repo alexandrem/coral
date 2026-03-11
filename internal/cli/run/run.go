@@ -250,7 +250,7 @@ func ExecuteInline(ctx context.Context, code string, opts ExecuteInlineOptions) 
 		defer cancel()
 	}
 
-	//nolint:gosec // denoPath is from trusted findDeno(), args are controlled.
+	// #nosec G204 - denoPath is from trusted findDeno(), args are controlled.
 	denoCmd := exec.CommandContext(ctx, denoPath, args...)
 	denoCmd.Dir = tmpDir
 
