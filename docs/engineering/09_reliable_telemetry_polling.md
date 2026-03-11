@@ -65,7 +65,5 @@ Agents expose a `session_id` (typically a UUID generated at startup).
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 089
-  **: Sequence Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)
-- [**RFD 018
-  **: Runtime Context Reporting](../../RFDs/018-runtime-context-reporting.md)
+- [**RFD 089**: Sequence Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)
+- [**RFD 018**: Runtime Context Reporting](../../RFDs/018-runtime-context-reporting.md)

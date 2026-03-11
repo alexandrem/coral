@@ -8,31 +8,25 @@ distributed systems principles that power the platform.
 
 - **[01_system_architecture](01_system_architecture.md)**: High-level component
   interactions and the pull-based telemetry model.
-- *
-  *[02_mesh_networking_and_connectivity](02_mesh_networking_and_connectivity.md)
-  **: WireGuard overlay networking, NAT traversal, and persistent IPAM.
+- **[02_mesh_networking_and_connectivity](02_mesh_networking_and_connectivity.md)**: WireGuard overlay networking, NAT traversal, and persistent IPAM.
 
 ## 2. The Observable Edge (The Eyes)
 
 - **[03_ebpf_instrumentation_engine](03_ebpf_instrumentation_engine.md)**:
   Zero-instrumentation monitoring, kernel-side filtering, and stateful edge
   correlation.
-- *
-  *[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)
-  **: 3-tier discovery pipeline, semantic enrichment (xxHash3 SimHash), and
+- **[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)**:
+  3-tier discovery pipeline, semantic enrichment (xxHash3 SimHash), and
   DuckDB symbol caching.
-- *
-  *[05_otlp_ingestion_and_transformation](05_otlp_ingestion_and_transformation.md)
-  **: Native support for OpenTelemetry protocol and internal data mapping.
+- **[05_otlp_ingestion_and_transformation](05_otlp_ingestion_and_transformation.md)**: Native support for
+  OpenTelemetry protocol and internal data mapping.
 - **[06_system_host_metrics_collection](06_system_host_metrics_collection.md)**:
   High-precision infrastructure metrics collection using `gopsutil`.
 
 ## 3. The Active Edge (The Hands)
 
-- *
-  *[07_active_edge_and_remote_orchestration](07_active_edge_and_remote_orchestration.md)
-  **: Interactive shell access, container namespace entry (nsenter), and session
-  auditing.
+- **[07_active_edge_and_remote_orchestration](07_active_edge_and_remote_orchestration.md)**: Interactive shell access,
+  container namespace entry (nsenter), and session auditing.
 
 ## 4. The Data Backbone (The Nervous System)
 

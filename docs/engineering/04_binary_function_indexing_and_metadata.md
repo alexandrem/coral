@@ -113,10 +113,7 @@ candidate for specialized vector storage:
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 063
-  **: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
-- [**RFD 065
-  **: Agentless Binary Scanning](../../RFDs/065-agentless-binary-scanning.md)
+- [**RFD 063**: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
+- [**RFD 065**: Agentless Binary Scanning](../../RFDs/065-agentless-binary-scanning.md)
 - [**RFD 066**: SDK HTTP API](../../RFDs/066-sdk-http-api.md)
-- [**RFD 075
-  **: Hybrid Function Metadata](../../RFDs/075-hybrid-function-metadata.md)
+- [**RFD 075**: Hybrid Function Metadata](../../RFDs/075-hybrid-function-metadata.md)

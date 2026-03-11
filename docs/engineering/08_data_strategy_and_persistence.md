@@ -69,12 +69,8 @@ Colony database.
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 010
-  **: DuckDB Storage Initialization](../../RFDs/010-duckdb-storage-initialization.md)
-- [**RFD 039
-  **: DuckDB Remote Query CLI](../../RFDs/039-duckdb-remote-query-cli.md)
-- [**RFD 046
-  **: Colony DuckDB Remote Query](../../RFDs/046-colony-duckdb-remote-query.md)
-- [**RFD 089
-  **: Sequence Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)
+- [**RFD 010**: DuckDB Storage Initialization](../../RFDs/010-duckdb-storage-initialization.md)
+- [**RFD 039**: DuckDB Remote Query CLI](../../RFDs/039-duckdb-remote-query-cli.md)
+- [**RFD 046**: Colony DuckDB Remote Query](../../RFDs/046-colony-duckdb-remote-query.md)
+- [**RFD 089**: Sequence Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)
 - [**RFD 096**: Agent DuckDB Proxy](../../RFDs/096-agent-duckdb-proxy.md)

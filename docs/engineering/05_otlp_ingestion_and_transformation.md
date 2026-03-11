@@ -72,5 +72,4 @@ general-purpose `otel_spans_local`.
 
 - [**RFD 024**: OTEL Integration](../../RFDs/024-otel-integration.md)
 - [**RFD 025**: Basic OTLP Ingestion](../../RFDs/025-basic-otel-ingestion.md)
-- [**RFD 034
-  **: Serverless OTLP Forwarding](../../RFDs/034-serverless-otlp-forwarding.md)
+- [**RFD 034**: Serverless OTLP Forwarding](../../RFDs/034-serverless-otlp-forwarding.md)

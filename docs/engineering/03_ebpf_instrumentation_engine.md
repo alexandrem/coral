@@ -210,15 +210,10 @@ sessions.
 ## Related Design Documents (RFDs)
 
 - [**RFD 013**: eBPF Introspection](../../RFDs/013-ebpf-introspection.md)
-- [**RFD 032
-  **: BEYLA RED Metrics Integration](../../RFDs/032-beyla-red-metrics-integration.md)
-- [**RFD 036
-  **: BEYLA Distributed Tracing](../../RFDs/036-beyla-distributed-tracing.md)
+- [**RFD 032**: BEYLA RED Metrics Integration](../../RFDs/032-beyla-red-metrics-integration.md)
+- [**RFD 036**: BEYLA Distributed Tracing](../../RFDs/036-beyla-distributed-tracing.md)
 - [**RFD 061**: eBPF Uprobe Mechanism](../../RFDs/061-ebpf-uprobe-mechanism.md)
-- [**RFD 063
-  **: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
-- [**RFD 073
-  **: Return-Instruction Uprobes for Go](../../RFDs/073-return-instruction-uprobes.md)
-- [**RFD 090
-  **: eBPF Probe Runtime Filtering](../../RFDs/090-ebpf-probe-runtime-filtering.md)
+- [**RFD 063**: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
+- [**RFD 073**: Return-Instruction Uprobes for Go](../../RFDs/073-return-instruction-uprobes.md)
+- [**RFD 090**: eBPF Probe Runtime Filtering](../../RFDs/090-ebpf-probe-runtime-filtering.md)
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)

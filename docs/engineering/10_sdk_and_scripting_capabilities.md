@@ -68,9 +68,7 @@ safety through generated TypeScript interfaces.
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 060
-  **: SDK Runtime Monitoring](../../RFDs/060-sdk-runtime-monitoring.md)
+- [**RFD 060**: SDK Runtime Monitoring](../../RFDs/060-sdk-runtime-monitoring.md)
 - [**RFD 066**: SDK HTTP API](../../RFDs/066-sdk-http-api.md)
-- [**RFD 076
-  **: Sandboxed TypeScript Execution](../../RFDs/076-sandboxed-typescript-execution.md)
+- [**RFD 076**: Sandboxed TypeScript Execution](../../RFDs/076-sandboxed-typescript-execution.md)
 - [**RFD 093**: Skills TypeScript SDK](../../RFDs/093-skills-typescript-sdk.md)

@@ -101,13 +101,10 @@ result synthesis into a single, automated workflow.
 
 - [**RFD 004**: MCP Server](../../RFDs/004-mcp-server.md)
 - [**RFD 005**: CLI Local Proxy](../../RFDs/005-cli-local-proxy.md)
-- [**RFD 014
-  **: Colony LLM Integration](../../RFDs/014-colony-llm-integration.md)
+- [**RFD 014**: Colony LLM Integration](../../RFDs/014-colony-llm-integration.md)
 - [**RFD 030**: Coral Ask Local Agent](../../RFDs/030-coral-ask-local.md)
 - [**RFD 031**: Colony Dual Interface](../../RFDs/031-colony-dual-interface.md)
-- [**RFD 051
-  **: Coral Ask Interactive Terminal](../../RFDs/051-coral-ask-interactive-terminal.md)
-- [**RFD 054
-  **: Smart Parameter Extraction](../../RFDs/054-coral-ask-smart-parameter-extraction.md)
+- [**RFD 051**: Coral Ask Interactive Terminal](../../RFDs/051-coral-ask-interactive-terminal.md)
+- [**RFD 054**: Smart Parameter Extraction](../../RFDs/054-coral-ask-smart-parameter-extraction.md)
 - [**RFD 055**: Coral Ask Configuration](../../RFDs/055-coral-ask-config.md)
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)
