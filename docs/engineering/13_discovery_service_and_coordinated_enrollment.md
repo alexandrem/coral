@@ -24,8 +24,8 @@ IP addresses. Coral solves this using the **Meeting Point Pattern**:
 
 ## 2. The Trust Relationship: A Triangle of Security
 
-The trust model in Coral is not a simple hierarchy but a triad between the \*
-\*Colony**, the **Agent**, and **Discovery\*\*.
+The trust model in Coral is not a simple hierarchy but a triad between the
+**Colony**, the **Agent**, and **Discovery**.
 
 ### A. Colony ↔ Discovery
 
@@ -96,8 +96,8 @@ edge:
 
 ## 4. Discovery Bypassing (Operator Overrides)
 
-While Discovery is essential for automated scaling, it is designed to be \*
-\*non-blocking\*\* in disaster recovery or air-gapped scenarios:
+While Discovery is essential for automated scaling, it is designed to be
+**non-blocking** in disaster recovery or air-gapped scenarios:
 
 ### Emergency Tokens
 
