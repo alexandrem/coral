@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -205,11 +206,22 @@ func ExecuteInline(ctx context.Context, code string, opts ExecuteInlineOptions) 
 
 	// Generate a deno.json import map so "@coral/sdk" resolves to the
 	// extracted SDK without network access.
+	imports := map[string]string{
+		"@coral/sdk":         "./sdk/mod.ts",
+		"@coral/sdk/skills/": "./sdk/skills/",
+	}
+
+	// Dynamic skill mapping to allow extension-less imports (e.g. @coral/sdk/skills/latency-report)
+	skillFiles, _ := os.ReadDir(filepath.Join(tmpDir, "sdk", "skills"))
+	for _, f := range skillFiles {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".ts") {
+			name := strings.TrimSuffix(f.Name(), ".ts")
+			imports["@coral/sdk/skills/"+name] = "./sdk/skills/" + f.Name()
+		}
+	}
+
 	importMap := map[string]interface{}{
-		"imports": map[string]string{
-			"@coral/sdk":         "./sdk/mod.ts",
-			"@coral/sdk/skills/": "./sdk/skills/",
-		},
+		"imports": imports,
 	}
 	importMapBytes, err := json.Marshal(importMap)
 	if err != nil {
