@@ -367,6 +367,19 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("TestDuckDBQueryRemote", duckdbSuite.TestDuckDBQueryRemote)
 	s.Run("TestDuckDBShellRemote", duckdbSuite.TestDuckDBShellRemote)
 
+	// coral run (RFD 076 / RFD 093) — TypeScript script execution via embedded Deno.
+	cliRunSuite := &CLIRunSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliRunSuite.SetT(s.T())
+	cliRunSuite.SetupSuite()
+	defer cliRunSuite.TearDownSuite()
+
+	s.Run("CLI_RunBasicScript", cliRunSuite.TestRunBasicScript)
+	s.Run("CLI_RunScriptError", cliRunSuite.TestRunScriptError)
+	s.Run("CLI_RunTimeoutFlag", cliRunSuite.TestRunTimeoutFlag)
+	s.Run("CLI_RunHelpText", cliRunSuite.TestRunHelpText)
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")
@@ -416,6 +429,9 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 
 	// Group E: Container Execution
 	s.Run("MCP_ToolContainerExec", mcpSuite.TestMCPToolContainerExec)
+
+	// Group N: TypeScript SDK Execution (RFD 093)
+	s.Run("MCP_ToolCoralRun", mcpSuite.TestMCPToolCoralRun)
 
 	// Group F: Advanced Observability
 	s.Run("MCP_ToolQueryWithTelemetry", mcpSuite.TestMCPToolQueryWithTelemetryData)

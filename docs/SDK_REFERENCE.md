@@ -12,6 +12,7 @@ sandboxed TypeScript scripts executed via `coral run`.
 ## Table of Contents
 
 - [Getting Started](#getting-started)
+- [Skills — LLM-Invocable Investigation Recipes](#skills--llm-invocable-investigation-recipes)
 - [Services API](#services-api)
 - [Metrics API](#metrics-api)
 - [Activity API](#activity-api)
@@ -51,6 +52,136 @@ Scripts automatically connect to the active colony via environment variables:
 
 - `CORAL_MODE=cli` - Indicates CLI execution mode
 - `CORAL_COLONY_ADDR` - Colony gRPC endpoint (auto-configured)
+
+---
+
+## Skills — LLM-Invocable Investigation Recipes
+
+**RFD 093** adds a `skills/` directory to `@coral/sdk` containing pre-written
+investigation functions with a defined `SkillResult` output contract. Skills
+are the recommended building blocks for `coral_run` scripts.
+
+### Using Skills via the MCP Tool
+
+When an AI assistant calls `coral_run`, it should first read
+`coral://sdk/reference` to discover available skills, then import and call them:
+
+```typescript
+import { latencyReport } from "@coral/sdk/skills/latency-report";
+
+const result = await latencyReport({ threshold_ms: 500 });
+console.log(JSON.stringify(result));
+```
+
+### SkillResult Contract
+
+All skills return a `SkillResult`:
+
+```typescript
+interface SkillResult {
+  summary:          string;                                      // one-line finding
+  status:           "healthy" | "warning" | "critical" | "unknown";
+  data:             Record<string, unknown>;                     // skill-specific
+  recommendations?: string[];                                    // optional next steps
+  render?:          RenderSpec;                                  // optional dashboard spec
+}
+```
+
+### stdout / stderr Convention
+
+```typescript
+// Progress messages → stderr (visible to user in terminal while script runs)
+console.error("Checking 3 services...");
+
+// Final result → stdout (returned to LLM as the coral_run tool result)
+console.log(JSON.stringify(result));
+```
+
+### Built-in Skills
+
+#### `@coral/sdk/skills/latency-report`
+
+Check P99 latency and error rates across all services (or a single service).
+
+```typescript
+import { latencyReport } from "@coral/sdk/skills/latency-report";
+
+const result = await latencyReport({
+  threshold_ms: 500,  // default: 500ms
+  service: "payments" // optional: limit to one service
+});
+console.log(JSON.stringify(result));
+```
+
+**`data` shape:** `{ threshold_ms, services: [{ service, p99Ms, errorRate, status }] }`
+
+#### `@coral/sdk/skills/error-correlation`
+
+Detect cascading failures by finding services with simultaneous error-rate spikes.
+
+```typescript
+import { errorCorrelation } from "@coral/sdk/skills/error-correlation";
+
+const result = await errorCorrelation({
+  threshold: 0.05,      // default: 5% error rate
+  window_ms: 300_000,   // default: 5 minutes
+});
+console.log(JSON.stringify(result));
+```
+
+**`data` shape:** `{ threshold, window_ms, spiking: [...], healthy: [...] }`
+
+**Status heuristic:** `critical` when 3+ services are spiking simultaneously
+(cascade pattern), `warning` for 1–2 services, `healthy` for none.
+
+#### `@coral/sdk/skills/memory-leak-detector`
+
+Identify services with sustained heap growth over a time window.
+
+```typescript
+import { memoryLeakDetector } from "@coral/sdk/skills/memory-leak-detector";
+
+const result = await memoryLeakDetector({
+  window_ms: 900_000,          // default: 15 minutes
+  min_growth_rate_bps: 102400, // default: 100 KB/s
+});
+console.log(JSON.stringify(result));
+```
+
+**`data` shape:** `{ window_ms, min_growth_rate_bps, services: [{ service, growthRateBps, growthKbps, ... }] }`
+
+### Writing Custom Skills
+
+Follow the `SkillFn` contract for scripts the LLM will parse:
+
+```typescript
+import * as coral from "@coral/sdk";
+import type { SkillFn, SkillResult } from "@coral/sdk";
+
+interface MyParams { service: string }
+
+export const mySkill: SkillFn<MyParams> = async (params): Promise<SkillResult> => {
+  console.error(`Checking ${params.service}...`);
+  const p99 = await coral.metrics.getP99(params.service, "http.server.duration");
+  return {
+    summary: `${params.service} P99: ${(p99.value / 1_000_000).toFixed(1)}ms`,
+    status: "healthy",
+    data: { p99Ms: p99.value / 1_000_000 },
+  };
+};
+```
+
+### SDK Reference Resource
+
+The MCP server exposes a compact SDK index as a resource:
+
+```
+URI:      coral://sdk/reference
+MimeType: text/plain
+```
+
+The LLM reads this before writing `coral_run` scripts. It lists all SDK
+modules, their public functions with signatures, and available skills.
 
 ---
 
