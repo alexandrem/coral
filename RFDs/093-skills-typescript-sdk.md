@@ -34,9 +34,6 @@ areas: [ "cli", "mcp", "sdk" ]
 - ✅ Unit and integration tests in `tools_run_test.go` and `tools_schema_test.go`
 - ✅ `docs/SDK_REFERENCE.md` updated with full Skills section
 
-**Deferred to Future Work:**
-- E2E test for full LLM `coral_run` invocation via orchestrator (deferred — requires live colony + agent)
-
 ## Summary
 
 RFD 076 introduced sandboxed TypeScript execution (`coral run script.ts`) and the
@@ -366,7 +363,7 @@ coral run analysis.ts
 
 - [x] Unit tests for each skill (mock SDK client)
 - [x] Integration test for `coral_run` tool execution and output capture
-- [ ] E2E test: LLM invokes `coral_run` with a skill, verifies `SkillResult` shape
+- [x] E2E test: LLM invokes `coral_run` with a skill, verifies `SkillResult` shape
 - [x] Update `docs/SDK_REFERENCE.md` with skills section
 
 ## Security Considerations
