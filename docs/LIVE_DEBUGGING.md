@@ -1,4 +1,4 @@
-# Live Debugging: The Killer Feature (in development)
+# Live Debugging Concepts
 
 **Coral can debug your running code without redeploying.**
 
