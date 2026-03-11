@@ -1,7 +1,7 @@
 ---
 rfd: "087"
 title: "Discovery Service on Cloudflare Workers"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "networking", "discovery", "infrastructure" ]
 
 # RFD 087 - Discovery Service on Cloudflare Workers
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -23,15 +23,18 @@ STUN/TURN infrastructure with Cloudflare-native utilities, significantly
 reducing operational costs while providing out-of-the-box High Availability (HA)
 and global scalability.
 
-**API Compatibility:** The Cloudflare Workers implementation exposes the existing
+**API Compatibility:** The Cloudflare Workers implementation exposes the
+existing
 `DiscoveryService` API via **buf connect protocol** (HTTP/JSON + HTTP/2 binary).
 No changes to `proto/coral/discovery/v1/discovery.proto` are required. Existing
 Go clients using buf connect will work without modification.
 
 **Dependencies:**
 
-- **RFD 001** (Coral Architecture): Defines the discovery service role in the mesh.
-- **RFD 023** (NAT Traversal): Establishes STUN/relay patterns this RFD builds upon.
+- **RFD 001** (Coral Architecture): Defines the discovery service role in the
+  mesh.
+- **RFD 023** (NAT Traversal): Establishes STUN/relay patterns this RFD builds
+  upon.
 
 ## Problem
 
@@ -69,14 +72,17 @@ and its native STUN capabilities for endpoint detection.
 
 - **Wasm Cryptographic Bridge**: Compile the Go identity logic to Wasm to ensure
   Referral Tickets are signed identically at the edge as they are on the Colony.
-  Keep the Wasm module **stateless** and either re-instantiate per request or use
-  a global instance pool to avoid memory leaks across thousands of DO invocations.
-  While Workers support `FinalizationRegistry` for Wasm cleanup, stateless design
+  Keep the Wasm module **stateless** and either re-instantiate per request or
+  use
+  a global instance pool to avoid memory leaks across thousands of DO
+  invocations.
+  While Workers support `FinalizationRegistry` for Wasm cleanup, stateless
+  design
   is safer for high-throughput discovery workloads.
 
 **Benefits:**
 
-- **Extreme Cost Efficiency**: The Free/Paid tier of Workers (\$5/mo) typically
+- **Extreme Cost Efficiency**: The Free/Paid tier of Workers ($5/mo) typically
   covers millions of discovery requests, costing ~90% less than a multi-region
   VPS setup.
 
@@ -100,7 +106,6 @@ Agent/Colony → [ Cloudflare Edge Worker ]
 ### Component Changes
 
 1. **Discovery Worker** (TypeScript):
-
     - Replaces the Go gRPC listener.
 
     - Uses `CF-Connecting-IP` and `stun.cloudflare.com` hints to return the most
@@ -108,10 +113,10 @@ Agent/Colony → [ Cloudflare Edge Worker ]
 
     - **Observed Address Priority**: The Worker treats `CF-Connecting-IP` as the
       authoritative source. If the agent's self-reported STUN address is a
-      private/LAN IP (RFC 1918), the Worker overrides it with `CF-Connecting-IP`.
+      private/LAN IP (RFC 1918), the Worker overrides it with
+      `CF-Connecting-IP`.
 
 2. **Registry Store** (Durable Objects):
-
     - Acts as the stateful anchor.
 
     - Implements **Split-Brain protection**: Ensures only one Colony can
@@ -126,12 +131,10 @@ Agent/Colony → [ Cloudflare Edge Worker ]
       cleanup batch query: `DELETE FROM registrations WHERE expires_at < ?`.
 
 3. **Go Agent/Colony**:
-
     - Updated to use the Cloudflare STUN endpoint for local NAT discovery before
       hitting the Discovery service.
 
 4. **Buf Connect Protocol Layer** (TypeScript):
-
     - Implement connect protocol handlers for `DiscoveryService` RPCs using
       `@connectrpc/connect`.
 
@@ -155,7 +158,8 @@ The `RequestRelay` and `ReleaseRelay` RPCs require actual relay infrastructure
 
 - ✅ `RegisterColony`, `LookupColony`, `RegisterAgent`, `LookupAgent`, `Health`
 - ✅ `CreateBootstrapToken` (stateless JWT issuance)
-- ❌ `RequestRelay`, `ReleaseRelay` (deferred - requires separate relay infrastructure)
+- ❌ `RequestRelay`, `ReleaseRelay` (deferred - requires separate relay
+  infrastructure)
 
 Relay functionality may be addressed in a future RFD or continue using existing
 infrastructure.
@@ -164,13 +168,13 @@ infrastructure.
 
 ### Phase 1: Infrastructure Setup
 
-- [ ] Configure `wrangler.toml` with Durable Object bindings, Alarms, and
+- [x] Configure `wrangler.toml` with Durable Object bindings, Alarms, and
   compatibility flags.
 
-- [ ] Set up a custom domain with Cloudflare Proxy enabled for the Discovery
+- [x] Set up a custom domain with Cloudflare Proxy enabled for the Discovery
   endpoint.
 
-- [ ] Enable "gRPC" in Cloudflare Zone Network settings.
+- [x] Enable "gRPC" in Cloudflare Zone Network settings.
 
 **Example `wrangler.toml`:**
 
@@ -190,29 +194,32 @@ new_sqlite_classes = ["ColonyRegistry"]
 
 ### Phase 2: Core Registry Logic
 
-- [ ] Implement the `ColonyRegistry` class with transactional `register()` and
+- [x] Implement the `ColonyRegistry` class with transactional `register()` and
   `lookup()` methods.
 
-- [ ] Integrate the TinyGo Wasm module for JWS/JWKS parity.
+- [x] Integrate the TinyGo Wasm module for JWS/JWKS parity.
 
 ### Phase 3: NAT Traversal Simplification
 
-- [ ] Update the Discovery API to accept STUN-discovered addresses from the
+- [x] Update the Discovery API to accept STUN-discovered addresses from the
   agent.
 
-- [ ] Implement fallback to `CF-Connecting-IP` when STUN is blocked.
+- [x] Implement fallback to `CF-Connecting-IP` when STUN is blocked.
 
-### Phase 4: Testing & Validation
+### Phase 4: Testing & Documentation
 
-- [ ] Add unit tests for Durable Object state management (register/lookup/expiry).
+- [x] Add unit tests for Durable Object state management (
+  register/lookup/expiry).
 
-- [ ] Add integration tests for buf connect protocol compliance.
+- [x] Add integration tests for buf connect protocol compliance.
 
-- [ ] Test STUN fallback behavior when primary STUN is blocked.
+- [x] Test STUN fallback behavior when primary STUN is blocked.
 
-- [ ] Validate Go client compatibility with Workers endpoint.
+- [x] Validate Go client compatibility with Workers endpoint.
 
-- [ ] Load test with simulated burst registration (1k+ concurrent requests).
+- [x] Load test with simulated burst registration (1k+ concurrent requests).
+
+- [x] Update documentation files (`docs/CONFIG.md`, `docs/DISCOVERY.md`).
 
 ## API Changes
 
@@ -242,24 +249,52 @@ coral colony start --discovery=https://discovery.coralmesh.dev
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started (Design Phase)
+**Core Capability:** 🎉 Implemented
+
+The discovery service has been fully migrated to Cloudflare Workers using
+Durable Objects and SQLite storage. The registry supports strongly consistent
+membership for colonies and agents with automatic TTL-based cleanup via DO
+Alarms.
+
+**Operational Components:**
+
+- ✅ **Serverless Registry**: High-availability storage via Durable Objects
+  SQLite API.
+- ✅ **Connect Protocol**: Full support for `DiscoveryService` v1 via Buf
+  Connect (JSON/Binary).
+- ✅ **NAT Introspection**: `CF-Connecting-IP` based host discovery and STUN
+  integration.
+- ✅ **Cryptographic Parity**: JWS/JWKS parity with Go colony via TinyGo Wasm
+  module.
+- ✅ **Metrics**: Per-mesh-id registration tracking and global health stats.
+
+**What Works Now:**
+
+- Colony and Agent registration/lookup with automatic endpoint discovery.
+- Bootstrap token issuance (JWT) for secure agent onboarding.
+- JWKS endpoint for public key distribution.
+- Global health and registration metrics.
 
 ## Repository Structure
 
-The discovery service lives in a **separate repository** (`coral-discovery-workers`)
-to maintain clean separation between the Go monorepo and Cloudflare-specific tooling.
+The discovery service lives in a **separate repository** (
+`coral-discovery-workers`)
+to maintain clean separation between the Go monorepo and Cloudflare-specific
+tooling.
 
 **Rationale:**
 
 - **Different toolchains**: TypeScript/Wrangler vs Go/Make
-- **Independent deployment**: Workers deploy via `wrangler publish`, decoupled from
+- **Independent deployment**: Workers deploy via `wrangler publish`, decoupled
+  from
   coral release cycles
 - **Cloudflare-specific CI**: Preview deployments, secrets management, zone
   configuration
 
 ### Cryptographic Code Synchronization
 
-To ensure signature/verification parity between the Go colony and the TinyGo Wasm
+To ensure signature/verification parity between the Go colony and the TinyGo
+Wasm
 module, extract shared crypto logic into a dedicated module:
 
 ```
@@ -294,26 +329,27 @@ wasm:
 
 ### CI Parity Testing
 
-To detect version drift, coral's CI publishes cryptographic test vectors that the
+To detect version drift, coral's CI publishes cryptographic test vectors that
+the
 workers repo validates against:
 
 ```typescript
 // coral-discovery-workers/test/crypto-parity.test.ts
-import { describe, test, expect } from 'vitest';
-import { loadWasmModule } from '../src/wasm-loader';
+import {describe, test, expect} from 'vitest';
+import {loadWasmModule} from '../src/wasm-loader';
 
 describe('Wasm crypto parity', () => {
-  test('signature matches Go reference vectors', async () => {
-    const vectors = await fetch(
-      'https://coral-test-vectors.dev/jwt-sign-v1.json'
-    ).then((r) => r.json());
+    test('signature matches Go reference vectors', async () => {
+        const vectors = await fetch(
+            'https://coral-test-vectors.dev/jwt-sign-v1.json'
+        ).then((r) => r.json());
 
-    const wasm = await loadWasmModule();
-    for (const v of vectors.cases) {
-      const result = wasm.sign(v.privateKey, v.payload);
-      expect(result).toBe(v.expectedSignature);
-    }
-  });
+        const wasm = await loadWasmModule();
+        for (const v of vectors.cases) {
+            const result = wasm.sign(v.privateKey, v.payload);
+            expect(result).toBe(v.expectedSignature);
+        }
+    });
 });
 ```
 
@@ -321,16 +357,17 @@ describe('Wasm crypto parity', () => {
 
 ```yaml
 # coral/.github/workflows/test-vectors.yml
-- name: Generate crypto test vectors
-  run: go run ./cmd/gen-test-vectors -out vectors/
-- name: Publish vectors
-  uses: actions/upload-artifact@v4
-  with:
-    name: crypto-test-vectors
-    path: vectors/
+-   name: Generate crypto test vectors
+    run: go run ./cmd/gen-test-vectors -out vectors/
+-   name: Publish vectors
+    uses: actions/upload-artifact@v4
+    with:
+        name: crypto-test-vectors
+        path: vectors/
 ```
 
-This ensures any change to `coral-crypto` is validated against both implementations
+This ensures any change to `coral-crypto` is validated against both
+implementations
 before release.
 
 ## Future Work
@@ -342,5 +379,6 @@ before release.
 
 **Relay Infrastructure**
 
-- Separate RFD for TURN-like relay servers to support `RequestRelay`/`ReleaseRelay`
+- Separate RFD for TURN-like relay servers to support `RequestRelay`/
+  `ReleaseRelay`
   RPCs for symmetric NAT traversal.
