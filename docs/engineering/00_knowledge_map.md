@@ -24,6 +24,9 @@ distributed systems principles that power the platform.
   OpenTelemetry protocol and internal data mapping.
 - **[06_system_host_metrics_collection](06_system_host_metrics_collection.md)**:
   High-precision infrastructure metrics collection using `gopsutil`.
+- **[14_continuous_profiling_and_dynamic_introspection](14_continuous_profiling_and_dynamic_introspection.md)**:
+  Always-on CPU/Memory profiling, frame dictionary compression, and
+  trace-driven triggers.
 
 ## 3. The Active Edge
 
