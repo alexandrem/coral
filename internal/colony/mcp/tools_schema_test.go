@@ -222,6 +222,8 @@ func TestGetToolSchemas(t *testing.T) {
 		"coral_deploy_correlation",
 		"coral_remove_correlation",
 		"coral_list_correlations",
+		// RFD 093: Inline TypeScript execution
+		"coral_run",
 	}
 
 	for _, toolName := range expectedTools {

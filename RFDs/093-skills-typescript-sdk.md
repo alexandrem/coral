@@ -1,7 +1,7 @@
 ---
 rfd: "093"
 title: "Skills — LLM-Invocable Investigation Recipes for the TypeScript SDK"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,29 @@ areas: [ "cli", "mcp", "sdk" ]
 
 # RFD 093 - Skills — LLM-Invocable Investigation Recipes for the TypeScript SDK
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
+
+## Implementation Status
+
+🎉 Implemented. All four phases complete.
+
+**What was built:**
+
+- ✅ `SkillResult` and `SkillFn` types in `pkg/sdk/typescript/types.ts` (pre-existing)
+- ✅ `skills` namespace exported from `pkg/sdk/typescript/mod.ts`
+- ✅ Three built-in skills in `pkg/sdk/typescript/skills/`:
+  - `latency-report.ts` — P99 latency + error rate check across services
+  - `error-correlation.ts` — cascading failure detection via error spike correlation
+  - `memory-leak-detector.ts` — sustained heap growth detection via DuckDB query
+- ✅ `pkg/sdk/typescript/embed.go` — embeds all TypeScript SDK files in the Go binary
+- ✅ `ExecuteInline` in `internal/cli/run/run.go` — runs inline TypeScript via Deno with an auto-generated import map resolving `@coral/sdk` to the embedded SDK
+- ✅ `coral_run` MCP tool in `internal/colony/mcp/tools_run.go` — executes inline TypeScript, relays stderr to user terminal, returns captured stdout as tool result
+- ✅ `coral://sdk/reference` MCP Resource — compact plain-text SDK index served on demand
+- ✅ Unit and integration tests in `tools_run_test.go` and `tools_schema_test.go`
+- ✅ `docs/SDK_REFERENCE.md` updated with full Skills section
+
+**Deferred to Future Work:**
+- E2E test for full LLM `coral_run` invocation via orchestrator (deferred — requires live colony + agent)
 
 ## Summary
 
@@ -321,31 +343,31 @@ coral run analysis.ts
 
 ### Phase 1: Output contract and skill types
 
-- [ ] Add `SkillResult` and `SkillFn` types to `pkg/sdk/typescript/types.ts`
-- [ ] Update `mod.ts` to export `skills` namespace
+- [x] Add `SkillResult` and `SkillFn` types to `pkg/sdk/typescript/types.ts`
+- [x] Update `mod.ts` to export `skills` namespace
 
 ### Phase 2: Built-in skills
 
-- [ ] Implement `skills/latency-report.ts`
-- [ ] Implement `skills/error-correlation.ts`
-- [ ] Implement `skills/memory-leak-detector.ts`
+- [x] Implement `skills/latency-report.ts`
+- [x] Implement `skills/error-correlation.ts`
+- [x] Implement `skills/memory-leak-detector.ts`
 
 ### Phase 3: MCP integration
 
-- [ ] Extract `executeInline` from existing executor in `internal/cli/run/run.go`
-- [ ] Import map generation: write `deno.json` mapping `@coral/sdk` to embedded SDK paths
-- [ ] Implement `coral_run` tool in `internal/colony/mcp/tools_run.go` with
+- [x] Extract `executeInline` from existing executor in `internal/cli/run/run.go`
+- [x] Import map generation: write `deno.json` mapping `@coral/sdk` to embedded SDK paths
+- [x] Implement `coral_run` tool in `internal/colony/mcp/tools_run.go` with
       stdout capture and stderr real-time relay
-- [ ] Register `coral_run` in `server.go` tool list
-- [ ] Implement `coral://sdk/reference` resource registration in `server.go`
-- [ ] Embed SDK reference text in MCP server binary
+- [x] Register `coral_run` in `server.go` tool list
+- [x] Implement `coral://sdk/reference` resource registration in `server.go`
+- [x] Embed SDK reference text in MCP server binary
 
 ### Phase 4: Testing and documentation
 
-- [ ] Unit tests for each skill (mock SDK client)
-- [ ] Integration test for `coral_run` tool execution and output capture
+- [x] Unit tests for each skill (mock SDK client)
+- [x] Integration test for `coral_run` tool execution and output capture
 - [ ] E2E test: LLM invokes `coral_run` with a skill, verifies `SkillResult` shape
-- [ ] Update `docs/SDK_REFERENCE.md` with skills section
+- [x] Update `docs/SDK_REFERENCE.md` with skills section
 
 ## Security Considerations
 

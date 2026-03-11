@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/cli/terminal"
 	"github.com/coral-mesh/coral/internal/config"
+	tsdk "github.com/coral-mesh/coral/pkg/sdk/typescript"
 )
 
 // NewRunCmd creates the 'run' command.
@@ -142,6 +144,151 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	}
 
 	return nil
+}
+
+// ExecuteInlineOptions configures the execution of inline TypeScript code.
+type ExecuteInlineOptions struct {
+	// Timeout limits total execution time. Zero means no timeout.
+	Timeout time.Duration
+	// Stderr is where the script's stderr output is written (real-time relay).
+	// Defaults to os.Stderr when nil.
+	Stderr io.Writer
+}
+
+// ExecuteInlineResult is the result of an inline script execution.
+type ExecuteInlineResult struct {
+	// Stdout is the captured standard output from the script.
+	Stdout string
+	// ExitCode is the process exit code (0 on success).
+	ExitCode int
+}
+
+// ExecuteInline runs inline TypeScript code via the embedded Deno runtime.
+// It writes the code to a temp file, extracts the embedded TypeScript SDK,
+// generates a deno.json import map so scripts can import from "@coral/sdk",
+// then invokes Deno. Stderr is forwarded to opts.Stderr in real time; stdout
+// is captured and returned in ExecuteInlineResult.
+func ExecuteInline(ctx context.Context, code string, opts ExecuteInlineOptions) (*ExecuteInlineResult, error) {
+	denoPath, err := findDeno()
+	if err != nil {
+		return nil, fmt.Errorf("failed to find Deno binary: %w", err)
+	}
+
+	// Resolve colony address for --allow-net permission.
+	colonyURL := "http://localhost:9090"
+	if resolver, rerr := config.NewResolver(); rerr == nil {
+		if resolved, rerr := resolver.ResolveColonyURL(""); rerr == nil {
+			colonyURL = resolved
+		}
+	}
+	colonyHost := extractHost(colonyURL)
+
+	// Create a single temp directory to hold the script, the import map, and
+	// the extracted SDK. Using one directory lets --allow-read=./ cover all.
+	tmpDir, err := os.MkdirTemp("", "coral-run-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// Extract the embedded TypeScript SDK into tmpDir/sdk/.
+	sdkDir := filepath.Join(tmpDir, "sdk")
+	if err := extractSDK(sdkDir); err != nil {
+		return nil, fmt.Errorf("failed to extract SDK: %w", err)
+	}
+
+	// Write the inline code to tmpDir/script.ts.
+	scriptPath := filepath.Join(tmpDir, "script.ts")
+	if err := os.WriteFile(scriptPath, []byte(code), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write script: %w", err)
+	}
+
+	// Generate a deno.json import map so "@coral/sdk" resolves to the
+	// extracted SDK without network access.
+	importMap := map[string]interface{}{
+		"imports": map[string]string{
+			"@coral/sdk":         "./sdk/mod.ts",
+			"@coral/sdk/skills/": "./sdk/skills/",
+		},
+	}
+	importMapBytes, err := json.Marshal(importMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal import map: %w", err)
+	}
+	denoJSONPath := filepath.Join(tmpDir, "deno.json")
+	if err := os.WriteFile(denoJSONPath, importMapBytes, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write deno.json: %w", err)
+	}
+
+	// Build Deno arguments.
+	args := []string{
+		"run",
+		"--no-remote",
+		"--allow-net=" + colonyHost,
+		"--allow-read=./",
+		"--allow-env=CORAL_COLONY_ADDR,CORAL_MODE",
+		"--config=" + denoJSONPath,
+		scriptPath,
+	}
+
+	// Apply context timeout if requested.
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
+
+	//nolint:gosec // denoPath is from trusted findDeno(), args are controlled.
+	denoCmd := exec.CommandContext(ctx, denoPath, args...)
+	denoCmd.Dir = tmpDir
+
+	var stdoutBuf bytes.Buffer
+	denoCmd.Stdin = nil
+
+	stderrW := io.Writer(os.Stderr)
+	if opts.Stderr != nil {
+		stderrW = opts.Stderr
+	}
+
+	denoCmd.Stdout = &stdoutBuf
+	denoCmd.Stderr = stderrW
+	denoCmd.Env = append(os.Environ(),
+		"CORAL_MODE=cli",
+		"CORAL_COLONY_ADDR="+colonyHost,
+	)
+
+	runErr := denoCmd.Run()
+
+	result := &ExecuteInlineResult{
+		Stdout: stdoutBuf.String(),
+	}
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+			return result, runErr
+		}
+		return result, runErr
+	}
+
+	return result, nil
+}
+
+// extractSDK extracts the embedded TypeScript SDK file tree to destDir.
+func extractSDK(destDir string) error {
+	return fs.WalkDir(tsdk.FS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		dest := filepath.Join(destDir, path)
+		if d.IsDir() {
+			return os.MkdirAll(dest, 0o700)
+		}
+		data, err := tsdk.FS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dest, data, 0o600)
+	})
 }
 
 // skillResultRender is used to extract the render field from stdout JSON.
