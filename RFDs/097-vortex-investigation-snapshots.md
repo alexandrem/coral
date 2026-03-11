@@ -318,22 +318,6 @@ immediate offline analysis.
 
 ## Future Work
 
-**Arrow Flight Transport** (RFD 098)
-
-The most significant serialization cost in Coral's telemetry pipeline is the
-gRPC poll loop: each agent row is converted to a Protobuf struct, sent over
-the wire, and re-inserted into colony DuckDB — two full serialize/deserialize
-cycles per row, across up to 10,000 rows per batch. The correct approach is
-replacing this with Apache Arrow Flight, which streams Arrow record batches
-natively without DuckDB→Protobuf→DuckDB conversion.
-
-**Cold Storage Export** (RFD 099)
-
-When Coral gains an object storage strategy (S3/GCS), aged colony DuckDB data
-should be exported as Vortex segments rather than Parquet, enabling
-sub-second random-access queries from object storage without full-file
-downloads. This is the highest-value Vortex use case for large deployments.
-
 **Colony-Side Vortex Encoding** (Future RFD)
 
 Encoding the colony's aggregated Beyla tables (`beyla_http_metrics`,
