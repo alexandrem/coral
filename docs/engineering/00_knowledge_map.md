@@ -18,8 +18,8 @@ distributed systems principles that power the platform.
   Zero-instrumentation monitoring, kernel-side filtering, and stateful edge
   correlation.
 - **[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)**:
-  3-tier discovery pipeline, semantic enrichment (xxHash3 SimHash), and
-  DuckDB symbol caching.
+  3-tier discovery pipeline, SDK-assisted introspection, semantic enrichment
+  (xxHash3 SimHash), and DuckDB symbol caching.
 - **[05_otlp_ingestion_and_transformation](05_otlp_ingestion_and_transformation.md)**: Native support for
   OpenTelemetry protocol and internal data mapping.
 - **[06_system_host_metrics_collection](06_system_host_metrics_collection.md)**:
@@ -39,9 +39,9 @@ distributed systems principles that power the platform.
 
 ## 5. Intelligence & Analysis
 
-- **[10_sdk_and_scripting_capabilities](10_sdk_and_scripting_capabilities.md)**:
-  Application-level Go SDK and automated analysis via sandboxed TypeScript
-  scripts.
+- **[10_typescript_investigative_engine_and_skills](10_typescript_investigative_engine_and_skills.md)**:
+  LLM-driven diagnostic 'Skills' and the autonomous TypeScript reasoning
+  engine.
 - **[11_mcp_and_llm_interfacing](11_mcp_and_llm_interfacing.md)**: Integration
   with LLMs via Model Context Protocol and the local Agent reasoning loop.
 
