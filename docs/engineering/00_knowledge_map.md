@@ -10,6 +10,7 @@ distributed systems principles that power the platform.
   interactions and the pull-based telemetry model.
 - **[02_mesh_networking_and_connectivity](02_mesh_networking_and_connectivity.md)**: WireGuard overlay networking, NAT traversal, and persistent IPAM.
 - **[12_pki_infrastructure_and_trust_model](12_pki_infrastructure_and_trust_model.md)**: Hierarchical CA structure, SPIFFE identities, and fingerprint-based bootstrap.
+- **[13_discovery_service_and_coordinated_enrollment](13_discovery_service_and_coordinated_enrollment.md)**: The rendezvous point, Referral Tickets, and the trust triad (Colony/Agent/Discovery).
 
 ## 2. The Observable Edge (The Eyes)
 

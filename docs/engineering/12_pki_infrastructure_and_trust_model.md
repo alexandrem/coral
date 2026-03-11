@@ -109,8 +109,6 @@ short-lived.
 | **Compromised Agent**   | Individual Agent certificates can be revoked without affecting the rest of the fleet.                            |
 | **Long-term Key Theft** | Ed25519 keys are regenerated periodically during the 90-day renewal cycle.                                       |
 
----
-
 ## Future Engineering Notes
 
 - **TPM & Secure Enclave Integration**: Instead of storing Ed25519 private keys
@@ -133,3 +131,8 @@ short-lived.
   Cryptography (PQC) algorithms (like ML-KEM/Kyber). The hierarchical CA
   structure should eventually support multi-algorithm chains (Ed25519 + PQC) to
   ensure long-term trust in a post-quantum world.
+
+## Related Design Documents (RFDs)
+
+- **[RFD 047](../../RFDs/047-colony-ca-infrastructure.md)**: Colony CA Infrastructure & Policy Signing.
+- **[RFD 048](../../RFDs/048-agent-certificate-bootstrap.md)**: Agent Certificate Bootstrap mechanism.
