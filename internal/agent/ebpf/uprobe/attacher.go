@@ -26,8 +26,10 @@ type AttachConfig struct {
 	AttachReturn bool
 
 	// PIDFilter is the PID value for UprobeOptions.
-	// Use 0 to trace all processes using the binary (avoids PID namespace issues).
-	// Use specific PID to trace only that process.
+	// Use the target process PID (recommended) so perf_event_open uses
+	// pid=PIDFilter, cpu=-1, which fires on all CPUs for that process.
+	// Use 0 (pid=-1, cpu=0) only as a last resort: it fires on CPU 0 only
+	// and will miss goroutines that migrate CPUs during blocking calls.
 	PIDFilter int
 
 	// Logger for debug/error messages.
@@ -42,6 +44,10 @@ type AttachResult struct {
 	// ReturnLink is the link for the uretprobe (function return).
 	// Will be nil if AttachReturn is false.
 	ReturnLink link.Link
+
+	// ReturnLinks holds multiple return probe links for RET-instruction uprobes (RFD 073).
+	// Each link is attached to a RET instruction offset within the function.
+	ReturnLinks []link.Link
 
 	// Reader is the ring buffer reader for events.
 	Reader *ringbuf.Reader
@@ -63,6 +69,15 @@ func (r *AttachResult) Close() error {
 		}
 	}
 
+	// Close all RET-instruction return links (RFD 073).
+	for i, l := range r.ReturnLinks {
+		if l != nil {
+			if err := l.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close return link %d: %w", i, err))
+			}
+		}
+	}
+
 	if r.EntryLink != nil {
 		if err := r.EntryLink.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close entry link: %w", err))
@@ -74,6 +89,54 @@ func (r *AttachResult) Close() error {
 	}
 
 	return nil
+}
+
+// AttachReturnProbes attaches uprobes to RET instruction offsets within a function (RFD 073).
+// Each offset is relative to the binary start (funcOffset + retRelativeOffset).
+// Returns the attached links. Caller must close them.
+func AttachReturnProbes(
+	cfg AttachConfig,
+	returnProg *ebpf.Program,
+	retOffsets []uint64,
+) ([]link.Link, error) {
+	if returnProg == nil {
+		return nil, fmt.Errorf("return program is required")
+	}
+
+	if len(retOffsets) == 0 {
+		return nil, nil
+	}
+
+	resolvedPath := fmt.Sprintf("/proc/%d/exe", cfg.PID)
+	exe, err := link.OpenExecutable(resolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("open executable: %w", err)
+	}
+
+	var links []link.Link
+	for _, retOffset := range retOffsets {
+		absOffset := cfg.Offset + retOffset
+		l, err := exe.Uprobe("", returnProg, &link.UprobeOptions{
+			Address: absOffset,
+			PID:     cfg.PIDFilter,
+		})
+		if err != nil {
+			// Clean up previously attached links on error.
+			for _, prev := range links {
+				prev.Close() // nolint:errcheck
+			}
+			return nil, fmt.Errorf("attach return uprobe at offset 0x%x: %w", absOffset, err)
+		}
+
+		cfg.Logger.Debug().
+			Uint64("offset", absOffset).
+			Uint64("ret_offset", retOffset).
+			Msg("Attached return uprobe to RET instruction")
+
+		links = append(links, l)
+	}
+
+	return links, nil
 }
 
 // AttachUprobe attaches eBPF uprobe to a function in a binary.

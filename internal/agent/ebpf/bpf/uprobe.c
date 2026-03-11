@@ -31,19 +31,33 @@ struct filter_config {
     __u32 sample_rate;      // Emit 1 in every N events. 0 or 1 = emit all.
 };
 
+// entry_key includes stack pointer for recursion safety (RFD 073).
+// Using {pid_tgid, stack_ptr} ensures each call frame gets a unique key,
+// even for recursive functions.
+struct entry_key {
+    __u64 pid_tgid;    // Process and thread ID
+    __u64 stack_ptr;   // Stack pointer at function entry
+};
+
+// entry_value holds entry timestamp and creation time for cleanup (RFD 073).
+struct entry_value {
+    __u64 timestamp_ns; // Entry time
+    __u64 created_at;   // For cleanup of orphaned entries
+};
+
 // Ring buffer for streaming events to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 256 * 1024);  // 256KB ring buffer
 } events SEC(".maps");
 
-// Hash map to track function entry timestamps per thread
-// Key: thread ID (TID), Value: entry timestamp
+// Hash map to track function entry timestamps per call frame (RFD 073).
+// Key: {pid_tgid, stack_ptr}, Value: {timestamp_ns, created_at}
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, __u64);    // tid
-    __type(value, __u64);  // entry timestamp
-    __uint(max_entries, 1024);
+    __type(key, struct entry_key);
+    __type(value, struct entry_value);
+    __uint(max_entries, 4096);
 } entry_times SEC(".maps");
 
 // filter_config BPF ARRAY map (single entry, key 0).
@@ -75,8 +89,19 @@ int uprobe_entry(struct pt_regs *ctx) {
 
     __u64 ts = bpf_ktime_get_ns();
 
-    // Store entry timestamp for duration calculation
-    bpf_map_update_elem(&entry_times, &pid_tid, &ts, BPF_ANY);
+    // Store entry timestamp with stack pointer for recursion safety (RFD 073).
+    // Use only TGID (Process ID) to support Go goroutine migration between threads.
+    struct entry_key key = {
+        .pid_tgid = pid_tid >> 32,
+        .stack_ptr = PT_REGS_SP(ctx),
+    };
+
+    struct entry_value val = {
+        .timestamp_ns = ts,
+        .created_at = ts,
+    };
+
+    bpf_map_update_elem(&entry_times, &key, &val, BPF_ANY);
 
     bpf_printk("uprobe_entry: pid=%d tid=%d\n", pid, tid);
 
@@ -99,8 +124,10 @@ int uprobe_entry(struct pt_regs *ctx) {
     return 0;
 }
 
-// Uretprobe handler - called on function return
-SEC("uretprobe/function_return")
+// Return uprobe handler - attached as regular uprobe to RET instructions (RFD 073).
+// Uses uprobe (not uretprobe) section because we attach to specific RET instruction
+// offsets rather than using the kernel's uretprobe mechanism.
+SEC("uprobe/function_return")
 int uprobe_return(struct pt_regs *ctx) {
     __u64 pid_tid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tid >> 32;
@@ -108,12 +135,18 @@ int uprobe_return(struct pt_regs *ctx) {
 
     __u64 ts = bpf_ktime_get_ns();
 
-    // Calculate duration (RFD 090: fix — was always emitting zero before)
-    __u64 *entry_ts = bpf_map_lookup_elem(&entry_times, &pid_tid);
+    // Look up entry timestamp using stack pointer key (RFD 073).
+    // Use only TGID (Process ID) to support Go goroutine migration between threads.
+    struct entry_key key = {
+        .pid_tgid = pid_tid >> 32,
+        .stack_ptr = PT_REGS_SP(ctx),
+    };
+
+    struct entry_value *entry_val = bpf_map_lookup_elem(&entry_times, &key);
     __u64 duration = 0;
-    if (entry_ts) {
-        duration = ts - *entry_ts;
-        bpf_map_delete_elem(&entry_times, &pid_tid);
+    if (entry_val) {
+        duration = ts - entry_val->timestamp_ns;
+        bpf_map_delete_elem(&entry_times, &key);
     }
 
     // Read filter config (key 0)

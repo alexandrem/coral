@@ -31,6 +31,7 @@ require (
 	github.com/zeebo/xxh3 v1.0.2
 	go.opentelemetry.io/collector/pdata v1.45.0
 	go.opentelemetry.io/proto/otlp v1.9.0
+	golang.org/x/arch v0.24.0
 	golang.org/x/crypto v0.44.0
 	golang.org/x/net v0.47.0
 	golang.org/x/sys v0.39.0

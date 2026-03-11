@@ -12,6 +12,9 @@ applications **without SDK integration** (if the binary has debug symbols).
 > fully strip debug symbols. For these binaries, **SDK integration is required
 > **.
 > Agentless mode is best for development builds and legacy apps with symbols.
+>
+> **See also**: [Go Function Inlining & Tracing](GO_INLINING_AND_TRACING.md) for
+> details on how compiler optimizations affect discovery.
 
 ## How It Works
 
@@ -150,15 +153,17 @@ $ coral debug attach legacy-app --function executeSlowQuery
 
 ## Stateful Pattern Detection (Correlation Engine)
 
-Coral goes beyond individual probes by allowing you to detect **temporal patterns**
+Coral goes beyond individual probes by allowing you to detect **temporal
+patterns**
 across multiple events or even different functions. This allows for "trap-based"
 debugging:
 
 - **Complex Triggers**:
-  - **Sliding Windows**: "Alert if this function fails 5 times in 10 seconds."
-  - **Causal Linking**: "Capture a stack trace if a database query is slow and is
-    then followed by an HTTP error on the same request context."
-  - **Inactivity**: "Notify me if the heart-beat function isn't called for 60s."
+    - **Sliding Windows**: "Alert if this function fails 5 times in 10 seconds."
+    - **Causal Linking**: "Capture a stack trace if a database query is slow and
+      is then followed by an HTTP error on the same request context."
+    - **Inactivity**: "Notify me if the heart-beat function isn't called for
+      60s."
 - **Edge-Triggered Actions**: Instead of just sending data back, patterns can
   trigger immediate local diagnostic actions like **CPU Profiling** or
   **Goroutine Snapshots** before the ephemeral system state changes.
@@ -206,11 +211,11 @@ If you see these symptoms, frame pointers are likely missing:
 ### Platform Matrix
 
 | Platform              | Frame Pointers Default | Build Flag Required  |
-| --------------------- | ---------------------- | -------------------- |
-| AMD64 (x86_64)        | ✅ Yes (Go 1.7+)       | None                 |
-| ARM64 (Apple Silicon) | ❌ No                  | `-tags=framepointer` |
-| ARM64 (AWS Graviton)  | ❌ No                  | `-tags=framepointer` |
-| ARM32                 | ❌ No                  | `-tags=framepointer` |
+|-----------------------|------------------------|----------------------|
+| AMD64 (x86_64)        | ✅ Yes (Go 1.7+)        | None                 |
+| ARM64 (Apple Silicon) | ❌ No                   | `-tags=framepointer` |
+| ARM64 (AWS Graviton)  | ❌ No                   | `-tags=framepointer` |
+| ARM32                 | ❌ No                   | `-tags=framepointer` |
 
 ### System Requirements
 
@@ -234,10 +239,56 @@ colima ssh -- sudo sysctl -w kernel.perf_event_paranoid=-1
 kernel.perf_event_paranoid=-1
 ```
 
+## Return-Instruction Uprobes
+
+Coral measures function call duration using **RET-instruction uprobes** instead
+of traditional Linux `uretprobes`. Standard uretprobes work by rewriting the
+return address on the stack, which crashes the Go runtime ("unexpected return
+pc"). Coral avoids this by attaching individual uprobes directly to every `RET`
+instruction inside the function body.
+
+### How Duration is Measured
+
+1. **Entry probe fires** → BPF records `{tgid, stack_ptr} → timestamp_ns`.
+2. **One of N return probes fires** → BPF computes
+   `duration_ns = now - entry_ts`
+   and emits a `UprobeEvent{event_type="return", duration_ns=...}`.
+3. The entry map record is deleted to free memory.
+
+The `(TGID, StackPointer)` key makes the tracking **goroutine-migration-safe**:
+Go's scheduler moves goroutines between OS threads frequently (e.g., after
+`time.Sleep`), so the thread ID (TID) changes, but the goroutine's stack pointer
+stays stable.
+
+### Architecture Support
+
+| Architecture    | RET Detection                 | Status      |
+|-----------------|-------------------------------|-------------|
+| x86-64 (amd64)  | `0xC3` / `0xC2` opcodes       | ✅ Supported |
+| ARM64 (aarch64) | Fixed-width `RET Xn` encoding | ✅ Supported |
+
+Architecture is auto-detected at runtime from the ELF `e_machine` header.
+
+### Limitations
+
+| Limitation                        | Behavior                                                              |
+|-----------------------------------|-----------------------------------------------------------------------|
+| **Stripped binaries** (`-w -s`)   | No DWARF size info → entry probe only, no duration                    |
+| **Tail-call optimized functions** | No `RET` instructions → entry probe only                              |
+| **Panics / SIGKILL**              | Stack unwind skips `RET` probes → orphaned entry cleaned up after 60s |
+| **Inline assembly**               | Unsupported instructions → disassembly falls back to entry-only       |
+| **Fully inlined functions**       | No symbol address → function invisible to Coral                       |
+
+When return probes cannot be attached, the agent logs a warning and falls back
+to entry-only mode. Duration fields in events will be zero.
+
+**See also**: [Go Function Inlining & Tracing](GO_INLINING_AND_TRACING.md) for
+details on inlining, goroutine migration, and duration tracing edge cases.
+
 ## Why This Is Different
 
 | Traditional Tools                     | Coral                                             |
-| ------------------------------------- | ------------------------------------------------- |
+|---------------------------------------|---------------------------------------------------|
 | Pre-defined metrics only              | On-demand code instrumentation                    |
 | Add logging → redeploy → wait         | Attach probes → get data → detach                 |
 | Always-on overhead                    | Zero overhead when not debugging                  |
