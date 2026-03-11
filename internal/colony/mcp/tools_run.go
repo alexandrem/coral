@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -141,12 +142,10 @@ func (s *Server) executeRunTool(ctx context.Context, input RunInput) (*mcpgo.Cal
 	var stderrBuf bytes.Buffer
 	opts := run.ExecuteInlineOptions{
 		Timeout: time.Duration(timeoutSec) * time.Second,
-		Stderr:  os.Stderr,
+		Stderr:  io.MultiWriter(os.Stderr, &stderrBuf),
 	}
 
 	result, err := run.ExecuteInline(ctx, input.Code, opts)
-	_ = stderrBuf
-
 	if err != nil {
 		// Include the last few stderr lines for context.
 		exitCode := 1
@@ -154,6 +153,9 @@ func (s *Server) executeRunTool(ctx context.Context, input RunInput) (*mcpgo.Cal
 			exitCode = result.ExitCode
 		}
 		errMsg := fmt.Sprintf("script execution failed (exit %d): %v", exitCode, err)
+		if stderr := strings.TrimSpace(stderrBuf.String()); stderr != "" {
+			errMsg += fmt.Sprintf("\nstderr:\n%s", truncateLast(stderr, 1000))
+		}
 		if result != nil && strings.TrimSpace(result.Stdout) != "" {
 			// Partial stdout may help debug.
 			errMsg += fmt.Sprintf("\nstdout: %s", truncateLast(result.Stdout, 500))
