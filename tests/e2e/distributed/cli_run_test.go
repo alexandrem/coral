@@ -23,7 +23,7 @@ import (
 type CLIRunSuite struct {
 	E2EDistributedSuite
 
-	cliEnv  *helpers.CLITestEnv
+	cliEnv     *helpers.CLITestEnv
 	scriptsDir string
 }
 
