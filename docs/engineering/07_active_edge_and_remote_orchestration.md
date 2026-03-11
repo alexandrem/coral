@@ -54,8 +54,8 @@ the container's filesystem. Users can optionally enter others:
 
 ## 3. Security & Capabilities
 
-Remote execution is a high-privilege operation. Coral performs automatic *
-*capability detection** to determine available execution modes:
+Remote execution is a high-privilege operation. Coral performs automatic
+**capability detection** to determine available execution modes:
 
 ### Linux Capabilities
 
@@ -101,3 +101,57 @@ ID**. The agent logs:
 
 This ensures that "hands-on" debugging remains observable and auditable, even in
 production environments.
+
+---
+
+## Future Engineering Notes
+
+- **Asciinema-Style Recording**: Move beyond raw text logs to capture terminal
+  timing data, allowing for full visual playback of debugging sessions for
+  training and post-mortem analysis.
+- **Ephemeral Debug Sidecars**: Implement the ability to spin up a dedicated
+  "toolbox" container on-the-fly (see following section), attached to the
+  namespaces of a minimal production container. This provides a full suite of
+  debugging tools (gdb, strace, lsof) without bloating production images.
+- **Input-Stream Auditing**: Stream keystrokes to the Colony registry in
+  real-time (write-ahead) rather than logging results post-execution. This
+  prevents an attacker from "cleaning up" their audit trail if they manage to
+  kill the shell process manually.
+- **CRI Socket Proxying**: For `EXEC_MODE_CRI`, implement a secure,
+  authenticated proxy for the Docker/Containerd socket rather than requiring the
+  agent to have direct host-level socket access.
+- **Interactive Policy Layer**: Add the ability to restrict specific commands (
+  e.g., `rm`, `mkfs`, `kill`) or network egress during an interactive session
+  based on the operator's role.
+
+### Tooling Portability & Namespace Hybridity
+
+A common challenge in modern "distroless" or minimal production images is the
+total absence of debugging binaries (no `ls`, `ps`, or even `sh`). Coral can
+solve this through **Namespace Hybridity**:
+
+1. **Selective Entry**: Instead of entering all namespaces, Coral can enter only
+   the `net` and `pid` namespaces of the target while retaining the \*
+   \*Mount (`mnt`)\*\* namespace of the Agent.
+
+- **Binary Mapping**: This allows the operator to execute an Agent-local
+  binary (like `tcpdump`, `lsof`, or a custom DuckDB build) _against_ the
+  target container's network stack and process tree.
+
+3. **Execution Context**:
+    - The **Binary** comes from the Agent/Host.
+    - The **Context** (IPs, Ports, PIDs) comes from the Target.
+
+By bundling a curated set of diagnostic tools (e.g., `net-tools`, `sysstat`,
+`strace`, `duckdb-cli`) directly into the Coral Agent image, the agent becomes a
+portable, remote-accessible debugging station. This eliminates the need to:
+
+- Mutate production nodes by installing packages.
+- Bloat specialized application images with debugging utilities.
+- Manage consistent tool versions across a heterogeneous fleet.
+
+Every node in the Coral mesh is effectively "pre-equipped" for deep
+troubleshooting, regardless of the underlying OS or container distribution.
+
+This model ensures that debugging capabilities are independent of how the
+target application was packaged.
