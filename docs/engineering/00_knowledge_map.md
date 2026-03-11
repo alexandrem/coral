@@ -4,7 +4,7 @@ This repository contains the architectural and engineering knowledge distilled
 from the Coral codebase. It is organized as a narrative journey through the
 distributed systems principles that power the platform.
 
-## 1. Core Foundations (The Substrate)
+## 1. Core Foundations
 
 - **[01_system_architecture](01_system_architecture.md)**: High-level component
   interactions and the pull-based telemetry model.
@@ -12,7 +12,7 @@ distributed systems principles that power the platform.
 - **[12_pki_infrastructure_and_trust_model](12_pki_infrastructure_and_trust_model.md)**: Hierarchical CA structure, SPIFFE identities, and fingerprint-based bootstrap.
 - **[13_discovery_service_and_coordinated_enrollment](13_discovery_service_and_coordinated_enrollment.md)**: The rendezvous point, Referral Tickets, and the trust triad (Colony/Agent/Discovery).
 
-## 2. The Observable Edge (The Eyes)
+## 2. The Observable Edge
 
 - **[03_ebpf_instrumentation_engine](03_ebpf_instrumentation_engine.md)**:
   Zero-instrumentation monitoring, kernel-side filtering, and stateful edge
@@ -25,19 +25,19 @@ distributed systems principles that power the platform.
 - **[06_system_host_metrics_collection](06_system_host_metrics_collection.md)**:
   High-precision infrastructure metrics collection using `gopsutil`.
 
-## 3. The Active Edge (The Hands)
+## 3. The Active Edge
 
 - **[07_active_edge_and_remote_orchestration](07_active_edge_and_remote_orchestration.md)**: Interactive shell access,
   container namespace entry (nsenter), and session auditing.
 
-## 4. The Data Backbone (The Nervous System)
+## 4. The Data Backbone
 
 - **[08_data_strategy_and_persistence](08_data_strategy_and_persistence.md)**:
   Strategic use of DuckDB at the edge vs. central data aggregation.
 - **[09_reliable_telemetry_polling](09_reliable_telemetry_polling.md)**:
   Detailed exploration of sequence-based checkpoints and gap recovery logic.
 
-## 5. Intelligence & Analysis (The Brain)
+## 5. Intelligence & Analysis
 
 - **[10_sdk_and_scripting_capabilities](10_sdk_and_scripting_capabilities.md)**:
   Application-level Go SDK and automated analysis via sandboxed TypeScript
