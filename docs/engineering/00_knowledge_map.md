@@ -9,6 +9,7 @@ distributed systems principles that power the platform.
 - **[01_system_architecture](01_system_architecture.md)**: High-level component
   interactions and the pull-based telemetry model.
 - **[02_mesh_networking_and_connectivity](02_mesh_networking_and_connectivity.md)**: WireGuard overlay networking, NAT traversal, and persistent IPAM.
+- **[12_pki_infrastructure_and_trust_model](12_pki_infrastructure_and_trust_model.md)**: Hierarchical CA structure, SPIFFE identities, and fingerprint-based bootstrap.
 
 ## 2. The Observable Edge (The Eyes)
 
