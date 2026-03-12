@@ -170,13 +170,7 @@ func runContainerExecution(
 		envMap[parts[0]] = parts[1]
 	}
 
-	// Normalize agent address.
-	normalizedAddr := agentAddr
-	if strings.HasPrefix(agentAddr, "http://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "http://")
-	} else if strings.HasPrefix(agentAddr, "https://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
-	}
+	normalizedAddr := normalizeAgentAddress(agentAddr)
 
 	// Create HTTP client.
 	httpClient := &http.Client{
