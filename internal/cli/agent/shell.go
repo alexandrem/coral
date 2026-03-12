@@ -19,6 +19,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // NewShellCmd creates the shell command for interactive debugging (RFD 026, RFD 044).
@@ -179,14 +180,16 @@ func openShellStream(ctx context.Context, agentAddr, userID string, width, heigh
 		fmt.Sprintf("http://%s", normalizedAddr),
 	)
 	stream := client.Shell(ctx)
+	rows, _ := safe.IntToUint32(height)
+	cols, _ := safe.IntToUint32(width)
 	if err := stream.Send(&agentv1.ShellRequest{
 		Payload: &agentv1.ShellRequest_Start{
 			Start: &agentv1.ShellStart{
 				Shell:  "/bin/bash",
 				UserId: userID,
 				Size: &agentv1.TerminalSize{
-					Rows: uint32(height),
-					Cols: uint32(width),
+					Rows: rows,
+					Cols: cols,
 				},
 			},
 		},
@@ -208,11 +211,13 @@ func watchResizeSignals(stream *connect.BidiStreamForClient[agentv1.ShellRequest
 				continue
 			}
 			// Best effort - if resize fails, user will notice terminal doesn't resize.
+			rows, _ := safe.IntToUint32(height)
+			cols, _ := safe.IntToUint32(width)
 			_ = stream.Send(&agentv1.ShellRequest{
 				Payload: &agentv1.ShellRequest_Resize{
 					Resize: &agentv1.ShellResize{
-						Rows: uint32(height),
-						Cols: uint32(width),
+						Rows: rows,
+						Cols: cols,
 					},
 				},
 			})
