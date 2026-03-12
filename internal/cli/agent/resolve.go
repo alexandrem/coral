@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 
+	agentv1connect "github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
@@ -25,6 +27,12 @@ func normalizeAgentAddress(addr string) string {
 	default:
 		return addr
 	}
+}
+
+// newAgentClient creates an AgentServiceClient for addr using the given HTTP client.
+// addr must not include a scheme; http:// is prepended automatically.
+func newAgentClient(httpClient *http.Client, addr string) agentv1connect.AgentServiceClient {
+	return agentv1connect.NewAgentServiceClient(httpClient, fmt.Sprintf("http://%s", addr))
 }
 
 // listAgentsFromColony connects to the colony with automatic fallback and calls ListAgents.

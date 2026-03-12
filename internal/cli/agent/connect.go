@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 )
 
@@ -136,10 +135,7 @@ Note:
 			fmt.Printf("Agent: %s\n", agentAddr)
 
 			// Create gRPC client
-			client := agentv1connect.NewAgentServiceClient(
-				http.DefaultClient,
-				fmt.Sprintf("http://%s", agentAddr),
-			)
+			client := newAgentClient(http.DefaultClient, agentAddr)
 
 			// Connect each service
 			ctx, cancel := context.WithTimeout(ctx, connectTimeout)
@@ -273,10 +269,7 @@ func discoverLocalAgent() (string, error) {
 
 	for _, addr := range candidates {
 		// Try to connect to agent.
-		client := agentv1connect.NewAgentServiceClient(
-			http.DefaultClient,
-			fmt.Sprintf("http://%s", addr),
-		)
+		client := newAgentClient(http.DefaultClient, addr)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, err := client.GetRuntimeContext(ctx, connect.NewRequest(&agentv1.GetRuntimeContextRequest{}))
