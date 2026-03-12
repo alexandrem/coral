@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
@@ -49,8 +48,7 @@ func (s *Server) executeShellExecTool(ctx context.Context, argumentsJSON string)
 	}
 
 	// Create gRPC client to agent.
-	agentURL := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
-	client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+	client := colony.GetAgentClient(agent)
 
 	// Prepare request.
 	timeout := uint32(30)
@@ -133,8 +131,7 @@ func (s *Server) executeContainerExecTool(ctx context.Context, argumentsJSON str
 	}
 
 	// Create gRPC client to agent.
-	agentURL := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
-	client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+	client := colony.GetAgentClient(agent)
 
 	// Prepare request.
 	timeout := uint32(30)

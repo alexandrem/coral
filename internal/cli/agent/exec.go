@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -12,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 )
 
 // NewExecCmd creates the exec command for container namespace execution (RFD 056).
@@ -170,16 +168,7 @@ func runContainerExecution(
 		envMap[parts[0]] = parts[1]
 	}
 
-	normalizedAddr := normalizeAgentAddress(agentAddr)
-
-	// Create HTTP client.
-	httpClient := &http.Client{
-		Timeout: time.Duration(timeout+5) * time.Second,
-	}
-	client := agentv1connect.NewAgentServiceClient(
-		httpClient,
-		fmt.Sprintf("http://%s", normalizedAddr),
-	)
+	client := newAgentClient(agentAddr)
 
 	// Prepare request.
 	req := &agentv1.ContainerExecRequest{

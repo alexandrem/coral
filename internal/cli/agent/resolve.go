@@ -2,17 +2,19 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/net/http2"
 
+	agentv1connect "github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 const colonyProbeTimeout = 5 * time.Second
@@ -30,55 +32,40 @@ func normalizeAgentAddress(addr string) string {
 	}
 }
 
-// listAgentsFromColony loads colony config and calls ListAgents with localhost→mesh fallback.
+// newAgentClient creates an AgentServiceClient for addr using http.DefaultClient.
+// Any existing http:// or https:// scheme in addr is stripped before prepending http://.
+func newAgentClient(addr string) agentv1connect.AgentServiceClient {
+	return agentv1connect.NewAgentServiceClient(http.DefaultClient, fmt.Sprintf("http://%s", normalizeAgentAddress(addr)))
+}
+
+// newStreamingAgentClient creates an AgentServiceClient backed by an HTTP/2
+// cleartext (h2c) transport, required for bidirectional streaming RPCs.
+func newStreamingAgentClient(addr string) agentv1connect.AgentServiceClient {
+	httpClient := &http.Client{
+		Transport: &http2.Transport{
+			AllowHTTP: true,
+			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+				return net.Dial(network, addr)
+			},
+			ReadIdleTimeout: 30 * time.Second,
+			PingTimeout:     15 * time.Second,
+		},
+	}
+	return agentv1connect.NewAgentServiceClient(httpClient, fmt.Sprintf("http://%s", normalizeAgentAddress(addr)))
+}
+
+// listAgentsFromColony connects to the colony with automatic fallback and calls ListAgents.
 func listAgentsFromColony(ctx context.Context, colonyID string) (*colonyv1.ListAgentsResponse, error) {
-	resolver, err := config.NewResolver()
+	client, _, err := helpers.GetColonyClientWithFallback(ctx, colonyID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create config resolver: %w", err)
+		return nil, err
 	}
 
-	if colonyID == "" {
-		colonyID, err = resolver.ResolveColonyID()
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
-		}
-	}
-
-	loader := resolver.GetLoader()
-	colonyConfig, err := loader.LoadColonyConfig(colonyID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load colony config: %w", err)
-	}
-
-	connectPort := colonyConfig.Services.ConnectPort
-	if connectPort == 0 {
-		connectPort = constants.DefaultColonyPort
-	}
-
-	// Try localhost first.
-	baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-	ctxTry, cancel := context.WithTimeout(ctx, colonyProbeTimeout)
-	resp, err := client.ListAgents(ctxTry, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
+	ctxList, cancel := context.WithTimeout(ctx, colonyProbeTimeout)
+	resp, err := client.ListAgents(ctxList, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
 	cancel()
-
 	if err != nil {
-		// Fallback to mesh IP.
-		meshIP := colonyConfig.WireGuard.MeshIPv4
-		if meshIP == "" {
-			meshIP = "10.42.0.1"
-		}
-		baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-		client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-		ctxFallback, cancelFallback := context.WithTimeout(ctx, colonyProbeTimeout)
-		resp, err = client.ListAgents(ctxFallback, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
-		cancelFallback()
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to query colony (is colony running?): %w", err)
-		}
+		return nil, fmt.Errorf("failed to list agents from colony: %w", err)
 	}
 
 	return resp.Msg, nil

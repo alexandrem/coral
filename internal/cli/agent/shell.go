@@ -2,11 +2,8 @@ package agent
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,11 +11,9 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/http2"
 	"golang.org/x/term"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
@@ -161,24 +156,13 @@ func resolveUserID() string {
 
 // openShellStream creates an HTTP/2 streaming connection to the agent shell and
 // sends the initial start request.
-func openShellStream(ctx context.Context, agentAddr, userID string, width, height int) (*connect.BidiStreamForClient[agentv1.ShellRequest, agentv1.ShellResponse], error) {
-	normalizedAddr := normalizeAgentAddress(agentAddr)
-	client := agentv1connect.NewAgentServiceClient(
-		&http.Client{
-			Transport: &http2.Transport{
-				// Allow HTTP/2 over plaintext (h2c).
-				AllowHTTP: true,
-				DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-					// Dial without TLS for h2c.
-					return net.Dial(network, addr)
-				},
-				// Set reasonable timeouts to detect dead connections.
-				ReadIdleTimeout: 30 * time.Second,
-				PingTimeout:     15 * time.Second,
-			},
-		},
-		fmt.Sprintf("http://%s", normalizedAddr),
-	)
+func openShellStream(
+	ctx context.Context,
+	agentAddr, userID string,
+	width, height int,
+) (*connect.BidiStreamForClient[agentv1.ShellRequest, agentv1.ShellResponse], error) {
+	client := newStreamingAgentClient(agentAddr)
+
 	stream := client.Shell(ctx)
 	rows, _ := safe.IntToUint32(height)
 	cols, _ := safe.IntToUint32(width)
@@ -357,16 +341,7 @@ func runCommandExecution(ctx context.Context, agentAddr, userID string, command 
 		userID = resolveUserID()
 	}
 
-	normalizedAddr := normalizeAgentAddress(agentAddr)
-
-	// Create HTTP client.
-	httpClient := &http.Client{
-		Timeout: 35 * time.Second, // Slightly longer than default command timeout
-	}
-	client := agentv1connect.NewAgentServiceClient(
-		httpClient,
-		fmt.Sprintf("http://%s", normalizedAddr),
-	)
+	client := newAgentClient(agentAddr)
 
 	// Prepare request.
 	req := &agentv1.ShellExecRequest{
