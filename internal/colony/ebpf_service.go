@@ -6,20 +6,25 @@ import (
 	"sort"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // EbpfQueryService provides eBPF metrics querying with validation.
 type EbpfQueryService struct {
 	db              ebpfDatabase
 	profilingConfig ProfilingEnrichmentConfig
+	logger          zerolog.Logger
 }
 
 // NewEbpfQueryService creates a new eBPF query service.
-func NewEbpfQueryService(db *database.Database) *EbpfQueryService {
+func NewEbpfQueryService(db *database.Database, logger zerolog.Logger) *EbpfQueryService {
 	return &EbpfQueryService{
-		db: db,
+		db:     db,
+		logger: logger,
 		profilingConfig: ProfilingEnrichmentConfig{
 			TopKHotspots: 5,
 		},
@@ -27,10 +32,11 @@ func NewEbpfQueryService(db *database.Database) *EbpfQueryService {
 }
 
 // NewEbpfQueryServiceWithConfig creates a new eBPF query service with profiling config (RFD 074).
-func NewEbpfQueryServiceWithConfig(db *database.Database, profilingConfig ProfilingEnrichmentConfig) *EbpfQueryService {
+func NewEbpfQueryServiceWithConfig(db *database.Database, profilingConfig ProfilingEnrichmentConfig, logger zerolog.Logger) *EbpfQueryService {
 	return &EbpfQueryService{
 		db:              db,
 		profilingConfig: profilingConfig,
+		logger:          logger,
 	}
 }
 
@@ -517,7 +523,13 @@ func (s *EbpfQueryService) QueryUnifiedTraces(ctx context.Context, traceID, serv
 	ebpfSpans, err := s.queryTraceSpans(ctx, &agentv1.QueryEbpfMetricsRequest{
 		TraceId:      traceID,
 		ServiceNames: []string{serviceName},
-		MaxTraces:    int32(maxTraces),
+		MaxTraces: func() int32 {
+			v, clamped := safe.IntToInt32(maxTraces)
+			if clamped {
+				s.logger.Warn().Int("max_traces", maxTraces).Msg("max_traces exceeds int32 range, clamped")
+			}
+			return v
+		}(),
 	}, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query eBPF traces: %w", err)
@@ -641,15 +653,19 @@ func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName 
 
 		// Convert OTLP summary to HTTP metric format.
 		// Note: This is a simplified conversion - we're using the available fields.
+		totalSpans, clamped := safe.Int32ToUint64(otlp.TotalSpans)
+		if clamped {
+			s.logger.Warn().Str("service", otlp.ServiceName).Int32("total_spans", otlp.TotalSpans).Msg("negative total_spans in OTLP summary, clamped to zero")
+		}
 		otlpMetric := &agentv1.EbpfHttpMetric{
 			ServiceName:    otlp.ServiceName + " [OTLP]", // Add source annotation
 			HttpRoute:      "aggregated",
 			HttpMethod:     otlp.SpanKind,
 			HttpStatusCode: 200,
-			RequestCount:   uint64(otlp.TotalSpans),
+			RequestCount:   totalSpans,
 			// Store percentiles in latency buckets (simplified)
 			LatencyBuckets: []float64{otlp.P50Ms, otlp.P95Ms, otlp.P99Ms},
-			LatencyCounts:  []uint64{uint64(otlp.TotalSpans), uint64(otlp.TotalSpans), uint64(otlp.TotalSpans)},
+			LatencyCounts:  []uint64{totalSpans, totalSpans, totalSpans},
 		}
 
 		ebpfMetrics.HttpMetrics = append(ebpfMetrics.HttpMetrics, otlpMetric)

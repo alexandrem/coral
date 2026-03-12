@@ -5,6 +5,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 func (s *EbpfQueryService) queryHTTPMetrics(ctx context.Context, req *agentv1.QueryEbpfMetricsRequest, startTime, endTime time.Time) ([]*agentv1.EbpfHttpMetric, error) {
@@ -41,12 +42,16 @@ func (s *EbpfQueryService) queryHTTPMetrics(ctx context.Context, req *agentv1.Qu
 
 			metric, exists := aggregated[key]
 			if !exists {
+				statusCode, clamped := safe.IntToUint32(r.HTTPStatusCode)
+				if clamped {
+					s.logger.Warn().Str("service", r.ServiceName).Int("status_code", r.HTTPStatusCode).Msg("unexpected HTTP status code value, clamped")
+				}
 				metric = &agentv1.EbpfHttpMetric{
 					Timestamp:      r.LastSeen.UnixMilli(),
 					ServiceName:    r.ServiceName,
 					HttpMethod:     r.HTTPMethod,
 					HttpRoute:      r.HTTPRoute,
-					HttpStatusCode: uint32(r.HTTPStatusCode),
+					HttpStatusCode: statusCode,
 					LatencyBuckets: []float64{},
 					LatencyCounts:  []uint64{},
 					RequestCount:   0,
@@ -55,9 +60,13 @@ func (s *EbpfQueryService) queryHTTPMetrics(ctx context.Context, req *agentv1.Qu
 			}
 
 			// Add bucket and count.
+			count, clamped := safe.Int64ToUint64(r.Count)
+			if clamped {
+				s.logger.Warn().Str("service", r.ServiceName).Int64("count", r.Count).Msg("negative HTTP metric count in database, clamped to zero")
+			}
 			metric.LatencyBuckets = append(metric.LatencyBuckets, r.LatencyBucketMs)
-			metric.LatencyCounts = append(metric.LatencyCounts, uint64(r.Count))
-			metric.RequestCount += uint64(r.Count)
+			metric.LatencyCounts = append(metric.LatencyCounts, count)
+			metric.RequestCount += count
 		}
 	}
 
@@ -101,11 +110,15 @@ func (s *EbpfQueryService) queryGRPCMetrics(ctx context.Context, req *agentv1.Qu
 
 			metric, exists := aggregated[key]
 			if !exists {
+				statusCode, clamped := safe.IntToUint32(r.GRPCStatusCode)
+				if clamped {
+					s.logger.Warn().Str("service", r.ServiceName).Int("status_code", r.GRPCStatusCode).Msg("unexpected gRPC status code value, clamped")
+				}
 				metric = &agentv1.EbpfGrpcMetric{
 					Timestamp:      r.LastSeen.UnixMilli(),
 					ServiceName:    r.ServiceName,
 					GrpcMethod:     r.GRPCMethod,
-					GrpcStatusCode: uint32(r.GRPCStatusCode),
+					GrpcStatusCode: statusCode,
 					LatencyBuckets: []float64{},
 					LatencyCounts:  []uint64{},
 					RequestCount:   0,
@@ -114,9 +127,13 @@ func (s *EbpfQueryService) queryGRPCMetrics(ctx context.Context, req *agentv1.Qu
 			}
 
 			// Add bucket and count.
+			count, clamped := safe.Int64ToUint64(r.Count)
+			if clamped {
+				s.logger.Warn().Str("service", r.ServiceName).Int64("count", r.Count).Msg("negative gRPC metric count in database, clamped to zero")
+			}
 			metric.LatencyBuckets = append(metric.LatencyBuckets, r.LatencyBucketMs)
-			metric.LatencyCounts = append(metric.LatencyCounts, uint64(r.Count))
-			metric.RequestCount += uint64(r.Count)
+			metric.LatencyCounts = append(metric.LatencyCounts, count)
+			metric.RequestCount += count
 		}
 	}
 
@@ -173,9 +190,13 @@ func (s *EbpfQueryService) querySQLMetrics(ctx context.Context, req *agentv1.Que
 			}
 
 			// Add bucket and count.
+			count, clamped := safe.Int64ToUint64(r.Count)
+			if clamped {
+				s.logger.Warn().Str("service", r.ServiceName).Int64("count", r.Count).Msg("negative SQL metric count in database, clamped to zero")
+			}
 			metric.LatencyBuckets = append(metric.LatencyBuckets, r.LatencyBucketMs)
-			metric.LatencyCounts = append(metric.LatencyCounts, uint64(r.Count))
-			metric.QueryCount += uint64(r.Count)
+			metric.LatencyCounts = append(metric.LatencyCounts, count)
+			metric.QueryCount += count
 		}
 	}
 
@@ -213,7 +234,13 @@ func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.Que
 				SpanKind:     r.SpanKind,
 				StartTime:    r.StartTime.UnixMilli(),
 				DurationUs:   r.DurationUs,
-				StatusCode:   uint32(r.StatusCode),
+				StatusCode: func() uint32 {
+					v, clamped := safe.IntToUint32(r.StatusCode)
+					if clamped {
+						s.logger.Warn().Str("trace_id", r.TraceID).Int("status_code", r.StatusCode).Msg("unexpected trace status code value, clamped")
+					}
+					return v
+				}(),
 			})
 		}
 
@@ -248,7 +275,13 @@ func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.Que
 				SpanKind:     r.SpanKind,
 				StartTime:    r.StartTime.UnixMilli(),
 				DurationUs:   r.DurationUs,
-				StatusCode:   uint32(r.StatusCode),
+				StatusCode: func() uint32 {
+					v, clamped := safe.IntToUint32(r.StatusCode)
+					if clamped {
+						s.logger.Warn().Str("trace_id", r.TraceID).Int("status_code", r.StatusCode).Msg("unexpected trace status code value, clamped")
+					}
+					return v
+				}(),
 			})
 		}
 	}
