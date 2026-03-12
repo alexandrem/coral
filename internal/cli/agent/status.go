@@ -87,7 +87,7 @@ The agent must be running and accessible.`,
 			client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
 
 			// Query runtime context
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
 			req := connect.NewRequest(&agentv1.GetRuntimeContextRequest{})
