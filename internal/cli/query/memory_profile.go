@@ -12,6 +12,7 @@ import (
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/flamegraph"
 )
 
 // NewMemoryProfileCmd creates the memory-profile query command.
@@ -119,6 +120,26 @@ Examples:
 					}
 					fmt.Printf(" %d\n", sample.AllocBytes)
 				}
+			case "svg":
+				stacks := make([]flamegraph.FoldedStack, 0, len(resp.Msg.Samples))
+				for _, s := range resp.Msg.Samples {
+					if len(s.FrameNames) == 0 {
+						continue
+					}
+					frames := make([]string, len(s.FrameNames))
+					for i, f := range s.FrameNames {
+						frames[len(s.FrameNames)-1-i] = f
+					}
+					stacks = append(stacks, flamegraph.FoldedStack{
+						Frames: frames,
+						Value:  s.AllocBytes,
+					})
+				}
+				return flamegraph.Render(os.Stdout, stacks, flamegraph.Options{
+					Title:     "Memory Flame Graph (Historical)",
+					CountName: "bytes",
+					Colors:    flamegraph.PaletteMem,
+				})
 			case "summary":
 				// Print top allocating functions (server-side computed).
 				if len(resp.Msg.TopFunctions) > 0 {
@@ -138,7 +159,7 @@ Examples:
 					fmt.Println()
 				}
 			default:
-				return fmt.Errorf("unknown format: %s (use 'summary' or 'folded')", format)
+				return fmt.Errorf("unknown format: %s (use 'summary', 'folded', or 'svg')", format)
 			}
 
 			return nil
@@ -151,7 +172,7 @@ Examples:
 	cmd.Flags().StringVar(&buildID, "build-id", "", "Filter by specific build ID")
 	cmd.Flags().BoolVar(&showGrowth, "show-growth", false, "Show heap growth trends")
 	cmd.Flags().BoolVar(&showTypes, "show-types", false, "Show allocation breakdown by type")
-	cmd.Flags().StringVarP(&format, "format", "f", "summary", "Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible)")
+	cmd.Flags().StringVarP(&format, "format", "f", "summary", "Output format: summary, folded, svg")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 

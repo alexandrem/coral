@@ -88,9 +88,9 @@ coral-colony query metrics my-service --metric http.server.duration --percentile
 coral-colony query logs my-service --level error
 coral-colony query logs my-service --since 30m
 
-# Historical CPU profiles (folded stack format, pipe to flamegraph.pl)
+# Historical CPU profiles
 coral-colony query cpu-profile my-service --since 1h
-coral-colony query cpu-profile my-service --since 5m | flamegraph.pl > cpu.svg
+coral-colony query cpu-profile my-service --since 5m --format svg > cpu.svg
 
 # Historical memory profiles
 coral-colony query memory-profile my-service --since 1h --show-growth
