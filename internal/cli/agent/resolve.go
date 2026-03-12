@@ -3,16 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 const colonyProbeTimeout = 5 * time.Second
@@ -30,55 +27,18 @@ func normalizeAgentAddress(addr string) string {
 	}
 }
 
-// listAgentsFromColony loads colony config and calls ListAgents with localhost→mesh fallback.
+// listAgentsFromColony connects to the colony with automatic fallback and calls ListAgents.
 func listAgentsFromColony(ctx context.Context, colonyID string) (*colonyv1.ListAgentsResponse, error) {
-	resolver, err := config.NewResolver()
+	client, _, err := helpers.GetColonyClientWithFallback(ctx, colonyID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create config resolver: %w", err)
+		return nil, err
 	}
 
-	if colonyID == "" {
-		colonyID, err = resolver.ResolveColonyID()
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
-		}
-	}
-
-	loader := resolver.GetLoader()
-	colonyConfig, err := loader.LoadColonyConfig(colonyID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load colony config: %w", err)
-	}
-
-	connectPort := colonyConfig.Services.ConnectPort
-	if connectPort == 0 {
-		connectPort = constants.DefaultColonyPort
-	}
-
-	// Try localhost first.
-	baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-	ctxTry, cancel := context.WithTimeout(ctx, colonyProbeTimeout)
-	resp, err := client.ListAgents(ctxTry, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
+	ctxList, cancel := context.WithTimeout(ctx, colonyProbeTimeout)
+	resp, err := client.ListAgents(ctxList, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
 	cancel()
-
 	if err != nil {
-		// Fallback to mesh IP.
-		meshIP := colonyConfig.WireGuard.MeshIPv4
-		if meshIP == "" {
-			meshIP = "10.42.0.1"
-		}
-		baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-		client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-		ctxFallback, cancelFallback := context.WithTimeout(ctx, colonyProbeTimeout)
-		resp, err = client.ListAgents(ctxFallback, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
-		cancelFallback()
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to query colony (is colony running?): %w", err)
-		}
+		return nil, fmt.Errorf("failed to list agents from colony: %w", err)
 	}
 
 	return resp.Msg, nil
