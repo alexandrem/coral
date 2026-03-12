@@ -18,7 +18,6 @@ import (
 	"golang.org/x/term"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 )
 
 // NewShellCmd creates the shell command for interactive debugging (RFD 026, RFD 044).
@@ -167,10 +166,7 @@ func runCommandExecution(ctx context.Context, agentAddr, userID string, command 
 	httpClient := &http.Client{
 		Timeout: 35 * time.Second, // Slightly longer than default command timeout
 	}
-	client := agentv1connect.NewAgentServiceClient(
-		httpClient,
-		fmt.Sprintf("http://%s", normalizedAddr),
-	)
+	client := newAgentClient(httpClient, normalizedAddr)
 
 	// Prepare request.
 	req := &agentv1.ShellExecRequest{
@@ -267,10 +263,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 			PingTimeout:     15 * time.Second,
 		},
 	}
-	client := agentv1connect.NewAgentServiceClient(
-		httpClient,
-		fmt.Sprintf("http://%s", normalizedAddr),
-	)
+	client := newAgentClient(httpClient, normalizedAddr)
 
 	// Create streaming shell connection.
 	stream := client.Shell(ctx)
