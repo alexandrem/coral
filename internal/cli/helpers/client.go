@@ -300,10 +300,10 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		remoteURL := colonyConfig.Remote.Endpoint
 		client := colonyv1connect.NewColonyServiceClient(httpClient, remoteURL, opts...)
 
-		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+		ctxRemote, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err = client.GetStatus(ctxRemote, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+		cancel()
 
-		_, err = client.GetStatus(ctxWithTimeout, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 		if err == nil {
 			return client, remoteURL, nil
 		}
@@ -317,10 +317,10 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	localhostURL := fmt.Sprintf("http://localhost:%d", connectPort)
 	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, localhostURL, opts...)
 
-	ctxWithTimeout2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel2()
+	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Second)
+	_, err = client.GetStatus(ctxLocal, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+	cancel()
 
-	_, err = client.GetStatus(ctxWithTimeout2, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 	if err == nil {
 		// Localhost worked.
 		return client, localhostURL, nil
@@ -334,10 +334,10 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	meshURL := fmt.Sprintf("http://%s:%d", meshIP, connectPort)
 	client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, meshURL, opts...)
 
-	ctxWithTimeout3, cancel3 := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel3()
+	ctxMesh, cancel := context.WithTimeout(ctx, 5*time.Second)
+	_, err = client.GetStatus(ctxMesh, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+	cancel()
 
-	_, err = client.GetStatus(ctxWithTimeout3, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to connect to colony (tried localhost, remote, and mesh IP): %w", err)
 	}
