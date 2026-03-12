@@ -73,6 +73,8 @@ Note:
   - Omit --wait in init containers where services start after connection`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			// Parse service specifications
 			serviceSpecs, err := parseServiceSpecsWithLegacySupport(args, port, healthURL)
 			if err != nil {
@@ -92,7 +94,7 @@ Note:
 				}
 
 				// Resolve agent ID to mesh IP via colony registry.
-				resolvedAddr, err := resolveAgentID(cmd.Context(), agent, "")
+				resolvedAddr, err := resolveAgentID(ctx, agent, "")
 				if err != nil {
 					return fmt.Errorf("failed to resolve agent ID: %w", err)
 				}
@@ -140,7 +142,7 @@ Note:
 			)
 
 			// Connect each service
-			ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+			ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 			defer cancel()
 
 			connectedServices := make([]string, 0, len(serviceSpecs))
