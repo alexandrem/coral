@@ -222,7 +222,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 
 	// Initialize eBPF query service (RFD 035).
-	ebpfService := colony.NewEbpfQueryService(db)
+	ebpfService := colony.NewEbpfQueryService(db, logger)
 	colonySvc.SetEbpfService(ebpfService)
 	logger.Info().Msg("eBPF query service initialized and attached to colony")
 
