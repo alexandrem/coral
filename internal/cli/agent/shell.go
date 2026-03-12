@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -162,13 +161,7 @@ func runCommandExecution(ctx context.Context, agentAddr, userID string, command 
 		}
 	}
 
-	// Normalize agent address (strip http:// or https:// prefix if present).
-	normalizedAddr := agentAddr
-	if strings.HasPrefix(agentAddr, "http://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "http://")
-	} else if strings.HasPrefix(agentAddr, "https://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
-	}
+	normalizedAddr := normalizeAgentAddress(agentAddr)
 
 	// Create HTTP client.
 	httpClient := &http.Client{
@@ -258,13 +251,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		return fmt.Errorf("failed to get terminal size: %w", err)
 	}
 
-	// Normalize agent address (strip http:// or https:// prefix if present).
-	normalizedAddr := agentAddr
-	if strings.HasPrefix(agentAddr, "http://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "http://")
-	} else if strings.HasPrefix(agentAddr, "https://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
-	}
+	normalizedAddr := normalizeAgentAddress(agentAddr)
 
 	// Create HTTP client with HTTP/2 support for bidirectional streaming.
 	httpClient := &http.Client{

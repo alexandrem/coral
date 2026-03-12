@@ -17,6 +17,19 @@ import (
 
 const colonyProbeTimeout = 5 * time.Second
 
+// normalizeAgentAddress strips any http:// or https:// scheme prefix so the
+// address can be used with an explicit scheme in client URLs.
+func normalizeAgentAddress(addr string) string {
+	switch {
+	case strings.HasPrefix(addr, "http://"):
+		return addr[len("http://"):]
+	case strings.HasPrefix(addr, "https://"):
+		return addr[len("https://"):]
+	default:
+		return addr
+	}
+}
+
 // listAgentsFromColony loads colony config and calls ListAgents with localhost→mesh fallback.
 func listAgentsFromColony(ctx context.Context, colonyID string) (*colonyv1.ListAgentsResponse, error) {
 	resolver, err := config.NewResolver()
