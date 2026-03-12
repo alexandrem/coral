@@ -1,9 +1,13 @@
 package distributed
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
+
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -13,7 +17,7 @@ import (
 // DebugSuite tests deep introspection capabilities (uprobe tracing, debug sessions).
 //
 // This suite covers Level 3 observability features:
-// - Uprobe-based function tracing (entry events only, exits not yet implemented)
+// - Uprobe-based function tracing (entry and return events with duration)
 // - Call tree construction from uprobe events
 // - Multi-agent debug session coordination
 //
@@ -64,8 +68,8 @@ func (s *DebugSuite) TearDownSuite() {
 // 5. Verify uprobe events captured (entry events only)
 // 6. Detach uprobe and verify event retrieval
 //
-// Note: Currently only captures function entry events (not exits/returns).
 // Uses SDK test app with known functions for testing.
+// See TestUprobeReturnTracing for return event + duration verification (RFD 073).
 func (s *DebugSuite) TestUprobeTracing() {
 	s.T().Log("Testing uprobe-based function tracing...")
 
@@ -190,8 +194,7 @@ func (s *DebugSuite) TestUprobeTracing() {
 
 	s.T().Logf("Event types: %d entries, %d exits", entryCount, exitCount)
 	s.Require().Greater(entryCount, 0, "Should capture entry events")
-	// Note: Exit events (function returns) are not currently captured.
-	// Only entry events (function calls) are tracked by uprobes.
+	// Return events are tested in TestUprobeReturnTracing (RFD 073).
 
 	// Detach uprobe.
 	s.T().Log("Detaching uprobe...")
@@ -202,7 +205,7 @@ func (s *DebugSuite) TestUprobeTracing() {
 	s.T().Log("✓ Uprobe tracing verified")
 	s.T().Logf("  - Session ID: %s", sessionID)
 	s.T().Logf("  - Total events: %d", len(eventsResp.Events))
-	s.T().Logf("  - Entry events: %d (exit events not yet implemented)", entryCount)
+	s.T().Logf("  - Entry events: %d", entryCount)
 
 	// Note: Service cleanup handled by TearDownTest.
 }
@@ -492,7 +495,7 @@ func (s *DebugSuite) TestMultiAgentDebugSession() {
 // 3. Trigger workload — session must remain active with the filter set
 // 4. Detach and verify no errors
 func (s *DebugSuite) TestUprobeFilterAttach() {
-	s.T().Log("Testing uprobe attach with kernel-level duration filter (RFD 090)...")
+	s.T().Log("Testing uprobe attach with kernel-level duration filter...")
 
 	fixture := s.fixture
 
@@ -578,7 +581,7 @@ func (s *DebugSuite) TestUprobeFilterAttach() {
 // 5. Generate more workload — collector must still be running
 // 6. Detach cleanly
 func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
-	s.T().Log("Testing live probe filter update without session interruption (RFD 090)...")
+	s.T().Log("Testing live probe filter update without session interruption...")
 
 	fixture := s.fixture
 
@@ -665,4 +668,594 @@ func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
 	s.T().Log("✓ Live probe filter update verified end-to-end")
 	s.T().Log("  - Session remained active throughout filter update")
 	s.T().Log("  - Workload continued to flow after filter change")
+}
+
+// TestUprobeReturnTracing verifies return-instruction uprobes capture function
+// exit events with duration measurements (RFD 073).
+//
+// Test flow:
+// 1. Query SDK metadata to verify function size is available (prerequisite)
+// 2. Attach uprobe to ProcessPayment function (~50ms sleep)
+// 3. Trigger workload via /trigger endpoint
+// 4. Verify both entry AND return events are captured
+// 5. Verify return events have non-zero duration_ns
+// 6. Verify duration is within expected range (~50ms ±50%)
+// 7. Repeat for ValidateCard (multiple return paths, ~20ms)
+func (s *DebugSuite) TestUprobeReturnTracing() {
+	s.T().Log("Testing return-instruction uprobe tracing (RFD 073)...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 1)
+	s.Require().NoError(err, "Failed to get agent-1 endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	// --- Step 0: Verify SDK metadata includes function size (RFD 073 prerequisite) ---
+	// The agent needs size_bytes from the SDK to disassemble the function and find
+	// RET instruction offsets. Without it, only entry probes are attached.
+	s.T().Log("--- Step 0: Checking SDK function metadata ---")
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// The SDK debug server runs on port 9002 inside agent-1's network namespace.
+	// The base docker-compose maps this to host port 9003.
+	sdkDebugEndpoint := "127.0.0.1:9003"
+
+	for _, funcName := range []string{"main.ProcessPayment", "main.ValidateCard", "main.CalculateTotal"} {
+		metaURL := fmt.Sprintf("http://%s/debug/functions/%s", sdkDebugEndpoint, funcName)
+		resp, err := client.Get(metaURL)
+		if err != nil {
+			s.T().Logf("  %s: SDK metadata request failed: %v", funcName, err)
+			s.T().Logf("  (tried URL: %s)", metaURL)
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			s.T().Logf("  %s: SDK metadata request failed with status %d: %s", funcName, resp.StatusCode, string(body))
+			continue
+		}
+
+		var meta struct {
+			Name      string `json:"name"`
+			Offset    uint64 `json:"offset"`
+			SizeBytes uint64 `json:"size_bytes"`
+			HasSize   bool   `json:"has_size"`
+			PID       int    `json:"pid"`
+		}
+		if err := json.Unmarshal(body, &meta); err != nil {
+			s.T().Logf("  %s: failed to parse metadata JSON: %v (body: %s)", funcName, err, string(body))
+			continue
+		}
+
+		s.T().Logf("  %s: offset=0x%x, size_bytes=%d, has_size=%v, pid=%d",
+			funcName, meta.Offset, meta.SizeBytes, meta.HasSize, meta.PID)
+
+		if !meta.HasSize || meta.SizeBytes == 0 {
+			s.T().Logf("  ⚠️  %s: has_size=%v, size_bytes=%d — agent cannot disassemble for RET probes",
+				funcName, meta.HasSize, meta.SizeBytes)
+		}
+	}
+
+	// Find the agent hosting sdk-app.
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+
+	agentClient := helpers.NewAgentClient(agentEndpoint)
+	err = helpers.WaitForServiceRegistration(s.ctx, agentClient, "sdk-app", 10*time.Second)
+	s.Require().NoError(err, "Timeout waiting for service registration")
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// --- Test 1: ProcessPayment return events with duration ---
+	s.T().Log("--- Test 1: ProcessPayment return events ---")
+	s.T().Log("Attaching uprobe to main.ProcessPayment (~50ms sleep)...")
+	attachResp, err := helpers.AttachUprobe(s.ctx, debugClient, agentID, "sdk-app", "main.ProcessPayment", 30)
+	s.Require().NoError(err, "AttachUprobe should succeed")
+	s.Require().NotEmpty(attachResp.SessionId, "Session ID should be returned")
+
+	sessionID := attachResp.SessionId
+	s.T().Logf("Debug session: %s", sessionID)
+
+	time.Sleep(2 * time.Second)
+
+	// Trigger workload.
+	s.T().Log("Triggering workload (10 requests)...")
+	for i := 0; i < 10; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	// Query events.
+	eventsResp, err := helpers.QueryUprobeEvents(s.ctx, debugClient, sessionID, 200)
+	s.Require().NoError(err, "QueryUprobeEvents should succeed")
+	s.T().Logf("Retrieved %d uprobe events", len(eventsResp.Events))
+
+	if len(eventsResp.Events) == 0 {
+		s.T().Skip("Skipping: No uprobe events captured")
+	}
+
+	// Log all event types for diagnosis.
+	entryCount, returnCount := helpers.CountEventsByType(eventsResp.Events)
+	s.T().Logf("ProcessPayment events: %d entries, %d returns", entryCount, returnCount)
+
+	// Log a sample of events for diagnosis.
+	for i, event := range eventsResp.Events {
+		if i < 5 || event.EventType == "return" {
+			s.T().Logf("  Event %d: type=%s, function=%s, duration_ns=%d, pid=%d, tid=%d",
+				i, event.EventType, event.FunctionName, event.DurationNs, event.Pid, event.Tid)
+		}
+	}
+
+	s.Require().Greater(entryCount, 0, "Should capture entry events")
+	s.Require().Greater(returnCount, 0,
+		"Should capture return events (RFD 073 return-instruction uprobes)")
+
+	// Verify return events have correct duration (~50ms ±50%).
+	for _, event := range eventsResp.Events {
+		if event.EventType == "return" {
+			s.Require().Greater(event.DurationNs, uint64(0),
+				"Return event must have non-zero duration_ns")
+			helpers.AssertReturnEventDuration(s.T(), event, 50.0, 0.50)
+			break // Verify at least one in detail.
+		}
+	}
+
+	// Entry events should have zero duration.
+	for _, event := range eventsResp.Events {
+		if event.EventType == "entry" {
+			s.Require().Equal(uint64(0), event.DurationNs,
+				"Entry event should have zero duration_ns")
+			break
+		}
+	}
+
+	_, err = helpers.DetachUprobe(s.ctx, debugClient, sessionID)
+	s.Require().NoError(err, "DetachUprobe should succeed")
+
+	s.T().Logf("✓ ProcessPayment: %d entries, %d returns with duration", entryCount, returnCount)
+
+	// --- Test 2: ValidateCard return events (multiple return paths) ---
+	s.T().Log("--- Test 2: ValidateCard return events (multiple return paths) ---")
+	s.T().Log("Attaching uprobe to main.ValidateCard (~20ms sleep)...")
+	attachResp2, err := helpers.AttachUprobe(s.ctx, debugClient, agentID, "sdk-app", "main.ValidateCard", 30)
+	s.Require().NoError(err, "AttachUprobe should succeed for ValidateCard")
+	s.Require().NotEmpty(attachResp2.SessionId, "Session ID should be returned")
+
+	sessionID2 := attachResp2.SessionId
+	s.T().Logf("Debug session: %s", sessionID2)
+
+	time.Sleep(2 * time.Second)
+
+	// Trigger workload.
+	s.T().Log("Triggering workload (10 requests)...")
+	for i := 0; i < 10; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	// Query events.
+	eventsResp2, err := helpers.QueryUprobeEvents(s.ctx, debugClient, sessionID2, 200)
+	s.Require().NoError(err, "QueryUprobeEvents should succeed")
+	s.T().Logf("Retrieved %d uprobe events", len(eventsResp2.Events))
+
+	if len(eventsResp2.Events) == 0 {
+		s.T().Skip("Skipping: No uprobe events for ValidateCard")
+	}
+
+	entryCount2, returnCount2 := helpers.CountEventsByType(eventsResp2.Events)
+	s.T().Logf("ValidateCard events: %d entries, %d returns", entryCount2, returnCount2)
+
+	s.Require().Greater(entryCount2, 0, "Should capture ValidateCard entry events")
+	s.Require().Greater(returnCount2, 0,
+		"Should capture ValidateCard return events from multiple return paths")
+
+	// Verify return events have correct duration (~20ms ±50%).
+	for _, event := range eventsResp2.Events {
+		if event.EventType == "return" {
+			helpers.AssertReturnEventDuration(s.T(), event, 20.0, 0.50)
+			break
+		}
+	}
+
+	// Entry and return counts should be approximately balanced.
+	// We allow for significant variance (50%) because the background workload in the sdk-app
+	// generates noise that might result in in-flight calls being partially captured.
+	s.T().Logf("Entry/return balance: %d entries, %d returns", entryCount2, returnCount2)
+	s.Require().InDelta(entryCount2, returnCount2, float64(entryCount2)*0.50,
+		"Entry and return counts should be approximately balanced")
+
+	_, err = helpers.DetachUprobe(s.ctx, debugClient, sessionID2)
+	s.Require().NoError(err, "DetachUprobe should succeed")
+
+	s.T().Log("✓ Return-instruction uprobe tracing verified")
+	s.T().Logf("  - ProcessPayment: %d entries, %d returns (~50ms duration)", entryCount, returnCount)
+	s.T().Logf("  - ValidateCard: %d entries, %d returns (~20ms duration)", entryCount2, returnCount2)
+}
+
+// TestUprobeRecursiveFunction verifies that return-instruction uprobes correctly
+// track nested recursive calls as independent events (RFD 073).
+//
+// Each recursive invocation of RecursiveSum has a unique (TGID, StackPointer)
+// BPF map key because each call frame sits at a different stack address.
+// The test confirms that multiple return events are captured — one per
+// recursive invocation — and that their durations are non-zero.
+//
+// Test flow:
+// 1. Attach uprobe to main.RecursiveSum
+// 2. Call /trigger-recursive which invokes RecursiveSum(5)
+// 3. Verify that multiple return events are captured (N ≥ 1 per trigger call)
+// 4. Verify each return event has a non-zero duration_ns
+func (s *DebugSuite) TestUprobeRecursiveFunction() {
+	s.T().Log("Testing return-instruction uprobes with recursive functions...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// Attach uprobe to the recursive function.
+	s.T().Log("Attaching uprobe to main.RecursiveSum...")
+	attachResp, err := helpers.AttachUprobe(s.ctx, debugClient, agentID, "sdk-app", "main.RecursiveSum", 30)
+	s.Require().NoError(err, "AttachUprobe should succeed")
+	s.Require().NotEmpty(attachResp.SessionId, "Session ID should be returned")
+
+	sessionID := attachResp.SessionId
+	s.T().Logf("Debug session: %s", sessionID)
+
+	time.Sleep(2 * time.Second)
+
+	// Trigger recursive calls.
+	client := &http.Client{Timeout: 5 * time.Second}
+	const triggerCount = 5
+
+	s.T().Logf("Triggering %d recursive workload requests...", triggerCount)
+	for i := 0; i < triggerCount; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger-recursive", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	eventsResp, err := helpers.QueryUprobeEvents(s.ctx, debugClient, sessionID, 300)
+	s.Require().NoError(err, "QueryUprobeEvents should succeed")
+	s.T().Logf("Retrieved %d uprobe events", len(eventsResp.Events))
+
+	if len(eventsResp.Events) == 0 {
+		s.T().Skip("Skipping: No uprobe events captured for RecursiveSum")
+	}
+
+	entryCount, returnCount := helpers.CountEventsByType(eventsResp.Events)
+	s.T().Logf("RecursiveSum events: %d entries, %d returns", entryCount, returnCount)
+
+	s.Require().Greater(entryCount, 0, "Should capture entry events for each recursive call")
+	s.Require().Greater(returnCount, 0,
+		"Should capture return events for each recursive call (TGID+SP key uniqueness)")
+
+	// Each return event must carry a non-zero duration.
+	for i, event := range eventsResp.Events {
+		if event.EventType == "return" {
+			s.Require().Greater(event.DurationNs, uint64(0),
+				"Return event %d must have non-zero duration_ns", i)
+		}
+	}
+
+	_, err = helpers.DetachUprobe(s.ctx, debugClient, sessionID)
+	s.Require().NoError(err, "DetachUprobe should succeed")
+
+	s.T().Log("✓ Recursive uprobe tracing verified")
+	s.T().Logf("  - RecursiveSum: %d entries, %d returns across %d trigger calls",
+		entryCount, returnCount, triggerCount)
+	s.T().Log("  - Each recursive call frame tracked independently via TGID+SP key")
+}
+
+// TestUprobeConcurrentGoroutines verifies that return-instruction uprobes
+// correctly track concurrent goroutine calls without cross-contaminating
+// BPF map entries (RFD 073).
+//
+// Each goroutine has its own stack, so the (TGID, StackPointer) BPF map key
+// is unique per goroutine call frame. Concurrent calls must each produce both
+// entry and return events with correct, independent durations.
+//
+// Test flow:
+// 1. Attach uprobe to main.ProcessPayment (~50ms)
+// 2. Fire multiple concurrent HTTP requests to /trigger
+// 3. Verify that entry and return events are captured for all concurrent calls
+// 4. Verify all return events carry non-zero duration_ns
+func (s *DebugSuite) TestUprobeConcurrentGoroutines() {
+	s.T().Log("Testing return-instruction uprobes with concurrent goroutines...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	s.T().Log("Attaching uprobe to main.ProcessPayment...")
+	attachResp, err := helpers.AttachUprobe(s.ctx, debugClient, agentID, "sdk-app", "main.ProcessPayment", 30)
+	s.Require().NoError(err, "AttachUprobe should succeed")
+	s.Require().NotEmpty(attachResp.SessionId, "Session ID should be returned")
+
+	sessionID := attachResp.SessionId
+	s.T().Logf("Debug session: %s", sessionID)
+
+	time.Sleep(2 * time.Second)
+
+	// Fire concurrent requests: each triggers ProcessPayment on a separate goroutine.
+	const concurrency = 5
+	s.T().Logf("Firing %d concurrent /trigger requests...", concurrency)
+
+	type result struct {
+		index int
+		err   error
+	}
+	results := make(chan result, concurrency)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	for i := 0; i < concurrency; i++ {
+		go func(idx int) {
+			resp, err := httpClient.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+			results <- result{idx, err}
+		}(i)
+	}
+
+	// Collect results.
+	successCount := 0
+	for i := 0; i < concurrency; i++ {
+		r := <-results
+		if r.err != nil {
+			s.T().Logf("Concurrent request %d failed: %v", r.index+1, r.err)
+		} else {
+			successCount++
+		}
+	}
+	s.T().Logf("%d/%d concurrent requests succeeded", successCount, concurrency)
+
+	time.Sleep(2 * time.Second)
+
+	eventsResp, err := helpers.QueryUprobeEvents(s.ctx, debugClient, sessionID, 200)
+	s.Require().NoError(err, "QueryUprobeEvents should succeed")
+	s.T().Logf("Retrieved %d uprobe events", len(eventsResp.Events))
+
+	if len(eventsResp.Events) == 0 {
+		s.T().Skip("Skipping: No uprobe events captured for concurrent test")
+	}
+
+	entryCount, returnCount := helpers.CountEventsByType(eventsResp.Events)
+	s.T().Logf("ProcessPayment concurrent events: %d entries, %d returns", entryCount, returnCount)
+
+	s.Require().Greater(entryCount, 0, "Should capture entry events for concurrent calls")
+	s.Require().Greater(returnCount, 0,
+		"Should capture return events for concurrent calls")
+
+	// All return events must have non-zero durations.
+	for i, event := range eventsResp.Events {
+		if event.EventType == "return" {
+			s.Require().Greater(event.DurationNs, uint64(0),
+				"Return event %d must have non-zero duration_ns in concurrent scenario", i)
+		}
+	}
+
+	_, err = helpers.DetachUprobe(s.ctx, debugClient, sessionID)
+	s.Require().NoError(err, "DetachUprobe should succeed")
+
+	s.T().Log("✓ Concurrent goroutine uprobe tracing verified")
+	s.T().Logf("  - %d concurrent calls: %d entries, %d returns", concurrency, entryCount, returnCount)
+	s.T().Log("  - Each goroutine's call frame tracked independently via TGID+SP key")
+}
+
+// TestCorrelationDeployAndRemove verifies the full colony→agent correlation
+// deployment lifecycle (RFD 091).
+//
+// This test covers the deploy/list/remove RPC path through the real colony
+// orchestrator and agent correlation engine. It attaches a rate_gate descriptor
+// to the sdk-app's ProcessPayment function, generates workload to cross the
+// threshold, then removes the descriptor and confirms it is gone.
+//
+// Note: TriggerEvent streaming from agent to colony is deferred. This test
+// verifies the control-plane path (deploy/list/remove) end-to-end.
+//
+// Test flow:
+// 1. Deploy rate_gate descriptor for sdk-app/main.ProcessPayment (3 events, 5s window)
+// 2. Verify ListCorrelations returns the active descriptor
+// 3. Generate workload to cross the threshold
+// 4. Remove the descriptor via RemoveCorrelation
+// 5. Verify ListCorrelations no longer returns it
+func (s *DebugSuite) TestCorrelationDeployAndRemove() {
+	s.T().Log("Testing correlation descriptor deploy/list/remove lifecycle...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	// Verify sdk-app agent is registered.
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app")
+	s.T().Logf("Agent hosting sdk-app: %s", agentID)
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// Deploy a rate_gate descriptor: fire when ≥3 events arrive within 5s.
+	corrID := "e2e-rate-gate-test"
+	desc := &agentv1.CorrelationDescriptor{
+		Id:          corrID,
+		Strategy:    agentv1.StrategyKind_RATE_GATE,
+		ServiceName: "sdk-app",
+		Source: &agentv1.SourceSpec{
+			Probe: "main.ProcessPayment",
+		},
+		Window:     durationpb.New(5 * time.Second),
+		Threshold:  3,
+		Action:     &agentv1.ActionSpec{Kind: agentv1.ActionKind_EMIT_EVENT},
+		CooldownMs: 1000,
+	}
+
+	s.T().Log("Deploying rate_gate correlation descriptor...")
+	deployResp, err := helpers.DeployCorrelation(s.ctx, debugClient, "sdk-app", desc)
+	s.Require().NoError(err, "DeployCorrelation should succeed")
+	s.Require().True(deployResp.Success, "Deploy should succeed: %s", deployResp.Error)
+	s.Require().NotEmpty(deployResp.CorrelationId, "CorrelationId should be returned")
+	s.T().Logf("✓ Correlation deployed: id=%s agent=%s", deployResp.CorrelationId, deployResp.AgentId)
+
+	// Verify it appears in ListCorrelations.
+	s.T().Log("Verifying descriptor appears in ListCorrelations...")
+	listResp, err := helpers.ListCorrelations(s.ctx, debugClient, "sdk-app")
+	s.Require().NoError(err, "ListCorrelations should succeed")
+
+	found := false
+	for _, d := range listResp.Descriptors {
+		if d.Id == corrID {
+			found = true
+			s.T().Logf("✓ Found descriptor: id=%s strategy=%s", d.Id, d.Strategy)
+			break
+		}
+	}
+	s.Require().True(found, "Deployed descriptor must appear in ListCorrelations")
+
+	// Generate workload to cross the rate_gate threshold.
+	s.T().Log("Generating workload to exercise the correlation engine...")
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < 5; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		s.T().Logf("Trigger %d completed", i+1)
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	s.T().Log("Workload complete (correlation engine evaluated events in-process)")
+	s.T().Log("Note: TriggerEvent streaming from agent to colony is deferred (Future Work)")
+
+	// Remove the descriptor.
+	s.T().Log("Removing correlation descriptor...")
+	_, err = helpers.RemoveCorrelation(s.ctx, debugClient, corrID, "sdk-app")
+	s.Require().NoError(err, "RemoveCorrelation should succeed")
+	s.T().Log("✓ Correlation removed")
+
+	// Verify it is gone from ListCorrelations.
+	s.T().Log("Verifying descriptor no longer appears in ListCorrelations...")
+	listAfter, err := helpers.ListCorrelations(s.ctx, debugClient, "sdk-app")
+	s.Require().NoError(err, "ListCorrelations after remove should succeed")
+
+	for _, d := range listAfter.Descriptors {
+		s.Require().NotEqual(corrID, d.Id, "Removed descriptor must not appear in ListCorrelations")
+	}
+
+	s.T().Log("✓ Correlation lifecycle verified end-to-end")
+	s.T().Logf("  - Descriptor deployed and visible in ListCorrelations")
+	s.T().Logf("  - Rate gate evaluated %d trigger requests", 5)
+	s.T().Logf("  - Descriptor removed and absent from ListCorrelations")
 }

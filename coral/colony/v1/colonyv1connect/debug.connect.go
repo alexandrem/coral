@@ -73,6 +73,15 @@ const (
 	// ColonyDebugServiceQueryHistoricalMemoryProfileProcedure is the fully-qualified name of the
 	// ColonyDebugService's QueryHistoricalMemoryProfile RPC.
 	ColonyDebugServiceQueryHistoricalMemoryProfileProcedure = "/coral.colony.v1.ColonyDebugService/QueryHistoricalMemoryProfile"
+	// ColonyDebugServiceDeployCorrelationProcedure is the fully-qualified name of the
+	// ColonyDebugService's DeployCorrelation RPC.
+	ColonyDebugServiceDeployCorrelationProcedure = "/coral.colony.v1.ColonyDebugService/DeployCorrelation"
+	// ColonyDebugServiceRemoveCorrelationProcedure is the fully-qualified name of the
+	// ColonyDebugService's RemoveCorrelation RPC.
+	ColonyDebugServiceRemoveCorrelationProcedure = "/coral.colony.v1.ColonyDebugService/RemoveCorrelation"
+	// ColonyDebugServiceListCorrelationsProcedure is the fully-qualified name of the
+	// ColonyDebugService's ListCorrelations RPC.
+	ColonyDebugServiceListCorrelationsProcedure = "/coral.colony.v1.ColonyDebugService/ListCorrelations"
 )
 
 // ColonyDebugServiceClient is a client for the coral.colony.v1.ColonyDebugService service.
@@ -103,6 +112,14 @@ type ColonyDebugServiceClient interface {
 	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryRequest]) (*connect.Response[v1.ProfileMemoryResponse], error)
 	// Query historical memory profiles from continuous profiling (RFD 077).
 	QueryHistoricalMemoryProfile(context.Context, *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error)
+	// DeployCorrelation validates the descriptor, resolves the target agent for
+	// the named service, and forwards the deployment (RFD 091).
+	DeployCorrelation(context.Context, *connect.Request[v1.ColonyDeployCorrelationRequest]) (*connect.Response[v1.ColonyDeployCorrelationResponse], error)
+	// RemoveCorrelation routes removal to the correct agent (RFD 091).
+	RemoveCorrelation(context.Context, *connect.Request[v1.ColonyRemoveCorrelationRequest]) (*connect.Response[v1.ColonyRemoveCorrelationResponse], error)
+	// ListCorrelations returns descriptors across all agents, optionally filtered
+	// by service (RFD 091).
+	ListCorrelations(context.Context, *connect.Request[v1.ColonyListCorrelationsRequest]) (*connect.Response[v1.ColonyListCorrelationsResponse], error)
 }
 
 // NewColonyDebugServiceClient constructs a client for the coral.colony.v1.ColonyDebugService
@@ -194,6 +211,24 @@ func NewColonyDebugServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalMemoryProfile")),
 			connect.WithClientOptions(opts...),
 		),
+		deployCorrelation: connect.NewClient[v1.ColonyDeployCorrelationRequest, v1.ColonyDeployCorrelationResponse](
+			httpClient,
+			baseURL+ColonyDebugServiceDeployCorrelationProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("DeployCorrelation")),
+			connect.WithClientOptions(opts...),
+		),
+		removeCorrelation: connect.NewClient[v1.ColonyRemoveCorrelationRequest, v1.ColonyRemoveCorrelationResponse](
+			httpClient,
+			baseURL+ColonyDebugServiceRemoveCorrelationProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("RemoveCorrelation")),
+			connect.WithClientOptions(opts...),
+		),
+		listCorrelations: connect.NewClient[v1.ColonyListCorrelationsRequest, v1.ColonyListCorrelationsResponse](
+			httpClient,
+			baseURL+ColonyDebugServiceListCorrelationsProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("ListCorrelations")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -212,6 +247,9 @@ type colonyDebugServiceClient struct {
 	queryHistoricalCPUProfile    *connect.Client[v1.QueryHistoricalCPUProfileRequest, v1.QueryHistoricalCPUProfileResponse]
 	profileMemory                *connect.Client[v1.ProfileMemoryRequest, v1.ProfileMemoryResponse]
 	queryHistoricalMemoryProfile *connect.Client[v1.QueryHistoricalMemoryProfileRequest, v1.QueryHistoricalMemoryProfileResponse]
+	deployCorrelation            *connect.Client[v1.ColonyDeployCorrelationRequest, v1.ColonyDeployCorrelationResponse]
+	removeCorrelation            *connect.Client[v1.ColonyRemoveCorrelationRequest, v1.ColonyRemoveCorrelationResponse]
+	listCorrelations             *connect.Client[v1.ColonyListCorrelationsRequest, v1.ColonyListCorrelationsResponse]
 }
 
 // AttachUprobe calls coral.colony.v1.ColonyDebugService.AttachUprobe.
@@ -280,6 +318,21 @@ func (c *colonyDebugServiceClient) QueryHistoricalMemoryProfile(ctx context.Cont
 	return c.queryHistoricalMemoryProfile.CallUnary(ctx, req)
 }
 
+// DeployCorrelation calls coral.colony.v1.ColonyDebugService.DeployCorrelation.
+func (c *colonyDebugServiceClient) DeployCorrelation(ctx context.Context, req *connect.Request[v1.ColonyDeployCorrelationRequest]) (*connect.Response[v1.ColonyDeployCorrelationResponse], error) {
+	return c.deployCorrelation.CallUnary(ctx, req)
+}
+
+// RemoveCorrelation calls coral.colony.v1.ColonyDebugService.RemoveCorrelation.
+func (c *colonyDebugServiceClient) RemoveCorrelation(ctx context.Context, req *connect.Request[v1.ColonyRemoveCorrelationRequest]) (*connect.Response[v1.ColonyRemoveCorrelationResponse], error) {
+	return c.removeCorrelation.CallUnary(ctx, req)
+}
+
+// ListCorrelations calls coral.colony.v1.ColonyDebugService.ListCorrelations.
+func (c *colonyDebugServiceClient) ListCorrelations(ctx context.Context, req *connect.Request[v1.ColonyListCorrelationsRequest]) (*connect.Response[v1.ColonyListCorrelationsResponse], error) {
+	return c.listCorrelations.CallUnary(ctx, req)
+}
+
 // ColonyDebugServiceHandler is an implementation of the coral.colony.v1.ColonyDebugService service.
 type ColonyDebugServiceHandler interface {
 	// Start uprobe debug session.
@@ -308,6 +361,14 @@ type ColonyDebugServiceHandler interface {
 	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryRequest]) (*connect.Response[v1.ProfileMemoryResponse], error)
 	// Query historical memory profiles from continuous profiling (RFD 077).
 	QueryHistoricalMemoryProfile(context.Context, *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error)
+	// DeployCorrelation validates the descriptor, resolves the target agent for
+	// the named service, and forwards the deployment (RFD 091).
+	DeployCorrelation(context.Context, *connect.Request[v1.ColonyDeployCorrelationRequest]) (*connect.Response[v1.ColonyDeployCorrelationResponse], error)
+	// RemoveCorrelation routes removal to the correct agent (RFD 091).
+	RemoveCorrelation(context.Context, *connect.Request[v1.ColonyRemoveCorrelationRequest]) (*connect.Response[v1.ColonyRemoveCorrelationResponse], error)
+	// ListCorrelations returns descriptors across all agents, optionally filtered
+	// by service (RFD 091).
+	ListCorrelations(context.Context, *connect.Request[v1.ColonyListCorrelationsRequest]) (*connect.Response[v1.ColonyListCorrelationsResponse], error)
 }
 
 // NewColonyDebugServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -395,6 +456,24 @@ func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect
 		connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalMemoryProfile")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyDebugServiceDeployCorrelationHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceDeployCorrelationProcedure,
+		svc.DeployCorrelation,
+		connect.WithSchema(colonyDebugServiceMethods.ByName("DeployCorrelation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyDebugServiceRemoveCorrelationHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceRemoveCorrelationProcedure,
+		svc.RemoveCorrelation,
+		connect.WithSchema(colonyDebugServiceMethods.ByName("RemoveCorrelation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyDebugServiceListCorrelationsHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceListCorrelationsProcedure,
+		svc.ListCorrelations,
+		connect.WithSchema(colonyDebugServiceMethods.ByName("ListCorrelations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyDebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyDebugServiceAttachUprobeProcedure:
@@ -423,6 +502,12 @@ func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect
 			colonyDebugServiceProfileMemoryHandler.ServeHTTP(w, r)
 		case ColonyDebugServiceQueryHistoricalMemoryProfileProcedure:
 			colonyDebugServiceQueryHistoricalMemoryProfileHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceDeployCorrelationProcedure:
+			colonyDebugServiceDeployCorrelationHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceRemoveCorrelationProcedure:
+			colonyDebugServiceRemoveCorrelationHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceListCorrelationsProcedure:
+			colonyDebugServiceListCorrelationsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -482,4 +567,16 @@ func (UnimplementedColonyDebugServiceHandler) ProfileMemory(context.Context, *co
 
 func (UnimplementedColonyDebugServiceHandler) QueryHistoricalMemoryProfile(context.Context, *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile is not implemented"))
+}
+
+func (UnimplementedColonyDebugServiceHandler) DeployCorrelation(context.Context, *connect.Request[v1.ColonyDeployCorrelationRequest]) (*connect.Response[v1.ColonyDeployCorrelationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.DeployCorrelation is not implemented"))
+}
+
+func (UnimplementedColonyDebugServiceHandler) RemoveCorrelation(context.Context, *connect.Request[v1.ColonyRemoveCorrelationRequest]) (*connect.Response[v1.ColonyRemoveCorrelationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.RemoveCorrelation is not implemented"))
+}
+
+func (UnimplementedColonyDebugServiceHandler) ListCorrelations(context.Context, *connect.Request[v1.ColonyListCorrelationsRequest]) (*connect.Response[v1.ColonyListCorrelationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.ListCorrelations is not implemented"))
 }

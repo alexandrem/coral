@@ -13,6 +13,12 @@ type FunctionMetadata struct {
 
 	// PID is the process ID (0 if not associated with a running process).
 	PID uint32
+
+	// SizeBytes is the function size in bytes from DWARF (RFD 073).
+	SizeBytes uint64
+
+	// HasSize indicates whether function size is available.
+	HasSize bool
 }
 
 // BasicInfo contains minimal function metadata for listing.

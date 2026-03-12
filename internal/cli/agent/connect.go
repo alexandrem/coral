@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 )
 
@@ -73,6 +71,8 @@ Note:
   - Omit --wait in init containers where services start after connection`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			// Parse service specifications
 			serviceSpecs, err := parseServiceSpecsWithLegacySupport(args, port, healthURL)
 			if err != nil {
@@ -92,7 +92,7 @@ Note:
 				}
 
 				// Resolve agent ID to mesh IP via colony registry.
-				resolvedAddr, err := resolveAgentID(cmd.Context(), agent, "")
+				resolvedAddr, err := resolveAgentID(ctx, agent, "")
 				if err != nil {
 					return fmt.Errorf("failed to resolve agent ID: %w", err)
 				}
@@ -134,13 +134,10 @@ Note:
 			fmt.Printf("Agent: %s\n", agentAddr)
 
 			// Create gRPC client
-			client := agentv1connect.NewAgentServiceClient(
-				http.DefaultClient,
-				fmt.Sprintf("http://%s", agentAddr),
-			)
+			client := newAgentClient(agentAddr)
 
 			// Connect each service
-			ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+			ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 			defer cancel()
 
 			connectedServices := make([]string, 0, len(serviceSpecs))
@@ -271,10 +268,7 @@ func discoverLocalAgent() (string, error) {
 
 	for _, addr := range candidates {
 		// Try to connect to agent.
-		client := agentv1connect.NewAgentServiceClient(
-			http.DefaultClient,
-			fmt.Sprintf("http://%s", addr),
-		)
+		client := newAgentClient(addr)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, err := client.GetRuntimeContext(ctx, connect.NewRequest(&agentv1.GetRuntimeContextRequest{}))

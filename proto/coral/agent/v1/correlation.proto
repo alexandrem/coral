@@ -1,0 +1,130 @@
+syntax = "proto3";
+package coral.agent.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/coral-mesh/coral/coral/agent/v1;agentv1";
+
+// StrategyKind selects the temporal correlation pattern to evaluate (RFD 091).
+enum StrategyKind {
+  RATE_GATE        = 0;
+  EDGE_TRIGGER     = 1;
+  CAUSAL_PAIR      = 2;
+  ABSENCE          = 3;
+  PERCENTILE_ALARM = 4;
+  SEQUENCE         = 5;
+}
+
+// ActionKind defines what the agent does when the strategy condition fires (RFD 091).
+enum ActionKind {
+  EMIT_EVENT         = 0;  // Send a TriggerEvent to the colony.
+  GOROUTINE_SNAPSHOT = 1;  // Capture goroutine stacks for the service.
+  CPU_PROFILE        = 2;  // Capture a CPU profile (RFD 070).
+}
+
+// SourceSpec identifies a probe and an optional CEL filter predicate (RFD 091).
+message SourceSpec {
+  // probe is the fully-qualified function name (e.g., "db.Query").
+  string probe = 1;
+
+  // filter_expr is a CEL expression evaluated against each event.
+  // Available fields: event.duration_ns, event.pid, event.tid,
+  // event.function_name, event.trace_id (if present).
+  // Empty string means accept all events from this probe.
+  string filter_expr = 2;
+}
+
+// ActionSpec describes the action to take when the strategy fires (RFD 091).
+message ActionSpec {
+  ActionKind kind = 1;
+
+  // profile_duration_ms controls how long a CPU profile is captured.
+  // Only used when kind = CPU_PROFILE.
+  uint32 profile_duration_ms = 2;
+}
+
+// CorrelationDescriptor is the unit of deployment for agent-side correlation (RFD 091).
+// The colony LLM generates this; the agent evaluates it.
+message CorrelationDescriptor {
+  // id is a colony-assigned unique identifier for this descriptor.
+  string id = 1;
+
+  // strategy selects the evaluation pattern.
+  StrategyKind strategy = 2;
+
+  // source is the primary (or only) event source.
+  // Used by: RATE_GATE, EDGE_TRIGGER, ABSENCE, PERCENTILE_ALARM, SEQUENCE.
+  SourceSpec source = 3;
+
+  // source_a and source_b are used by CAUSAL_PAIR and SEQUENCE.
+  SourceSpec source_a = 4;
+  SourceSpec source_b = 5;
+
+  // join_on is the event field name used to correlate source_a and source_b
+  // events. Used by CAUSAL_PAIR. Example: "trace_id".
+  string join_on = 6;
+
+  // window is the sliding time window over which the strategy is evaluated.
+  google.protobuf.Duration window = 7;
+
+  // threshold is the event count trigger for RATE_GATE (fire when count >=
+  // threshold) and the numeric threshold for PERCENTILE_ALARM.
+  double threshold = 8;
+
+  // field is the numeric event field name for PERCENTILE_ALARM.
+  // Example: "duration_ns".
+  string field = 9;
+
+  // percentile is the percentile to compute for PERCENTILE_ALARM (0.0–1.0).
+  // Example: 0.99 for P99.
+  double percentile = 10;
+
+  // action defines what happens when the strategy condition fires.
+  ActionSpec action = 11;
+
+  // cooldown_ms is the minimum interval between consecutive firings.
+  // Prevents action storms when the condition is persistently true.
+  uint32 cooldown_ms = 12;
+
+  // service_name identifies which service this correlation applies to.
+  string service_name = 13;
+}
+
+// TriggerEvent is emitted to the colony when a strategy fires with
+// kind = EMIT_EVENT (RFD 091).
+message TriggerEvent {
+  string correlation_id = 1;
+  string strategy       = 2;
+  google.protobuf.Timestamp fired_at = 3;
+  string agent_id       = 4;
+  string service_name   = 5;
+  // context contains strategy-specific detail (count, matched events, etc.)
+  map<string, string> context = 6;
+}
+
+// DeployCorrelationRequest installs a correlation descriptor on the agent (RFD 091).
+message DeployCorrelationRequest {
+  CorrelationDescriptor descriptor = 1;
+}
+
+// DeployCorrelationResponse confirms descriptor installation (RFD 091).
+message DeployCorrelationResponse {
+  string correlation_id = 1;
+}
+
+// RemoveCorrelationRequest uninstalls an active correlation descriptor (RFD 091).
+message RemoveCorrelationRequest {
+  string correlation_id = 1;
+}
+
+// RemoveCorrelationResponse confirms descriptor removal (RFD 091).
+message RemoveCorrelationResponse {}
+
+// ListCorrelationsRequest returns all active descriptors on this agent (RFD 091).
+message ListCorrelationsRequest {}
+
+// ListCorrelationsResponse returns active correlation descriptors (RFD 091).
+message ListCorrelationsResponse {
+  repeated CorrelationDescriptor descriptors = 1;
+}

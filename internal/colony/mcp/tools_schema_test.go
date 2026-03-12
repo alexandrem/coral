@@ -218,6 +218,12 @@ func TestGetToolSchemas(t *testing.T) {
 		// RFD 069: Function discovery and profiling tools
 		"coral_discover_functions",
 		"coral_profile_functions",
+		// RFD 091: Probe correlation DSL tools
+		"coral_deploy_correlation",
+		"coral_remove_correlation",
+		"coral_list_correlations",
+		// RFD 093: Inline TypeScript execution
+		"coral_run",
 	}
 
 	for _, toolName := range expectedTools {

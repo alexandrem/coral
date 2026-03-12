@@ -20,7 +20,8 @@ The open-source AI debugger for distributed apps.
 Coral gives your AI assistant direct access to your running distributed system
 — without instrumentation, redeployment, or hunting through dashboards.
 
-Connect any AI (Claude, Cursor, or the built-in `coral ask` CLI) to your mesh, and it can investigate your system in real time.
+Connect any AI (Claude, Cursor, or the built-in `coral ask` CLI) to your mesh,
+and it can investigate your system in real time.
 
 ### AI-Powered Investigation
 
@@ -105,8 +106,8 @@ $ coral ask "Why is the order-processor using 10GB of RAM?"
 
 Agents run alongside your services and collect telemetry continuously via eBPF
 — zero code changes required. The Colony aggregates data across all agents and
-exposes it as tools over MCP. Your AI uses those tools to investigate, correlate,
-and reason its way to a root cause.
+exposes it as tools over MCP. Your AI uses those tools to investigate,
+correlate, and reason its way to a root cause.
 
 **👁️ Observe** — Zero-config RED metrics, host health, continuous CPU and memory
 profiling (<1% overhead), and automatic dependency mapping.
@@ -208,11 +209,44 @@ bin/coral connect frontend:3000 api:8080:/health
 
 ## Documentation
 
-- **[Installation & Permissions](docs/INSTALLATION.md)**: Setup guide and security options.
-- **[CLI Reference](docs/CLI_REFERENCE.md)**: Complete command reference.
-- **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the system design.
-- **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How on-demand instrumentation works.
-- **[Instrumentation](docs/INSTRUMENTATION.md)**: How to instrument your code with the SDK.
+#### Engineering & Architecture
+
+- **[Engineering Knowledge Map](docs/engineering/00_knowledge_map.md)**:
+  Conceptual deep dives into system architecture, eBPF internals, and core
+  design principles.
+
+#### User Experience
+
+- **[Installation & Permissions](docs/INSTALLATION.md)**: Quick start guide to
+  setting up Colony and Agents.
+- **[CLI Handbook](docs/CLI.md)**: Conceptual guide and common workflows for the
+  `coral` CLI.
+- **[CLI Reference](docs/CLI_REFERENCE.md)**: Complete command-line manual and
+  syntax reference.
+- **[Configuration Guide](docs/CONFIG.md)**: Reference for Colony and Agent
+  configuration files.
+- **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How to use on-demand
+  instrumentation and profiling.
+
+#### Operations & Deployment
+
+- **[Deployment Guide](docs/DEPLOYMENT.md)**: Best practices for running Coral
+  in production (K8s, VMs).
+- **[Service Discovery](docs/SERVICE_DISCOVERY.md)**: Understanding how Coral
+  finds and maps your distributed services.
+- **[Troubleshooting Guide](docs/BOOTSTRAP_TROUBLESHOOTING.md)**: Solutions for
+  common connectivity and bootstrap issues.
+
+#### Developer & SDK
+
+- **[SDK Reference](docs/SDK_REFERENCE.md)**: Enriching telemetry with
+  application-level tracing.
+- **[Instrumentation Guide](docs/INSTRUMENTATION.md)**: Best practices for
+  custom probes and SDK integration.
+- **[MCP (Model Context Protocol)](docs/MCP.md)**: Architectural details on how
+  Coral interfaces with AI assistants.
+- **[OTLP Ingestion](docs/OTLP_INGESTION.md)**: Importing external OpenTelemetry
+  data into the Coral mesh.
 
 ## License
 

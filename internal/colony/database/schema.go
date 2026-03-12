@@ -439,4 +439,20 @@ var schemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_sequence_gaps_agent ON sequence_gaps(agent_id, data_type)`,
 	`CREATE INDEX IF NOT EXISTS idx_sequence_gaps_status ON sequence_gaps(status)`,
+
+	// Correlation triggers - events fired by agent-side correlation strategies (RFD 091).
+	`CREATE TABLE IF NOT EXISTS correlation_triggers (
+		id TEXT PRIMARY KEY,
+		correlation_id TEXT NOT NULL,
+		strategy TEXT NOT NULL,
+		fired_at TIMESTAMP NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		context TEXT,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_correlation_triggers_correlation ON correlation_triggers(correlation_id, fired_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_correlation_triggers_service ON correlation_triggers(service_name, fired_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_correlation_triggers_agent ON correlation_triggers(agent_id, fired_at DESC)`,
 }

@@ -1119,6 +1119,65 @@ func TestSearchReflectionCaching(t *testing.T) {
 	t.Logf("Found %s at address 0x%x (cached on subsequent calls)", funcName, addr1)
 }
 
+// TestFunctionSizeExtraction tests that function size is extracted from DWARF (RFD 073).
+func TestFunctionSizeExtraction(t *testing.T) {
+	logger := slog.Default()
+
+	provider, err := NewFunctionMetadataProvider(logger)
+	if err != nil {
+		if strings.Contains(err.Error(), "debug symbols") {
+			t.Skip("Test binary doesn't have DWARF symbols (expected in CI)")
+		}
+		t.Fatalf("NewFunctionMetadataProvider() error = %v", err)
+	}
+	defer provider.Close()
+
+	if !provider.HasDWARF() {
+		t.Skip("Test binary doesn't have DWARF symbols, skipping size test")
+	}
+
+	allFunctions := provider.ListAllFunctions()
+	if len(allFunctions) == 0 {
+		t.Skip("No functions available for testing")
+	}
+
+	withSize := 0
+	for _, fn := range allFunctions {
+		if fn.HasSize && fn.SizeBytes > 0 {
+			withSize++
+		}
+	}
+
+	t.Logf("Functions with size info: %d/%d (%.1f%%)",
+		withSize, len(allFunctions),
+		float64(withSize)/float64(len(allFunctions))*100)
+
+	// With DWARF, most functions should have size info.
+	if withSize == 0 {
+		t.Error("Expected at least some functions to have size info from DWARF")
+	}
+
+	// Also verify via GetFunctionMetadata for a specific function.
+	// Find a function that has size in the index.
+	for _, fn := range allFunctions {
+		if fn.HasSize {
+			meta, err := provider.GetFunctionMetadata(fn.Name)
+			if err != nil {
+				t.Logf("Could not get metadata for %s: %v", fn.Name, err)
+				continue
+			}
+			if !meta.HasSize {
+				t.Errorf("GetFunctionMetadata(%s) HasSize=false but index has HasSize=true", fn.Name)
+			}
+			if meta.SizeBytes == 0 {
+				t.Errorf("GetFunctionMetadata(%s) SizeBytes=0 but HasSize=true", fn.Name)
+			}
+			t.Logf("Verified: %s offset=0x%x size=%d bytes", fn.Name, meta.Offset, meta.SizeBytes)
+			break
+		}
+	}
+}
+
 // BenchmarkSymbolAccess benchmarks symbol table access with caching.
 func BenchmarkSymbolAccess(b *testing.B) {
 	provider, err := NewFunctionMetadataProvider(slog.Default())

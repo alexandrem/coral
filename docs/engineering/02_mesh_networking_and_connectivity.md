@@ -52,12 +52,9 @@ Colony hub and reducing latency.
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 007
-  **: WireGuard Mesh Implementation](../../RFDs/007-wireguard-mesh-implementation.md)
-- [**RFD 019
-  **: Persistent IP Allocation](../../RFDs/019-persistent-ip-allocation.md)
+- [**RFD 007**: WireGuard Mesh Implementation](../../RFDs/007-wireguard-mesh-implementation.md)
+- [**RFD 019**: Persistent IP Allocation](../../RFDs/019-persistent-ip-allocation.md)
 - [**RFD 021**: CGNAT Address Space](../../RFDs/021-cgnat-address-space.md)
-- [**RFD 023
-  **: STUN Discovery & NAT Traversal](../../RFDs/023-stun-discovery-nat-traversal.md)
+- [**RFD 023**: STUN Discovery & NAT Traversal](../../RFDs/023-stun-discovery-nat-traversal.md)
 - [**RFD 029**: Colony-based STUN Server](../../RFDs/029-colony-based-stun.md)
 - [**RFD 088**: Bootstrap PSK](../../RFDs/088-bootstrap-psk.md)

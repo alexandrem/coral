@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -12,11 +11,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
+	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -213,8 +212,7 @@ func (s *Server) ListAgents(
 			if status == registry.StatusHealthy || status == registry.StatusDegraded {
 				// Create agent client.
 				// Agent listens on DefaultAgentPort for mesh traffic.
-				agentURL := fmt.Sprintf("http://%s:%d", e.MeshIPv4, constants.DefaultAgentPort)
-				client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+				client := colony.GetAgentClient(e)
 
 				// Short timeout for real-time query.
 				queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)

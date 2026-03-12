@@ -4,6 +4,7 @@ package coral.agent.v1;
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "coral/agent/v1/agent.proto";
+import "coral/agent/v1/correlation.proto";
 
 option go_package = "github.com/coral-mesh/coral/coral/agent/v1;agentv1";
 
@@ -283,7 +284,7 @@ message QueryMemoryProfileSamplesResponse {
   string session_id = 5;
 }
 
-// AgentDebugService handles uprobe-based debugging operations (RFD 059), CPU profiling (RFD 070, RFD 072), and memory profiling (RFD 077).
+// AgentDebugService handles uprobe-based debugging operations (RFD 059), CPU profiling (RFD 070, RFD 072), memory profiling (RFD 077), and probe correlation (RFD 091).
 service AgentDebugService {
   // Start a uprobe collector on an agent.
   rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
@@ -309,4 +310,14 @@ service AgentDebugService {
 
   // Query historical memory profile samples from continuous profiling (RFD 077).
   rpc QueryMemoryProfileSamples(QueryMemoryProfileSamplesRequest) returns (QueryMemoryProfileSamplesResponse);
+
+  // DeployCorrelation installs a correlation descriptor on the agent (RFD 091).
+  // The agent begins evaluating it against the active event stream immediately.
+  rpc DeployCorrelation(DeployCorrelationRequest) returns (DeployCorrelationResponse);
+
+  // RemoveCorrelation uninstalls an active correlation descriptor (RFD 091).
+  rpc RemoveCorrelation(RemoveCorrelationRequest) returns (RemoveCorrelationResponse);
+
+  // ListCorrelations returns all active descriptors on this agent (RFD 091).
+  rpc ListCorrelations(ListCorrelationsRequest) returns (ListCorrelationsResponse);
 }

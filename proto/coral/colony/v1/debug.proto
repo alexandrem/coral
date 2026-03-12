@@ -5,10 +5,11 @@ package coral.colony.v1;
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "coral/agent/v1/debug.proto";
+import "coral/agent/v1/correlation.proto";
 
 option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
 
-// ColonyDebugService handles live debugging operations (RFD 059).
+// ColonyDebugService handles live debugging operations (RFD 059) and probe correlation (RFD 091).
 service ColonyDebugService {
   // Start uprobe debug session.
   rpc AttachUprobe(AttachUprobeRequest) returns (AttachUprobeResponse);
@@ -48,6 +49,17 @@ service ColonyDebugService {
 
   // Query historical memory profiles from continuous profiling (RFD 077).
   rpc QueryHistoricalMemoryProfile(QueryHistoricalMemoryProfileRequest) returns (QueryHistoricalMemoryProfileResponse);
+
+  // DeployCorrelation validates the descriptor, resolves the target agent for
+  // the named service, and forwards the deployment (RFD 091).
+  rpc DeployCorrelation(ColonyDeployCorrelationRequest) returns (ColonyDeployCorrelationResponse);
+
+  // RemoveCorrelation routes removal to the correct agent (RFD 091).
+  rpc RemoveCorrelation(ColonyRemoveCorrelationRequest) returns (ColonyRemoveCorrelationResponse);
+
+  // ListCorrelations returns descriptors across all agents, optionally filtered
+  // by service (RFD 091).
+  rpc ListCorrelations(ColonyListCorrelationsRequest) returns (ColonyListCorrelationsResponse);
 }
 
 // AttachUprobeRequest initiates a debug session on a specific function.
@@ -386,4 +398,42 @@ message QueryHistoricalMemoryProfileResponse {
   repeated coral.agent.v1.TopAllocFunction top_functions = 5; // Top allocating functions (summarized).
   repeated coral.agent.v1.TopAllocType top_types = 6;         // Top allocation types (summarized).
   int32 unique_stacks = 7;          // Number of unique stack traces.
+}
+
+// ColonyDeployCorrelationRequest validates and deploys a correlation descriptor
+// to the agent hosting the named service (RFD 091).
+message ColonyDeployCorrelationRequest {
+  string service_name = 1;
+  coral.agent.v1.CorrelationDescriptor descriptor = 2;
+}
+
+// ColonyDeployCorrelationResponse confirms descriptor deployment (RFD 091).
+message ColonyDeployCorrelationResponse {
+  string correlation_id = 1;
+  string agent_id       = 2;
+  string error          = 3;
+  bool   success        = 4;
+}
+
+// ColonyRemoveCorrelationRequest routes removal to the agent hosting the
+// named service (RFD 091).
+message ColonyRemoveCorrelationRequest {
+  string correlation_id = 1;
+  // service_name is optional — used to route removal when correlation_id alone
+  // is insufficient.
+  string service_name = 2;
+}
+
+// ColonyRemoveCorrelationResponse confirms removal (RFD 091).
+message ColonyRemoveCorrelationResponse {}
+
+// ColonyListCorrelationsRequest lists active correlation descriptors (RFD 091).
+message ColonyListCorrelationsRequest {
+  // service_name is optional — filters results to a single service.
+  string service_name = 1;
+}
+
+// ColonyListCorrelationsResponse returns active correlation descriptors (RFD 091).
+message ColonyListCorrelationsResponse {
+  repeated coral.agent.v1.CorrelationDescriptor descriptors = 1;
 }

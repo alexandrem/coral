@@ -426,8 +426,19 @@ Loop:
 				break Loop
 			}
 		case <-doneCh:
-			// Wait a bit more for any in-flight events
-			time.Sleep(100 * time.Millisecond)
+			// Producer finished, drain any remaining events
+		DrainLoop:
+			for {
+				select {
+				case <-eventCh:
+					received++
+					if received >= numEvents {
+						break DrainLoop
+					}
+				default:
+					break DrainLoop
+				}
+			}
 			break Loop
 		case <-timeout:
 			break Loop

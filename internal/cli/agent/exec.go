@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -12,11 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
-	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // NewExecCmd creates the exec command for container namespace execution (RFD 056).
@@ -174,22 +168,7 @@ func runContainerExecution(
 		envMap[parts[0]] = parts[1]
 	}
 
-	// Normalize agent address.
-	normalizedAddr := agentAddr
-	if strings.HasPrefix(agentAddr, "http://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "http://")
-	} else if strings.HasPrefix(agentAddr, "https://") {
-		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
-	}
-
-	// Create HTTP client.
-	httpClient := &http.Client{
-		Timeout: time.Duration(timeout+5) * time.Second,
-	}
-	client := agentv1connect.NewAgentServiceClient(
-		httpClient,
-		fmt.Sprintf("http://%s", normalizedAddr),
-	)
+	client := newAgentClient(agentAddr)
 
 	// Prepare request.
 	req := &agentv1.ContainerExecRequest{
@@ -256,108 +235,4 @@ func runContainerExecution(
 	}
 
 	return nil
-}
-
-// resolveServiceToAgent resolves a service name to agent mesh IP:port via colony registry.
-// This enables targeting services by name instead of requiring manual agent ID lookup.
-func resolveServiceToAgent(ctx context.Context, serviceName, colonyID string) (string, error) {
-	// Create config resolver.
-	resolver, err := config.NewResolver()
-	if err != nil {
-		return "", fmt.Errorf("failed to create config resolver: %w", err)
-	}
-
-	// Resolve colony ID if not specified.
-	if colonyID == "" {
-		colonyID, err = resolver.ResolveColonyID()
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
-		}
-	}
-
-	// Load colony configuration.
-	loader := resolver.GetLoader()
-	colonyConfig, err := loader.LoadColonyConfig(colonyID)
-	if err != nil {
-		return "", fmt.Errorf("failed to load colony config: %w", err)
-	}
-
-	// Get connect port.
-	connectPort := colonyConfig.Services.ConnectPort
-	if connectPort == 0 {
-		connectPort = constants.DefaultColonyPort
-	}
-
-	// Create RPC client - try localhost first, then mesh IP.
-	baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-	// Call ListAgents RPC with timeout.
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
-	resp, err := client.ListAgents(ctxWithTimeout, req)
-	if err != nil {
-		// Try mesh IP as fallback.
-		meshIP := colonyConfig.WireGuard.MeshIPv4
-		if meshIP == "" {
-			meshIP = "10.42.0.1"
-		}
-		baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-		client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-		ctxWithTimeout2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel2()
-
-		resp, err = client.ListAgents(ctxWithTimeout2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
-		if err != nil {
-			return "", fmt.Errorf("failed to query colony (is colony running?): %w", err)
-		}
-	}
-
-	// Find agent with matching service name.
-	// This will fail until the issue in ./issues/resolve-agent-fallback-to-name-field.md is fixed.
-	for _, agent := range resp.Msg.Agents {
-		// Check if any of the agent's services match the service name.
-		for _, svc := range agent.Services {
-			if svc.Name == serviceName {
-				// Return mesh IP with agent port (default: 9001).
-				return fmt.Sprintf("%s:9001", agent.MeshIpv4), nil
-			}
-		}
-		// Fallback: Check deprecated ComponentName field for backward compatibility.
-		if agent.ComponentName == serviceName {
-			return fmt.Sprintf("%s:9001", agent.MeshIpv4), nil
-		}
-	}
-
-	return "", fmt.Errorf("service not found: %s\n\nAvailable services:\n%s", serviceName, formatAvailableServices(resp.Msg.Agents))
-}
-
-// formatAvailableServices formats the list of available services for error messages.
-func formatAvailableServices(agents []*colonyv1.Agent) string {
-	if len(agents) == 0 {
-		return "  (no services connected)"
-	}
-
-	var result strings.Builder
-	seen := make(map[string]bool)
-	for _, agent := range agents {
-		for _, svc := range agent.Services {
-			if !seen[svc.Name] {
-				result.WriteString(fmt.Sprintf("  - %s (agent: %s, mesh IP: %s)\n", svc.Name, agent.AgentId, agent.MeshIpv4))
-				seen[svc.Name] = true
-			}
-		}
-		// Include deprecated ComponentName field.
-		if agent.ComponentName != "" && !seen[agent.ComponentName] {
-			result.WriteString(fmt.Sprintf("  - %s (agent: %s, mesh IP: %s)\n", agent.ComponentName, agent.AgentId, agent.MeshIpv4))
-			seen[agent.ComponentName] = true
-		}
-	}
-	if result.Len() == 0 {
-		return "  (no services found)"
-	}
-	return result.String()
 }

@@ -36,6 +36,8 @@ type FunctionMetadata struct {
 	BinaryPath   string                 // Path to executable
 	Offset       uint64                 // Function offset in binary
 	Pid          uint32                 // Process ID
+	SizeBytes    uint64                 // Function size in bytes from DWARF (RFD 073).
+	HasSize      bool                   // Whether size is available.
 	Arguments    []*ArgumentMetadata    // Argument metadata
 	ReturnValues []*ReturnValueMetadata // Return value metadata
 }

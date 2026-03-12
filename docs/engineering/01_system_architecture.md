@@ -50,7 +50,5 @@ the slowest agent from delaying the global polling cycle.
 
 - [**RFD 001**: Discovery Service](../../RFDs/001-discovery-service.md)
 - [**RFD 011**: Multi-service Agents](../../RFDs/011-multi-service-agents.md)
-- [**RFD 044
-  **: Agent ID Standardization and Routing](../../RFDs/044-agent-id-standardization-and-routing.md)
-- [**RFD 048
-  **: Agent Certificate Bootstrap](../../RFDs/048-agent-certificate-bootstrap.md)
+- [**RFD 044**: Agent ID Standardization and Routing](../../RFDs/044-agent-id-standardization-and-routing.md)
+- [**RFD 048**: Agent Certificate Bootstrap](../../RFDs/048-agent-certificate-bootstrap.md)

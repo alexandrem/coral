@@ -11,15 +11,22 @@ The agent maintains a persistent **Function Cache** powered by its local DuckDB.
 When a service is discovered or updated, the agent executes a 3-tier fallback
 strategy (RFD 065):
 
-### 1. SDK Bulk Export (The "Green Field" path)
+### 1. SDK-Assisted Discovery (The "Primary" path)
 
-If the service uses the Coral Go SDK (`pkg/sdk`), the agent connects to the
-SDK's HTTP debug server (`:9002`).
+If the service uses the **Coral Go SDK** (`pkg/sdk`), the agent gains
+high-fidelity, dynamic access to the application's internal state. This is
+significantly more reliable than static binary analysis (DWARF/ELF) because it
+reflects the actual runtime layout.
 
-- **Mechanism**: The SDK iterates its own symbols and streams them via a *
-  *Gzipped NDJSON** export (`/debug/functions/export`).
-- **Benefit**: Zero filesystem access required; provides the most accurate "
-  live" view of the running binary.
+- **`EnableRuntimeMonitoring()`**: By calling this in the application, a
+  lightweight HTTP debug server is started (default `:9002`).
+- **Dynamic Symbol Mapping**: The SDK iterates its own symbols and streams them
+  via a **Gzipped NDJSON** export (`/debug/functions/export`). This includes
+  entry offsets and titles that are stable even in binaries with stripped
+  symbols or complex Go GC/scheduler behaviors.
+- **Introspection over Guesswork**: The eBPF agent uses this "ground truth" to
+  accurately attach uprobes and monitor garbage collection (GC) cycles without
+  needing to guess structure offsets from static headers.
 
 ### 2. Binary Scanner (The "Brown Field" path)
 
@@ -84,8 +91,8 @@ SimHash**.
 
 ## Resilience and Change Detection
 
-- **Binary Fingerprinting**: Every discovery cycle starts by computing a *
-  *SHA256 hash** of the target binary. This hash is used as a primary key in
+- **Binary Fingerprinting**: Every discovery cycle starts by computing a \*
+  \*SHA256 hash\*\* of the target binary. This hash is used as a primary key in
   both the agent's `functions_cache` and the Colony's `functions` table. The
   system only performs expensive DWARF/Symbol parsing if the binary hash has
   changed.
@@ -113,10 +120,7 @@ candidate for specialized vector storage:
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 063
-  **: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
-- [**RFD 065
-  **: Agentless Binary Scanning](../../RFDs/065-agentless-binary-scanning.md)
+- [**RFD 063**: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
+- [**RFD 065**: Agentless Binary Scanning](../../RFDs/065-agentless-binary-scanning.md)
 - [**RFD 066**: SDK HTTP API](../../RFDs/066-sdk-http-api.md)
-- [**RFD 075
-  **: Hybrid Function Metadata](../../RFDs/075-hybrid-function-metadata.md)
+- [**RFD 075**: Hybrid Function Metadata](../../RFDs/075-hybrid-function-metadata.md)

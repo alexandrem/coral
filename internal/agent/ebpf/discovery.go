@@ -158,6 +158,8 @@ func (s *DiscoveryService) DiscoverFunction(
 				BinaryPath: scannerMeta.BinaryPath,
 				Offset:     scannerMeta.Offset,
 				Pid:        scannerMeta.PID,
+				SizeBytes:  scannerMeta.SizeBytes,
+				HasSize:    scannerMeta.HasSize,
 			}
 
 			return &DiscoveryResult{

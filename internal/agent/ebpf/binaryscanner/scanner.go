@@ -149,6 +149,8 @@ func (s *Scanner) GetFunctionMetadata(ctx context.Context, pid uint32, functionN
 		BinaryPath: binaryPath, // Use original path, not temporary
 		Offset:     meta.Offset,
 		PID:        uint32(meta.PID),
+		SizeBytes:  meta.SizeBytes,
+		HasSize:    meta.HasSize,
 	}, nil
 }
 

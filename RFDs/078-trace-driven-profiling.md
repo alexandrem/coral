@@ -19,15 +19,16 @@ areas: [ "agent", "profiling", "tracing", "observability" ]
 
 Enable request-level performance correlation by linking distributed traces (RFD
 036) with CPU/memory profiling data (RFD 070, 072, 077). This RFD implements the
-core infrastructure for tagging profile samples with trace IDs and querying
-profiles for specific requests.
+core infrastructure for correlating profile samples with trace spans using
+query-time joins, without requiring any changes to the eBPF profiler.
 
 **Core capabilities:**
 
-- **Always-On Trace Tagging**: eBPF profiler tags all samples with active trace
-  ID (<0.1% overhead)
+- **Process-Level Trace Correlation**: Correlate CPU/memory profile samples with
+  the trace span that was active during their collection, using the process PID
+  carried in Beyla's OTLP telemetry
 - **Request-Level Flame Graphs**: Query CPU/memory profiles for specific trace
-  IDs
+  IDs by joining on `(process_pid, time_window)`
 - **Cross-Service Correlation**: Per-service flame graphs for multi-service
   traces
 - **Storage & Query API**: Persistent storage and efficient retrieval by trace
@@ -94,91 +95,111 @@ The slow request's bottleneck may not appear in top-5 hotspots.
 ### Use Cases Addressed
 
 1. **Single Request Diagnosis**
-
-    - "Why did this specific checkout request (trace abc123) take 5 seconds?"
-    - Current: Run aggregate profile, guess which function corresponds to the
-      slow trace
-    - Solution: Request-level flame graph showing exactly what ran during that
-      trace
+   - "Why did this specific checkout request (trace abc123) take 5 seconds?"
+   - Current: Run aggregate profile, guess which function corresponds to the
+     slow trace
+   - Solution: Profile samples filtered to the span's process and time window
 
 2. **Cross-Service Attribution**
-
-    - "Trace abc123 spans 5 services—which service's code caused the 4s delay?"
-    - Current: Run separate profiles on each service, manually correlate
-      timestamps
-    - Solution: Unified view showing per-service flame graphs for the same trace
+   - "Trace abc123 spans 5 services—which service's code caused the 4s delay?"
+   - Current: Run separate profiles on each service, manually correlate
+     timestamps
+   - Solution: Unified view showing per-service flame graphs for the same trace
 
 3. **Historical Debugging**
-    - "A slow request occurred 2 hours ago—what code was running?"
-    - Current: No historical profiling data for specific traces
-    - Solution: Query stored profiles by trace ID for post-hoc analysis
+   - "A slow request occurred 2 hours ago—what code was running?"
+   - Current: No historical profiling data for specific traces
+   - Solution: Query stored profiles by trace ID for post-hoc analysis
 
 ## Solution
 
-### Core Architecture
+### Actual Beyla Integration Architecture
 
-Extend Coral's profiling infrastructure to tag CPU/memory samples with the
-active trace ID from the current execution context, enabling request-level
-correlation.
+Beyla runs as a standalone eBPF auto-instrumentation agent. Coral does not
+share Beyla's BPF maps or inject into its trace context pipeline. Instead,
+Beyla forwards finished spans to Coral's OTLP ingestion endpoint:
 
-**eBPF Enhancement:**
-
-```c
-// Extend sample key to include trace ID
-struct sample_key {
-    u32 pid;
-    u32 tid;
-    u64 trace_id_high;  // NEW: First 64 bits of 128-bit trace ID
-    u64 trace_id_low;   // NEW: Last 64 bits
-};
-
-// Read trace ID from per-thread BPF map and tag each sample
-// Implementation: internal/agent/profiling/cpu_profiler.go
+```
+Beyla (eBPF)          Coral Agent
+──────────────         ─────────────────────────────────────────
+HTTP handler   →  OTLP/gRPC  →  OTLPReceiver  →  beyla_traces_local
+(intercepts)       spans          (stores)          (DuckDB)
 ```
 
-**Trace Context Injection:**
+Each OTLP resource batch includes standard resource attributes, among them
+`process.pid` — the OS-level PID (TGID) of the instrumented process. The
+current transformer extracts only `service.name` from resource attributes and
+discards the rest. This RFD adds extraction of `process.pid` to close the gap.
 
-For SDK-instrumented apps, trace ID is written to thread-local storage:
+### Core Correlation Approach
 
-```go
-// Extract trace ID from context and store for eBPF profiler
-traceID := trace.SpanFromContext(ctx).SpanContext().TraceID()
-setThreadTraceContext(traceID)
-defer clearThreadTraceContext()
+The eBPF profiler already records `tgid` (the OS process ID) and `timestamp`
+for every sample. Beyla spans carry `process.pid` (the same TGID) and
+`(start_time, duration_us)`. These two facts enable query-time correlation
+**without any changes to the profiler**:
+
+```sql
+-- "Which profile samples ran during trace abc123 in payment-svc?"
+SELECT p.stack_frames, p.sample_count
+FROM cpu_profile_samples p
+JOIN beyla_traces t
+  ON p.tgid = t.process_pid
+ AND p.timestamp BETWEEN t.start_time
+                     AND t.start_time + (t.duration_us * INTERVAL '1 microsecond')
+WHERE t.trace_id = 'abc123...'
+  AND t.service_name = 'payment-svc'
 ```
 
-For Beyla auto-instrumentation, eBPF kprobes extract trace ID from HTTP/gRPC
-headers and store in per-thread BPF map (see Appendix for protocol details).
+This approach is correct when the span's duration is long relative to
+concurrent request volume — which is exactly the case worth debugging.
+
+### Ambiguity at High Concurrency
+
+This correlation is inherently **process-scoped, not goroutine-scoped**. If
+`payment-svc` is handling 100 concurrent requests under the same TGID, a
+profile sample at time T cannot be definitively attributed to trace `abc123`
+vs. another trace active at the same moment.
+
+**In practice this matters less than it appears:**
+
+- Long-running spans (>100ms) dominate profile weight; the bottleneck function
+  accumulates many samples and floats to the top regardless of noise
+- When a single request is anomalously slow (e.g., 5s vs. 50ms median), it
+  accounts for a disproportionate share of samples in its time window
+- The operator already knows which service and time window to focus on from the
+  trace; the flame graph narrows it further to which function
+
+**Goroutine-level precision** (tagging samples with the exact goroutine serving
+the request) would eliminate ambiguity, but requires coupling with Beyla's
+internal BPF maps or duplicating its HTTP interception kprobes — neither of
+which fits Coral's current architecture. This is deferred to future work.
 
 ### Key Features
 
-#### 1. Trace-Tagged Profiling (Always-On)
+#### 1. Trace-Correlated Profile Query
 
 **How it works:**
 
-- Continuous profiling (RFD 072) now tags each sample with the active trace ID
-- Zero additional overhead (trace ID read from TLS/BPF map is <10ns)
-- Samples without trace context (background jobs) are tagged with trace_id=0
-
-**Storage:**
-
-- Extend `cpu_profile_summaries` table with optional `trace_id` column
-- Index by trace_id for fast lookup: `SELECT * WHERE trace_id = 'abc123...'`
+- Continuous profiling (19Hz, RFD 072) stores samples with `tgid` and
+  `timestamp` (unchanged)
+- Beyla spans now store `process_pid` (extracted from OTLP resource attributes)
+- Colony joins the two tables at query time for each `trace_id` lookup
 
 **Query:**
 
 ```bash
 coral query trace-profile abc123def456
-# Returns CPU flame graph for only the samples from that trace
+# Returns CPU flame graph for samples that ran during that trace's spans
 ```
 
 #### 2. Cross-Service Trace Profiling
 
 **How it works:**
 
-- A single trace spans multiple services (frontend → API → database)
-- Each service's eBPF profiler tags samples with the same trace ID
-- Query aggregates per-service flame graphs for the same trace
+- A single trace spans multiple services, each with its own Beyla span and
+  `process_pid`
+- The Colony queries each agent's profile data for its respective `process_pid`
+  and time window, then assembles per-service flame graphs
 
 **Example:**
 
@@ -186,87 +207,61 @@ coral query trace-profile abc123def456
 coral query trace-profile --trace-id abc123def456 --all-services
 
 # Returns:
-# - frontend-svc: 200ms (10% of total trace time)
-# - payment-svc: 4.5s (90% of total trace time) ← bottleneck identified
+# - frontend-svc (pid 1234): 200ms (10% of total trace time)
+# - payment-svc  (pid 5678): 4.5s (90% of total trace time) ← bottleneck
 #   └─ validateSignature: 4.2s (93% of payment-svc time)
 ```
 
-**Query Output:** Returns per-service CPU attribution with top hotspots, enabling
-bottleneck identification across the distributed trace.
-
 #### 3. Memory Profiling Correlation (RFD 077 Integration)
 
-**How it works:**
-
-- Same trace ID tagging applies to memory allocation profiling (RFD 077)
-- Correlate memory allocations with specific requests
-- Identify memory leaks or excessive allocations in slow requests
-
-**Example:**
+The same `(process_pid, time_window)` join applies to memory allocation
+profiling (RFD 077). No changes to the memory profiler are required.
 
 ```bash
 coral query memory-profile --trace-id abc123def456
 
-# Shows memory allocations during that specific request:
-# - 500MB allocated in processOrder → unmarshaling large JSON payload
-# - 200MB allocated in validateInput → regex compilation on each request
+# Shows memory allocations during that specific request's time window:
+# - 500MB in processOrder → unmarshaling large JSON payload
+# - 200MB in validateInput → regex compilation on each request
 ```
-
-### Implementation Approach
-
-**Always-On Trace Tagging:**
-
-- Continuous profiling (19Hz, RFD 072) tags all samples with active trace ID
-- Zero additional overhead (trace ID read from thread context is <10ns)
-- Enables historical request-level analysis
-- Profiles stored with trace_id column, indexed for fast retrieval
-- Query-time joins between traces and profiles for cross-service correlation
-
-Advanced features (triggered profiling, comparative analysis, LLM integration)
-are deferred to RFD 080.
 
 ## Component Changes
 
-### 1. eBPF Profiler (Agent)
+### 1. Beyla Transformer (Agent)
 
-**CPU Profiler Extension** (`internal/agent/profiling/cpu_profiler.go`):
+**`internal/agent/beyla/transformer.go`:**
 
-- Extend sample key struct to include `trace_id` (128-bit)
-- Read trace ID from thread-local storage or BPF map
-- Tag all samples with active trace ID (or 0 if no active trace)
+- Extract `process.pid` from OTLP resource attributes alongside `service.name`
+- Pass `process_pid` through to the `BeylaTraceSpan` proto message
 
-**Memory Profiler Extension** (`internal/agent/profiling/memory_profiler.go`):
+**`coral/mesh/v1/*.proto`:**
 
-- Same trace ID tagging for memory allocation samples
-- Correlate allocations with specific requests
-
-**Beyla Integration** (`internal/agent/beyla/trace_context.go`):
-
-- eBPF kprobe on HTTP/gRPC entry points to extract trace ID from headers
-- Store in per-thread BPF map: `thread_trace_context`
-- Clear on request completion (kretprobe)
+- Add `uint32 process_pid = N` field to `BeylaTraceSpan`
 
 ### 2. Storage Schema
 
-**Extend `cpu_profile_summaries` Table:**
+**Extend `beyla_traces_local` Table (Agent):**
 
 ```sql
-ALTER TABLE cpu_profile_summaries
-    ADD COLUMN trace_id VARCHAR(32); -- 32-char hex string (128-bit trace ID)
+ALTER TABLE beyla_traces_local
+    ADD COLUMN process_pid INTEGER;  -- OS PID (TGID) of instrumented process
 
-CREATE INDEX idx_cpu_profile_summaries_trace_id
-    ON cpu_profile_summaries (trace_id, bucket_time DESC);
+CREATE INDEX IF NOT EXISTS idx_beyla_traces_process_pid
+    ON beyla_traces_local (process_pid, start_time DESC);
 ```
 
-**Extend `memory_profiles` Table (RFD 077):**
+**Extend `beyla_traces` Table (Colony):**
 
 ```sql
-ALTER TABLE memory_profiles
-    ADD COLUMN trace_id VARCHAR(32);
+ALTER TABLE beyla_traces
+    ADD COLUMN process_pid INTEGER;
 
-CREATE INDEX idx_memory_profiles_trace_id
-    ON memory_profiles (trace_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_beyla_traces_process_pid
+    ON beyla_traces (process_pid, start_time DESC);
 ```
+
+**No changes to `cpu_profile_summaries` or `memory_profiles` tables.** Profile
+samples already carry `tgid`; the join key is provided by the spans table.
 
 ### 3. Colony Query API
 
@@ -325,7 +320,6 @@ message TraceMetadata {
 }
 ```
 
-
 ### 4. CLI Commands
 
 **Query trace profile:**
@@ -339,44 +333,44 @@ Flags:
   --format string        Output format: flamegraph, json, text (default: flamegraph)
 ```
 
-
 ## Implementation Plan
 
-### Phase 1: eBPF Trace Context Integration
+### Phase 1: Extract `process.pid` from OTLP
 
-**Goals:** Tag profile samples with trace IDs
+**Goals:** Capture the missing link between Beyla spans and profiler TGIDs
 
-- [ ] Extend eBPF CPU profiler to read trace ID from thread-local storage
-- [ ] Add `trace_id_high` and `trace_id_low` fields to sample key struct
-- [ ] Implement BPF map `thread_trace_context` for per-thread trace storage
-- [ ] Add eBPF kprobes for Beyla trace context extraction (HTTP/gRPC entry
-  points)
-- [ ] Extend memory profiler with same trace ID tagging (RFD 077 integration)
+- [ ] Add `process_pid` field to `BeylaTraceSpan` proto message
+- [ ] Extract `process.pid` from OTLP resource attributes in
+      `transformer.go:TransformTraces`
+- [ ] Extract `process.pid` in `otlp_receiver.go:Export` for the gRPC path
+      (Beyla's SpanHandler route)
+- [ ] Pass `process_pid` through `StoreOTLPSpan` and `StoreTrace` in
+      `beyla/storage.go`
+- [ ] Store `process_pid` in `beyla_traces_local` schema
 
-**Deliverable:** eBPF profilers tag samples with trace IDs (0 if no active
-trace)
+**Deliverable:** Beyla spans stored with `process_pid`, queryable alongside
+profile samples
 
-### Phase 2: Storage Schema Extensions
+### Phase 2: Colony Storage & Schema
 
-**Goals:** Store trace-tagged profiles
+**Goals:** Propagate `process_pid` to the Colony and enable efficient joins
 
-- [ ] Add `trace_id` column to `cpu_profile_summaries` table
-- [ ] Add `trace_id` column to `memory_profiles` table
-- [ ] Create indexes on trace_id columns for fast lookups
-- [ ] Implement storage methods: `StoreProfileWithTraceID()`
-- [ ] Add data migration for existing profiles (backfill trace_id = NULL)
+- [ ] Add `process_pid` column to colony `beyla_traces` table
+- [ ] Create index on `(process_pid, start_time DESC)`
+- [ ] Update colony Beyla poller to propagate `process_pid`
+- [ ] Implement `QueryTraceProfile` join query in Colony database layer:
+      `JOIN cpu_profile_summaries ON tgid = process_pid AND timestamp BETWEEN ...`
 
-**Deliverable:** Profiles stored with trace IDs, queryable by trace_id
+**Deliverable:** Colony can execute trace-to-profile joins efficiently
 
 ### Phase 3: Query API Implementation
 
-**Goals:** Query profiles by trace ID
+**Goals:** Expose trace-correlated profiles via RPC
 
 - [ ] Implement `QueryTraceProfile` RPC in Colony
-- [ ] Join `beyla_traces` with `cpu_profile_summaries` on trace_id
-- [ ] Implement per-service flame graph aggregation
+- [ ] Join `beyla_traces` with `cpu_profile_summaries` on `(process_pid, time_window)`
+- [ ] Implement per-service flame graph aggregation across agents
 - [ ] Add metadata enrichment (span duration, service names)
-- [ ] Implement DuckDB query functions for trace-profile joins
 
 **Deliverable:** `coral query trace-profile <trace-id>` returns request-level
 flame graphs
@@ -387,16 +381,13 @@ flame graphs
 
 - [ ] Implement `coral query trace-profile` command
 - [ ] Add text-based flame graph rendering with trace metadata
-- [ ] Implement trace ID autocomplete (recent slow traces)
 - [ ] Add JSON/CSV export formats
-- [ ] Unit tests for trace ID tagging, storage, querying
+- [ ] Unit tests for `process_pid` extraction from OTLP resource attributes
 - [ ] Integration tests: multi-service trace with per-service profiles
-- [ ] E2E test: Query trace profile and verify per-service attribution
-- [ ] Performance tests: Measure overhead of trace ID tagging (<1%)
-- [ ] Documentation: User guide for trace profiling workflows
+- [ ] E2E test: query trace profile and verify per-service attribution
+- [ ] Documentation: user guide for trace profiling workflows
 
-**Deliverable:** Production-ready core trace profiling with `coral query
-trace-profile` command
+**Deliverable:** Production-ready core trace profiling
 
 ## Use Case Example
 
@@ -408,66 +399,104 @@ trace-profile` command
 # Query trace profile for the slow service
 $ coral query trace-profile abc123def456 --service payment-svc
 
-Top CPU Hotspots (payment-svc, trace abc123def456):
+Top CPU Hotspots (payment-svc pid:5678, trace abc123def456, span: 4.5s):
   93.3%  4.2s  validateSignature → crypto/rsa.VerifyPKCS1v15
    3.1%  140ms runtime.gcBgMarkWorker
    1.8%  80ms  serializeResponse
 
+Note: samples are process-scoped to pid 5678 during [T, T+4.5s].
+      Concurrent requests in the same process contribute noise.
+
 # Identified bottleneck: 4.2s spent in RSA signature validation
 ```
 
-**Result:** Operator quickly identifies that 93% of the slow request's time was
-spent in `validateSignature`, enabling targeted investigation and fix.
-
 ## Performance Considerations
 
-### Overhead Analysis
+### No Profiler Overhead
 
-**Trace ID Tagging (Always-On):**
+Unlike the previously considered approach of tagging each eBPF sample with a
+trace ID in the kernel, this design adds zero overhead to the profiler. The
+join happens at query time in DuckDB — infrequent, analyst-driven queries
+against already-stored data.
 
-- **CPU Overhead:** <0.1% (reading 128-bit trace ID from TLS/BPF map adds
-  5-10ns per sample)
-- **Memory Overhead:** +16 bytes per sample (trace_id_high + trace_id_low)
-- **Storage Overhead:** +32 bytes per row in `cpu_profile_summaries` (VARCHAR(32))
+### Query Performance
 
-**Query Performance:**
+- **Trace lookup:** <10ms (indexed by `trace_id`)
+- **Profile join:** <200ms for single span (indexed by `process_pid, timestamp`)
+- **Multi-service join:** scales linearly with agent count, executed in parallel
 
-- **Trace Profile Query:** <200ms for single trace (indexed by trace_id)
-- **Join Cost:** Minimal (trace_id indexed in both tables)
+### Storage Impact
 
-### Storage Scaling
+No additional storage per sample. The only addition is a 4-byte `process_pid`
+column in `beyla_traces_local` and `beyla_traces`.
 
-**Continuous Profiling with Trace Tagging:**
+## Limitations
 
-- **Assumption:** 1,000 req/s per service, 19Hz profiling, 5 unique stacks per
-  request
-- **Samples per day:** 1,000 req/s _ 86,400s _ 0.05 samples/req = 4.3M
-  samples/day
-- **Storage (with compression):** ~200MB/day per service (same as RFD 072)
-- **Trace ID overhead:** +16 bytes/sample \* 4.3M = 69MB/day (34% increase)
+This RFD implements a best-effort correlation, not a precise per-request
+attribution system. Operators should understand these failure modes before
+relying on results.
 
-**Retention Strategy:**
+### 1. Clock Source Mismatch
 
-- **Agent:** 1 hour (same as RFD 072)
-- **Colony:** 7 days for trace-tagged profiles (high-value data for debugging)
-- **Colony:** 30 days for aggregate profiles (trace_id = NULL)
+The eBPF profiler timestamps samples using the kernel's perf event clock
+(`CLOCK_MONOTONIC`). Beyla records span start/end times using Go's
+`time.Now()` (`CLOCK_REALTIME`). These two clocks can diverge:
 
-### Optimization Strategies
+- On VMs: hypervisor clock adjustments introduce milliseconds of drift
+- In containers: `CLOCK_REALTIME` is subject to NTP adjustments that do not
+  affect the monotonic clock
+- Typical drift: 1–10ms, but can exceed 50ms during NTP corrections
 
-**1. Trace ID Sampling:**
+A 10ms drift on a 100ms span meaningfully shifts which samples fall inside
+the join window, potentially missing or misattributing the bottleneck sample.
 
-- Only tag samples with trace ID for traced requests (not background jobs)
-- Background jobs: trace_id = NULL, saved space
+**Mitigation:** When displaying results, include a confidence note if
+`span.duration_us < 200ms`. Clock drift is less significant for the spans
+operators most need to debug (>500ms outliers).
 
-**2. Partial Trace Profiling:**
+### 2. Sampling Rate vs Span Duration
 
-- Profile only services where span_duration > threshold (e.g., >100ms)
-- Skip profiling for sub-millisecond spans (not actionable)
+At 19Hz, the profiler fires every ~52ms. A span shorter than ~100ms will
+capture 0–1 samples, making flame graph results unreliable. Short spans
+also tend to be low-latency by definition — but services exhibiting
+bimodal latency (fast 95th percentile, slow 99th) often have spans in the
+50–200ms range where coverage is marginal.
 
-**3. Deferred Correlation:**
+**Mitigation:** Surface a `sample_count` field in `ServiceProfile` and warn
+the operator when `sample_count < 3`. For triggered high-frequency profiling
+(99Hz), see RFD 080.
 
-- Store profiles with trace ID, but don't join with traces until query time
-- Avoid pre-computing correlations (storage-intensive)
+### 3. Process-Scoped, Not Goroutine-Scoped
+
+Profile samples are attributed to the entire process (TGID) during the span's
+time window. For services handling many concurrent requests under the same
+TGID, samples from other goroutines appear in the flame graph alongside the
+target trace's goroutine. The flame graph answers "what was this process
+doing during this time window?" not "what was this specific request doing?".
+
+**Practical impact:**
+- Long-running outlier spans (>500ms, median <50ms): high signal — the
+  target request dominates the sample window
+- High concurrency with short spans (<100ms): lower precision — concurrent
+  request noise can bury the bottleneck
+- Lock contention scenarios: the blocked goroutine consumes no CPU; the
+  flame graph shows the lock holder, not the waiting request
+
+**Future mitigation:** Goroutine-level sample tagging (see Future Work).
+
+### 4. `process.pid` Availability
+
+Beyla sends `process.pid` as a standard OTLP resource attribute today. This
+field is not guaranteed by the OTLP spec and could be absent from:
+
+- Non-Beyla OTLP producers
+- Future Beyla versions that change resource attribute population
+- Beyla operating in certain container runtimes where PID namespace remapping
+  causes the reported PID to differ from the host PID the profiler observes
+
+When `process_pid` is NULL, the join degrades to service-name + time window
+matching across all agents, which may return results from the wrong process
+if multiple agents observe services with the same name.
 
 ## Security Considerations
 
@@ -483,111 +512,141 @@ spent in `validateSignature`, enabling targeted investigation and fix.
 - **Mitigation:** Profiles contain function names, not source code or data
 - **Mitigation:** Same access controls as existing profiling (RFD 070, 072)
 
-**Trigger Abuse:**
-
-- Malicious users could start many high-frequency triggers to DoS the service
-- **Mitigation:** Rate limit triggers (max 3 active triggers per service)
-- **Mitigation:** Automatic expiration (max 10 minutes)
-- **Mitigation:** RBAC controls on trigger creation
-
-**Cross-Tenant Isolation:**
-
-- Ensure trace profiles from one tenant are not visible to other tenants
-- **Mitigation:** Service-level isolation (profiles scoped to service_id)
-- **Mitigation:** Future: Tenant ID field in profiles
-
 ## Testing Strategy
 
 ### Unit Tests
 
-**eBPF Trace Tagging:**
+**`process.pid` Extraction:**
 
-- Test trace ID extraction from thread-local storage
-- Test trace ID extraction from HTTP headers (W3C traceparent)
-- Test sample collection with and without active trace context
-- Verify trace_id = 0 for background jobs
+- Test extraction of `process.pid` from OTLP resource attributes
+- Test fallback when `process.pid` is absent (NULL `process_pid`)
+- Test correct propagation through transformer → storage → colony
 
-**Storage:**
+**Query Join:**
 
-- Test profile insertion with trace_id
-- Test trace_id indexing and query performance
-- Test NULL trace_id handling (backward compatibility)
+- Test `(tgid, time_window)` join returns correct samples
+- Test multi-service aggregation
+- Test NULL `process_pid` handling (graceful degradation)
 
 ### Integration Tests
 
 **End-to-End Trace Profiling:**
 
-1. Start mock service with traced requests
-2. Verify eBPF profiler tags samples with trace IDs
-3. Query profile by trace_id, verify flame graph matches
-4. Test multi-service trace with per-service profiles
+1. Configure Beyla to forward spans to Coral's OTLP endpoint
+2. Verify `process_pid` is stored in `beyla_traces_local`
+3. Generate load; query `coral query trace-profile <id>`
+4. Verify flame graph contains samples from within the span's time window
 
 ### Performance Tests
 
-**Overhead Measurement:**
+**Query Benchmarks:**
 
-- Baseline: Service without trace profiling (0% overhead)
-- With trace tagging: Measure CPU overhead (target: <0.1%)
-
-**Storage Benchmarks:**
-
-- Insert 1M profiles with trace IDs
-- Query by trace_id (target: <50ms)
-- Join with traces table (target: <200ms)
-
-**Scalability Tests:**
-
-- 10,000 req/s per service
-- Verify profiler keeps up (no dropped samples)
-- Verify query performance degrades gracefully
+- Insert 1M spans with `process_pid`, query by `trace_id` (target: <50ms)
+- Join with 10M profile samples (target: <200ms)
 
 ## Future Work
 
+### Goroutine-Level Precision (Path to Exact Attribution)
+
+Eliminating the process-scoped ambiguity described in Limitations requires
+associating each profile sample with the specific goroutine that handled the
+request, not just the process and time window. Two concrete paths exist:
+
+**Path A: Upstream Beyla contribution (preferred)**
+
+Beyla already maintains an internal BPF map tracking goroutine state — it must
+in order to correlate HTTP handler entry with completion across Go scheduler
+migrations. Since uretprobes are unreliable for GC languages like Go (the
+goroutine scheduler copies stack frames during growth and the GC can preempt
+goroutines mid-frame, both of which invalidate the return address trampoline
+that uretprobes depend on), Beyla instead places a second uprobe on a
+designated completion function in the HTTP/gRPC stack (e.g.
+`net/http.(*response).finishRequest`). The map key is effectively
+`(tgid, goroutine_ptr)`.
+
+The change needed: expose this map via a pinned BPF path (e.g.
+`/sys/fs/bpf/beyla/<pid>/goroutine_trace_context`) so that Coral's profiler
+can read it at sample time. When the perf event fires, the profiler reads
+`R14` (amd64) or `X28` (arm64) to get the current goroutine pointer, looks up
+`(tgid, g_ptr)` in Beyla's map, and tags the sample with the trace ID — zero
+changes to the profiler's sampling logic.
+
+This is a small, targeted Beyla change with value beyond Coral (Pyroscope,
+Parca, and other continuous profilers face the same problem). The right next
+step is an upstream issue/PR with the Beyla maintainers at Grafana, not a
+fork. A fork would inherit Beyla's maintenance surface: eBPF program
+compatibility across kernel versions, Go version support, architecture support
+(amd64/arm64) — a significant ongoing burden for a targeted capability.
+
+**Path B: Coral SDK injection (no Beyla dependency)**
+
+For services instrumented with the Coral SDK that propagate `context.Context`,
+the SDK can write `(tgid, goroutine_ptr) → trace_id` directly into a
+Coral-owned pinned BPF map at request entry, and clear it at request exit:
+
+```go
+// coral/sdk/trace.go
+func TraceContext(ctx context.Context) context.Context {
+    traceID := trace.SpanFromContext(ctx).SpanContext().TraceID()
+    coralBPF.SetGoroutineTrace(traceID)  // writes to pinned BPF map
+    return ctx
+}
+```
+
+The profiler reads from this map at sample time using the current goroutine
+pointer. This sidesteps Beyla entirely for SDK users and provides exact
+attribution. Beyla auto-instrumentation and SDK injection can coexist: the
+profiler checks the SDK map first, falls back to Beyla's map if available,
+and falls back to process-scoped correlation if neither is present.
+
 ### RFD 080: Advanced Trace Analysis & AI-Driven Diagnosis
 
-The following features are out of scope for this RFD and will be addressed in
-RFD 080:
-
 **Trace-Triggered Profiling:**
+
 - High-frequency profiling (99Hz) activated by trace criteria
 - Profile only slow/failing requests to isolate outlier bottlenecks
 - Automatic trigger expiration and cleanup
 
 **Comparative Analysis:**
+
 - Compare flame graphs between request cohorts (slow vs fast, success vs error)
 - Differential flame graphs showing functions hotter in specific cohorts
 - Statistical significance testing for differences
 
 **LLM/MCP Integration:**
+
 - Extend `coral_query_summary` with trace-correlated profiles
 - New MCP tools: `coral_query_trace_profile`, `coral_profile_trace_trigger`
 - Enable AI to diagnose specific slow requests with code-level attribution
-- Automatic hypothesis testing and interactive debugging
-
-**Advanced Features (Future RFDs):**
-- Automatic root cause detection using ML
-- Trace replay with profiling
-- Line-level CPU attribution (DWARF symbols)
-- Network I/O and database query correlation
 
 ## Appendix
 
-### Trace Context Propagation
+### How Beyla Emits `process.pid`
 
-**W3C Trace Context (HTTP):**
+Beyla populates standard OpenTelemetry resource attributes on every OTLP export
+batch. For Go processes, the resource includes:
 
 ```
-GET /api/checkout HTTP/1.1
-Host: payment-svc.example.com
+service.name  = "payment-svc"
+process.pid   = 5678          ← OS PID of the instrumented process
+process.runtime.name = "go"
+telemetry.sdk.name   = "beyla"
+```
+
+The current `transformer.go` reads only `service.name` (line 33). This RFD
+adds extraction of `process.pid` from the same resource attribute map.
+
+### W3C Trace Context (reference)
+
+Beyla automatically extracts and propagates the W3C `traceparent` header:
+
+```
 traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+                  └─────── trace_id (32 hex) ─────┘
 ```
 
-**Parsing in eBPF:**
-
-eBPF kprobes extract trace ID from W3C traceparent header (format:
-`00-<trace-id>-<parent-id>-<flags>`) by parsing the 32-character hex trace ID
-and storing it as two 64-bit values (trace_id_high, trace_id_low) in a per-thread
-BPF map.
+The `trace_id` stored in `beyla_traces_local` is this 32-character hex string.
+Callers of `coral query trace-profile` pass it directly.
 
 ---
 
@@ -598,9 +657,10 @@ BPF map.
 This RFD is in draft state. Implementation will begin after approval.
 
 **Planned Milestones:**
-- eBPF trace context integration
-- Storage schema extensions with trace_id columns
-- Query API (`QueryTraceProfile` RPC)
+
+- Extract `process.pid` from OTLP resource attributes in transformer
+- Add `process_pid` column to trace storage (agent + colony)
+- Query API (`QueryTraceProfile` RPC) with join on `(process_pid, time_window)`
 - CLI command (`coral query trace-profile`)
 
 ## Dependencies
