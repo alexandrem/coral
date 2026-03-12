@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/net/http2"
 
 	agentv1connect "github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -29,10 +32,26 @@ func normalizeAgentAddress(addr string) string {
 	}
 }
 
-// newAgentClient creates an AgentServiceClient for addr using the given HTTP client.
-// addr must not include a scheme; http:// is prepended automatically.
-func newAgentClient(httpClient *http.Client, addr string) agentv1connect.AgentServiceClient {
-	return agentv1connect.NewAgentServiceClient(httpClient, fmt.Sprintf("http://%s", addr))
+// newAgentClient creates an AgentServiceClient for addr using http.DefaultClient.
+// Any existing http:// or https:// scheme in addr is stripped before prepending http://.
+func newAgentClient(addr string) agentv1connect.AgentServiceClient {
+	return agentv1connect.NewAgentServiceClient(http.DefaultClient, fmt.Sprintf("http://%s", normalizeAgentAddress(addr)))
+}
+
+// newStreamingAgentClient creates an AgentServiceClient backed by an HTTP/2
+// cleartext (h2c) transport, required for bidirectional streaming RPCs.
+func newStreamingAgentClient(addr string) agentv1connect.AgentServiceClient {
+	httpClient := &http.Client{
+		Transport: &http2.Transport{
+			AllowHTTP: true,
+			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+				return net.Dial(network, addr)
+			},
+			ReadIdleTimeout: 30 * time.Second,
+			PingTimeout:     15 * time.Second,
+		},
+	}
+	return agentv1connect.NewAgentServiceClient(httpClient, fmt.Sprintf("http://%s", normalizeAgentAddress(addr)))
 }
 
 // listAgentsFromColony connects to the colony with automatic fallback and calls ListAgents.

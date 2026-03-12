@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -169,13 +168,7 @@ func runContainerExecution(
 		envMap[parts[0]] = parts[1]
 	}
 
-	normalizedAddr := normalizeAgentAddress(agentAddr)
-
-	// Create HTTP client.
-	httpClient := &http.Client{
-		Timeout: time.Duration(timeout+5) * time.Second,
-	}
-	client := newAgentClient(httpClient, normalizedAddr)
+	client := newAgentClient(agentAddr)
 
 	// Prepare request.
 	req := &agentv1.ContainerExecRequest{

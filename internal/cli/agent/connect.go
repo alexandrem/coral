@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -135,7 +134,7 @@ Note:
 			fmt.Printf("Agent: %s\n", agentAddr)
 
 			// Create gRPC client
-			client := newAgentClient(http.DefaultClient, agentAddr)
+			client := newAgentClient(agentAddr)
 
 			// Connect each service
 			ctx, cancel := context.WithTimeout(ctx, connectTimeout)
@@ -269,7 +268,7 @@ func discoverLocalAgent() (string, error) {
 
 	for _, addr := range candidates {
 		// Try to connect to agent.
-		client := newAgentClient(http.DefaultClient, addr)
+		client := newAgentClient(addr)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, err := client.GetRuntimeContext(ctx, connect.NewRequest(&agentv1.GetRuntimeContextRequest{}))
