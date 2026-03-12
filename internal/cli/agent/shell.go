@@ -206,7 +206,7 @@ func watchResizeSignals(stream *connect.BidiStreamForClient[agentv1.ShellRequest
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 	go func() {
 		for range sigwinch {
-			width, height, err := term.GetSize(int(os.Stdin.Fd()))
+			width, height, err := term.GetSize(int(os.Stdin.Fd())) // #nosec G115 unlikely
 			if err != nil {
 				continue
 			}
@@ -416,7 +416,7 @@ func restoreTerminal(state *term.State) {
 	if state == nil {
 		return
 	}
-	if err := term.Restore(int(os.Stdin.Fd()), state); err != nil {
+	if err := term.Restore(int(os.Stdin.Fd()), state); err != nil { // #nosec G115 unlikely
 		fmt.Fprintf(os.Stderr, "Warning: failed to restore terminal: %v\n", err)
 	}
 }
@@ -434,7 +434,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		userID = resolveUserID()
 	}
 
-	width, height, err := term.GetSize(int(os.Stdin.Fd()))
+	width, height, err := term.GetSize(int(os.Stdin.Fd())) // #nosec G115 unlikely
 	if err != nil {
 		return fmt.Errorf("failed to get terminal size: %w", err)
 	}
@@ -444,7 +444,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		return err
 	}
 
-	oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
+	oldState, err = term.MakeRaw(int(os.Stdin.Fd())) // #nosec G115 unlikely
 	if err != nil {
 		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
