@@ -174,6 +174,7 @@ observability data.
 | `ai.ask.default_model`               | string   | -          | Default model (format: `provider:model-id`)      |
 | `ai.ask.fallback_models`             | []string | `[]`       | Fallback models if primary fails                 |
 | `ai.ask.api_keys`                    | map      | `{}`       | API keys (use `env://VAR_NAME` format)           |
+| `ai.ask.base_urls`                   | map      | `{}`       | Custom base URLs per provider (OpenAI-compatible endpoints) |
 | `ai.ask.conversation.max_turns`      | int      | `10`       | Maximum conversation turns to keep               |
 | `ai.ask.conversation.context_window` | int      | `8192`     | Maximum tokens for context                       |
 | `ai.ask.conversation.auto_prune`     | bool     | `true`     | Auto-prune old messages when limit reached       |
@@ -235,6 +236,31 @@ coral ask "your question"
 - **OpenAI**: https://platform.openai.com/api-keys
 - **Google AI**: https://aistudio.google.com/app/apikey
 - **Ollama**: No API key needed (runs locally)
+
+#### Custom Base URLs (OpenAI-compatible endpoints)
+
+The OpenAI provider supports any OpenAI-compatible API endpoint via
+`base_urls.openai`. This enables use of self-hosted models (e.g., vLLM,
+LocalAI, Azure OpenAI) or third-party compatible APIs (e.g., Groq, Together).
+
+```yaml
+ai:
+    ask:
+        default_model: "openai:llama-3.1-8b-instant"
+        api_keys:
+            openai: "env://GROQ_API_KEY"
+        base_urls:
+            openai: "https://api.groq.com/openai/v1"
+```
+
+The base URL can also be set via the `OPENAI_BASE_URL` environment variable
+(config takes precedence):
+
+```bash
+export OPENAI_BASE_URL=https://my-vllm-endpoint.internal/v1
+export OPENAI_API_KEY=my-key
+coral ask "why is my service slow?" --model openai:llama-3.1-8b-instant
+```
 
 #### Per-Colony Overrides
 
