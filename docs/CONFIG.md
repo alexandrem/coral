@@ -139,7 +139,7 @@ observability data.
 | ------------- | ------------------------------------------------------------ | ---------------- | ----------- | ---------------- | ------------ |
 | **Google**    | `gemini-3-fast`                                              | Yes              | Cloud       | ✅ Full          | ✅ Supported |
 | **OpenAI**    | `gpt-4o`, `gpt-4o-mini`                                      | Yes              | Cloud       | ✅ Full          | ✅ Supported |
-| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Anthropic** | `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001` | Yes         | Cloud       | ✅ Full          | ✅ Supported |
 | **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
 | **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 
@@ -148,20 +148,21 @@ observability data.
 >
 > **Currently Supported:**
 >
+> - **Anthropic**: Full MCP tool calling support. Claude Sonnet 4.6, Opus 4.6, Haiku 4.5.
 > - **Google Gemini**: Uses direct SDK integration with full MCP tool calling support.
 > - **OpenAI**: Uses official SDK with full MCP tool calling support. Compatible
 >   with any OpenAI-compatible API.
 >
 > **Planned Providers:**
 >
-> - **Anthropic**: Native tool calling support available, implementation planned
 > - **Ollama**: For air-gapped/offline deployments
 > - **Grok**: Evaluate tool calling support and implement if viable
 >
 > **Recommendation:**
 >
-> - `google:gemini-3-fast` (fast, recommended)
-> - `openai:gpt-4o` (high quality)
+> - `anthropic:claude-sonnet-4-6` (balanced, recommended default)
+> - `anthropic:claude-opus-4-6` (highest quality)
+> - `google:gemini-2.0-flash` (fast, cost-effective)
 > - `openai:gpt-4o-mini` (fast, cost-effective)
 >
 > See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
@@ -191,9 +192,14 @@ Models are specified as `provider:model-id`:
 - `openai:gpt-4o` - GPT-4o (high quality)
 - `openai:gpt-4o-mini` - GPT-4o-mini (fast, cost-effective)
 
+**Anthropic:**
+
+- `anthropic:claude-sonnet-4-6` - Claude Sonnet 4.6 (balanced, recommended)
+- `anthropic:claude-opus-4-6` - Claude Opus 4.6 (highest quality)
+- `anthropic:claude-haiku-4-5-20251001` - Claude Haiku 4.5 (fastest)
+
 **Planned Providers (Not Yet Implemented):**
 
-- `anthropic:claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (planned)
 - `ollama:llama3.2` - Local Llama 3.2 (planned for air-gapped deployments)
 - `ollama:mistral` - Local Mistral (planned)
 
