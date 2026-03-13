@@ -41,15 +41,6 @@ func newTestModel(t *testing.T, agent Agent, history []Message) Model {
 	return m
 }
 
-// sendCommand types a command into the input and presses Enter.
-func sendCommand(m Model, cmd string) (Model, tea.Cmd) {
-	for _, r := range cmd {
-		m.input.SetValue(m.input.Value() + string(r))
-	}
-	updated, teaCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	return updated.(Model), teaCmd
-}
-
 // TestClear_ResetsConversationSlice verifies that /clear empties the displayed
 // conversation history.
 func TestClear_ResetsConversationSlice(t *testing.T) {
