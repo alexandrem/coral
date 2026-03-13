@@ -289,7 +289,7 @@ const (
 // Ask LLM Configuration.
 const (
 	// DefaultAskModel is the default LLM model for coral ask.
-	DefaultAskModel = "openai:gpt-4o-mini"
+	DefaultAskModel = "anthropic:claude-sonnet-4-6"
 
 	// DefaultAskMaxTurns is the default maximum conversation turns.
 	DefaultAskMaxTurns = 10
