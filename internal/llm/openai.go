@@ -285,9 +285,13 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
+		baseURL := resolveProviderBaseURL(cfg, "openai", "OPENAI_BASE_URL")
 		if debug {
 			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
+			if baseURL != "" {
+				fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI base URL: %s\n", baseURL)
+			}
 		}
-		return NewOpenAIProvider(apiKey, modelID, "")
+		return NewOpenAIProvider(apiKey, modelID, baseURL)
 	})
 }

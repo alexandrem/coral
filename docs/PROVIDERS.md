@@ -224,6 +224,36 @@ ai:
             openai: "env://OPENAI_API_KEY"
 ```
 
+**Base URL resolution** (highest to lowest precedence):
+
+1. `base_urls.openai` in coral config
+2. `OPENAI_BASE_URL` environment variable
+3. Default: OpenAI public API (`https://api.openai.com/v1`)
+
+### OpenAI-compatible endpoints
+
+Any OpenAI-compatible API can be used by setting a custom base URL. This
+includes self-hosted inference servers (vLLM, LocalAI), third-party compatible
+APIs (Groq, Together, Fireworks), and Azure OpenAI.
+
+```yaml
+ai:
+    ask:
+        default_model: "openai:llama-3.1-8b-instant"
+        api_keys:
+            openai: "env://GROQ_API_KEY"
+        base_urls:
+            openai: "https://api.groq.com/openai/v1"
+```
+
+Or via environment variable:
+
+```bash
+export OPENAI_BASE_URL=https://my-vllm-endpoint.internal/v1
+export OPENAI_API_KEY=my-api-key
+coral ask "why is my service slow?" --model openai:my-model
+```
+
 ### Getting an OpenAI API Key
 
 1. Visit [OpenAI Platform](https://platform.openai.com/api-keys)

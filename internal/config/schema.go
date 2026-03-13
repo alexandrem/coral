@@ -40,6 +40,7 @@ type AskConfig struct {
 	DefaultModel   string                `yaml:"default_model,omitempty" env:"CORAL_ASK_MODEL"` // Primary model (e.g., "openai:gpt-4o-mini")
 	FallbackModels []string              `yaml:"fallback_models,omitempty"`                     // Fallback models in order
 	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`                            // Provider API keys (env:// references)
+	BaseURLs       map[string]string     `yaml:"base_urls,omitempty"`                           // Custom base URLs per provider (e.g., openai-compatible endpoints)
 	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`                        // Conversation settings
 	Agent          AskAgentConfig        `yaml:"agent,omitempty"`                               // Agent deployment settings
 }
