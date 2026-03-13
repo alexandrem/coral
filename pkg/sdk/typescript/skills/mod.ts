@@ -17,3 +17,4 @@
 export { latencyReport } from "./latency-report.ts";
 export { errorCorrelation } from "./error-correlation.ts";
 export { memoryLeakDetector } from "./memory-leak-detector.ts";
+export { latencyTrap } from "./latency-trap.ts";

@@ -147,10 +147,6 @@ func (s *Server) registerDeployCorrelationTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if s.debugService == nil {
-			return mcp.NewToolResultError("debug service not available"), nil
-		}
-
 		var input DeployCorrelationInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -162,32 +158,41 @@ func (s *Server) registerDeployCorrelationTool() {
 			}
 		}
 
-		s.auditToolCall("coral_deploy_correlation", input)
-
-		desc, err := buildCorrelationDescriptor(input)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		req := connect.NewRequest(&debugpb.ColonyDeployCorrelationRequest{
-			ServiceName: input.Service,
-			Descriptor_: desc,
-		})
-
-		resp, err := s.debugService.DeployCorrelation(ctx, req)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to deploy correlation: %v", err)), nil
-		}
-
-		if !resp.Msg.Success {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to deploy correlation: %s", resp.Msg.Error)), nil
-		}
-
-		return mcp.NewToolResultText(fmt.Sprintf(
-			"Correlation deployed.\nID:       %s\nAgent ID: %s\nService:  %s\nStrategy: %s\nAction:   %s",
-			resp.Msg.CorrelationId, resp.Msg.AgentId, input.Service, input.Strategy, input.Action,
-		)), nil
+		return s.executeDeployCorrelation(ctx, input)
 	})
+}
+
+// executeDeployCorrelation performs the logic for the coral_deploy_correlation tool.
+func (s *Server) executeDeployCorrelation(ctx context.Context, input DeployCorrelationInput) (*mcp.CallToolResult, error) {
+	if s.debugService == nil {
+		return mcp.NewToolResultError("debug service not available"), nil
+	}
+
+	s.auditToolCall("coral_deploy_correlation", input)
+
+	desc, err := buildCorrelationDescriptor(input)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	req := connect.NewRequest(&debugpb.ColonyDeployCorrelationRequest{
+		ServiceName: input.Service,
+		Descriptor_: desc,
+	})
+
+	resp, err := s.debugService.DeployCorrelation(ctx, req)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to deploy correlation: %v", err)), nil
+	}
+
+	if !resp.Msg.Success {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to deploy correlation: %s", resp.Msg.Error)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf(
+		"Correlation deployed.\nID:       %s\nAgent ID: %s\nService:  %s\nStrategy: %s\nAction:   %s",
+		resp.Msg.CorrelationId, resp.Msg.AgentId, input.Service, input.Strategy, input.Action,
+	)), nil
 }
 
 // registerRemoveCorrelationTool registers the coral_remove_correlation tool (RFD 091).

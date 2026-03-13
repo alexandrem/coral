@@ -116,8 +116,85 @@ export interface ClientConfig {
   colonyAddr?: string;
 
   /**
+  /**
    * Request timeout in milliseconds.
    * Default: 30000 (30 seconds).
    */
   timeout?: number;
+}
+
+/**
+ * StrategyKind defines the temporal pattern detection algorithms (RFD 091).
+ */
+export enum StrategyKind {
+  RATE_GATE = "rate_gate",
+  EDGE_TRIGGER = "edge_trigger",
+  CAUSAL_PAIR = "causal_pair",
+  ABSENCE = "absence",
+  PERCENTILE_ALARM = "percentile_alarm",
+  SEQUENCE = "sequence",
+}
+
+/**
+ * ActionKind defines what the agent does when a correlation fires (RFD 091).
+ */
+export enum ActionKind {
+  EMIT_EVENT = "emit_event",
+  GOROUTINE_SNAPSHOT = "goroutine_snapshot",
+  CPU_PROFILE = "cpu_profile",
+}
+
+/**
+ * SourceSpec defines a function probe with optional filtering.
+ */
+export interface SourceSpec {
+  /** Function name to probe (e.g., 'db.Query'). */
+  probe: string;
+  /** Optional CEL filter expression. */
+  filterExpr?: string;
+}
+
+/**
+ * CorrelationDescriptor defines a pattern-matching "trap" in the agent event stream.
+ */
+export interface CorrelationDescriptor {
+  /** Unique ID for the correlation. */
+  id?: string;
+  /** Strategy to evaluate. */
+  strategy: StrategyKind | string;
+  /** Primary source (for rate_gate, edge_trigger, absence, percentile_alarm). */
+  source?: SourceSpec;
+  /** Source A (for causal_pair, sequence). */
+  sourceA?: SourceSpec;
+  /** Source B (for causal_pair, sequence). */
+  sourceB?: SourceSpec;
+  /** Sliding time window (e.g., '5s'). */
+  window?: string;
+  /** Threshold (e.g., count for rate_gate, value for percentile_alarm). */
+  threshold?: number;
+  /** Numeric field for percentile_alarm (e.g., 'duration_ns'). */
+  field?: string;
+  /** Percentile for percentile_alarm (0.0-1.0). */
+  percentile?: number;
+  /** Join field for causal_pair (e.g., 'trace_id'). */
+  joinOn?: string;
+  /** Action to take when the condition fires. */
+  action: {
+    kind: ActionKind | string;
+    profileDurationMs?: number;
+  };
+  /** Minimum interval between firings. */
+  cooldownMs?: number;
+  /** Target service name. */
+  serviceName?: string;
+}
+
+/**
+ * Response from DeployCorrelation.
+ */
+export interface DeployCorrelationResponse {
+  correlationId: string;
+  agentId: string;
+  success: boolean;
+  error?: string;
 }
