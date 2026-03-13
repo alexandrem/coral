@@ -166,6 +166,12 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 	}, nil
 }
 
+// ResetConversation clears the in-memory conversation history for the given ID.
+// The next query on this conversationID will start a fresh context.
+func (a *Agent) ResetConversation(conversationID string) {
+	delete(a.conversations, conversationID)
+}
+
 // SetConversationHistory initializes a conversation with existing history.
 func (a *Agent) SetConversationHistory(conversationID string, messages []Message) {
 	conv := NewConversation(conversationID)

@@ -22,6 +22,7 @@ const (
 // Agent interface to avoid import cycle.
 type Agent interface {
 	AskWithChannel(ctx any, question, conversationID string, dryRun bool, ch chan<- any) (any, error)
+	ResetConversation(conversationID string)
 }
 
 // Message represents a conversation message (to avoid import cycle).
