@@ -18,6 +18,8 @@ func (s *stubAgent) AskWithChannel(_ any, _, _ string, _ bool, _ chan<- any) (an
 	return nil, nil
 }
 
+func (s *stubAgent) ResetConversation(_ string) {}
+
 func newTestModel(t *testing.T) tea.Model {
 	t.Helper()
 	askModel, err := ui.NewModel(
