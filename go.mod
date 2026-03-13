@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	connectrpc.com/connect v1.19.1
+	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
@@ -52,7 +53,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/longrunning v0.6.7 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.26.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apache/arrow-go/v18 v18.1.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
