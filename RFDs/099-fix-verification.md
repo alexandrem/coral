@@ -121,6 +121,8 @@ coral issue create checkout-latency
   │
   └─ auto pre_fix snapshot:
        colony → GET /agent/{id}/vortex/beyla?query=<scoped SQL>  (RFD 097)
+       agent  → pre-flight: check disk utilization vs threshold
+       agent  → 413 if projected write would exceed threshold  ← colony surfaces error, aborts
        agent  → COPY (SELECT ...) TO tmp.vx (FORMAT vortex)
        colony ← .vx streamed over HTTP
        colony → write to <data-dir>/snapshots/<issue-id>/pre-fix.vx
@@ -166,7 +168,11 @@ coral issue verify checkout-latency
      browser dashboard renderer from RFD 094 when a terminal session is
      active; falls back to plain terminal table otherwise.
 
-3. **Agent**: no changes (uses the `/vortex` endpoint from RFD 097).
+3. **Agent**: no new code. The `/vortex` endpoint from RFD 097 handles the
+   export, including the disk safety pre-flight that returns `413 Payload Too
+   Large` when the temp file write would push disk utilization above the
+   configured threshold. The colony treats `413` as a recoverable error and
+   surfaces a clear message to the user rather than failing silently.
 
 **Configuration Example:**
 
@@ -196,6 +202,11 @@ colony:
       last 30 minutes of agent data).
 - [ ] Honour `max_snapshot_size_mb`: check `Content-Length` from the agent
       before writing; return a clear error if exceeded.
+- [ ] Handle `413 Payload Too Large` from the agent `/vortex` endpoint:
+      surface the available/projected byte counts from the response body as a
+      human-readable error (e.g., "Agent disk too full to snapshot: 2.1 GB
+      projected, 400 MB available. Lower the lookback window or free space on
+      the agent host."); do not create the snapshot row.
 - [ ] Parse and validate `colony.issues` config block.
 - [ ] Unit tests: IssueStore CRUD, name uniqueness, status transitions;
       metric summary computation from a synthetic `.vx` fixture; snapshot

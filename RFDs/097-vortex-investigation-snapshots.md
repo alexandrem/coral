@@ -127,6 +127,19 @@ Agent DuckDB (beyla.duckdb / telemetry.duckdb)
      `/vortex/<db>` with a `?query=` parameter for custom SQL). The handler
      runs `COPY (...) TO <tmpfile> (FORMAT vortex)`, streams the file, and
      removes the temp file.
+   - **Disk safety pre-flight**: before running `COPY`, the handler estimates
+     the output size (via `SELECT count(*) * avg_row_size` or a DuckDB
+     `EXPLAIN`) and checks available disk space on the temp directory's
+     filesystem. If the projected write would push utilization above a
+     configurable threshold (default: 80%), the handler returns
+     `413 Payload Too Large` with a JSON body describing available and
+     projected bytes, and does not run `COPY`. This prevents ENOSPC on
+     constrained or edge agent hosts.
+   - **Streaming investigation**: if a future Vortex extension version
+     supports writing to a FIFO or stdout, the handler should prefer that
+     path to eliminate the temp file entirely. The current implementation
+     uses a temp file; the design should isolate the write path to make this
+     swap straightforward.
    - The existing `/duckdb` discovery endpoint gains a `vortex_enabled` field
      to let the CLI skip the export command if unavailable.
 
@@ -147,7 +160,8 @@ Agent DuckDB (beyla.duckdb / telemetry.duckdb)
 ```yaml
 agent:
   storage:
-    vortex_enabled: true   # default: true; set false to disable /vortex endpoint
+    vortex_enabled: true          # default: true; set false to disable /vortex endpoint
+    vortex_disk_threshold: 0.80   # refuse export if temp dir utilization would exceed this
 ```
 
 ## Implementation Plan
@@ -163,6 +177,13 @@ agent:
 - [ ] Implement `/vortex/<db>` handler with `?query=<sql>` parameter for
       custom SQL exports; enforce the same registered-database allowlist as
       the existing DuckDB handler.
+- [ ] Implement disk safety pre-flight: estimate projected output size before
+      `COPY`, check available bytes on the temp directory filesystem, return
+      `413 Payload Too Large` with `{"available_bytes": N, "projected_bytes": M}`
+      if projected utilization would exceed `agent.storage.vortex_disk_threshold`
+      (default: `0.80`).
+- [ ] Add `vortex_disk_threshold` config key under `agent.storage`
+      (float 0–1, default: `0.80`).
 - [ ] Return `501 Not Implemented` when `vortex_enabled` is false.
 - [ ] Add `vortex_enabled` config key under `agent.storage` (default: `true`).
 
