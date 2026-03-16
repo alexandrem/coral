@@ -78,7 +78,11 @@ the existing DuckDB proxy from RFD 096).
 - **Opt-in initially**: The Vortex DuckDB extension is community-maintained
   and newer than core DuckDB. Load it conditionally; if the extension is
   unavailable the agent falls back gracefully and the `/vortex` endpoint
-  returns `501 Not Implemented`.
+  returns `501 Not Implemented`. Note: exploration confirmed the extension is
+  not available on `osx_arm64` for DuckDB 1.0–1.5
+  (`explorations/vortex-issue-bundle/outcome.md`); availability on Linux
+  `amd64` (the primary production target) should be verified during
+  implementation.
 
 - **Arrow compatibility over zero-copy transport**: "Zero-copy" network
   streaming is a common framing but misleading — data is always copied over
