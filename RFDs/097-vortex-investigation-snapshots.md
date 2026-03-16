@@ -45,15 +45,15 @@ post-incident analysis.
   needed.
 
 - **Use cases affected**:
-  - **Post-incident review**: An incident responder wants to hand off a
-    snapshot of the last 30 minutes of HTTP metrics to a colleague running
-    Jupyter offline.
-  - **Skills / LLM investigation**: A sandboxed TypeScript skill needs to
-    perform hundreds of random-access lookups across wide Beyla trace tables
-    in under a second.
-  - **Reproducible analysis**: A team wants to reproduce an investigation from
-    a past alert without needing the agent data to still be within the
-    one-hour local retention window.
+    - **Post-incident review**: An incident responder wants to hand off a
+      snapshot of the last 30 minutes of HTTP metrics to a colleague running
+      Jupyter offline.
+    - **Skills / LLM investigation**: A sandboxed TypeScript skill needs to
+      perform hundreds of random-access lookups across wide Beyla trace tables
+      in under a second.
+    - **Reproducible analysis**: A team wants to reproduce an investigation from
+      a past alert without needing the agent data to still be within the
+      one-hour local retention window.
 
 ## Solution
 
@@ -78,7 +78,11 @@ the existing DuckDB proxy from RFD 096).
 - **Opt-in initially**: The Vortex DuckDB extension is community-maintained
   and newer than core DuckDB. Load it conditionally; if the extension is
   unavailable the agent falls back gracefully and the `/vortex` endpoint
-  returns `501 Not Implemented`.
+  returns `501 Not Implemented`. Note: exploration confirmed the extension is
+  not available on `osx_arm64` for DuckDB 1.0–1.5
+  (`explorations/vortex-issue-bundle/outcome.md`); availability on Linux
+  `amd64` (the primary production target) should be verified during
+  implementation.
 
 - **Arrow compatibility over zero-copy transport**: "Zero-copy" network
   streaming is a common framing but misleading — data is always copied over
@@ -121,33 +125,47 @@ Agent DuckDB (beyla.duckdb / telemetry.duckdb)
 ### Component Changes
 
 1. **Agent**:
-   - Load the Vortex DuckDB extension at startup (after existing extension
-     initialization), logging a warning if unavailable.
-   - New HTTP handler registered at `/vortex/<db>/<table>` (and
-     `/vortex/<db>` with a `?query=` parameter for custom SQL). The handler
-     runs `COPY (...) TO <tmpfile> (FORMAT vortex)`, streams the file, and
-     removes the temp file.
-   - The existing `/duckdb` discovery endpoint gains a `vortex_enabled` field
-     to let the CLI skip the export command if unavailable.
+    - Load the Vortex DuckDB extension at startup (after existing extension
+      initialization), logging a warning if unavailable.
+    - New HTTP handler registered at `/vortex/<db>/<table>` (and
+      `/vortex/<db>` with a `?query=` parameter for custom SQL). The handler
+      runs `COPY (...) TO <tmpfile> (FORMAT vortex)`, streams the file, and
+      removes the temp file.
+    - **Disk safety pre-flight**: before running `COPY`, the handler estimates
+      the output size (via `SELECT count(*) * avg_row_size` or a DuckDB
+      `EXPLAIN`) and checks available disk space on the temp directory's
+      filesystem. If the projected write would push utilization above a
+      configurable threshold (default: 80%), the handler returns
+      `413 Payload Too Large` with a JSON body describing available and
+      projected bytes, and does not run `COPY`. This prevents ENOSPC on
+      constrained or edge agent hosts.
+    - **Streaming investigation**: if a future Vortex extension version
+      supports writing to a FIFO or stdout, the handler should prefer that
+      path to eliminate the temp file entirely. The current implementation
+      uses a temp file; the design should isolate the write path to make this
+      swap straightforward.
+    - The existing `/duckdb` discovery endpoint gains a `vortex_enabled` field
+      to let the CLI skip the export command if unavailable.
 
 2. **Colony**:
-   - Extend the existing DuckDB reverse proxy (RFD 096) to also proxy
-     `/agent/{agentID}/vortex[/*]` to `http://{meshIP}:9001/vortex/*`.
-   - No new gRPC or protobuf changes required.
+    - Extend the existing DuckDB reverse proxy (RFD 096) to also proxy
+      `/agent/{agentID}/vortex[/*]` to `http://{meshIP}:9001/vortex/*`.
+    - No new gRPC or protobuf changes required.
 
 3. **CLI**:
-   - New `coral duckdb export <agent-id> <table> [--query <sql>]
+    - New `coral duckdb export <agent-id> <table> [--query <sql>]
      [--database <db>] --output <file.vx>` subcommand.
-   - Omitting `--output` prints a suggested filename based on agent ID, table,
-     and timestamp.
-   - Prints a short usage hint after export (e.g., how to open in Python).
+    - Omitting `--output` prints a suggested filename based on agent ID, table,
+      and timestamp.
+    - Prints a short usage hint after export (e.g., how to open in Python).
 
 **Configuration Example:**
 
 ```yaml
 agent:
-  storage:
-    vortex_enabled: true   # default: true; set false to disable /vortex endpoint
+    storage:
+        vortex_enabled: true          # default: true; set false to disable /vortex endpoint
+        vortex_disk_threshold: 0.80   # refuse export if temp dir utilization would exceed this
 ```
 
 ## Implementation Plan
@@ -155,58 +173,65 @@ agent:
 ### Phase 1: Agent — Vortex Extension and HTTP Endpoint
 
 - [ ] Load the `vortex` DuckDB extension in agent database initialization;
-      log a warning (not fatal) if the extension is missing.
+  log a warning (not fatal) if the extension is missing.
 - [ ] Add `vortex_enabled bool` to the `/duckdb` discovery JSON response.
 - [ ] Implement `/vortex/<db>/<table>` HTTP handler: validate the requested
-      database is registered, run `COPY (SELECT * FROM <table>) TO <tmpfile>
+  database is registered, run `COPY (SELECT * FROM <table>) TO <tmpfile>
       (FORMAT vortex)`, stream the file, delete temp file.
 - [ ] Implement `/vortex/<db>` handler with `?query=<sql>` parameter for
-      custom SQL exports; enforce the same registered-database allowlist as
-      the existing DuckDB handler.
+  custom SQL exports; enforce the same registered-database allowlist as
+  the existing DuckDB handler.
+- [ ] Implement disk safety pre-flight: estimate projected output size before
+  `COPY`, check available bytes on the temp directory filesystem, return
+  `413 Payload Too Large` with `{"available_bytes": N, "projected_bytes": M}`
+  if projected utilization would exceed `agent.storage.vortex_disk_threshold`
+  (default: `0.80`).
+- [ ] Add `vortex_disk_threshold` config key under `agent.storage`
+  (float 0–1, default: `0.80`).
 - [ ] Return `501 Not Implemented` when `vortex_enabled` is false.
 - [ ] Add `vortex_enabled` config key under `agent.storage` (default: `true`).
 
 ### Phase 2: Colony — Proxy Extension
 
 - [ ] Extend the colony DuckDB reverse proxy to forward
-      `/agent/{agentID}/vortex[/*]` to the agent's `/vortex/*` endpoint,
-      using the same mesh-IP resolution and auth model as RFD 096.
+  `/agent/{agentID}/vortex[/*]` to the agent's `/vortex/*` endpoint,
+  using the same mesh-IP resolution and auth model as RFD 096.
 - [ ] Propagate the agent's HTTP status (including `501`) unchanged to the
-      CLI so the CLI can surface a clear "Vortex not available on this agent"
-      message.
+  CLI so the CLI can surface a clear "Vortex not available on this agent"
+  message.
 
 ### Phase 3: CLI — Export Command
 
 - [ ] Add `coral duckdb export <agent-id> <table>` subcommand under the
-      existing `coral duckdb` command tree.
+  existing `coral duckdb` command tree.
 - [ ] Support `--database <db>` (default: `beyla`), `--query <sql>` (custom
-      SQL overrides `<table>`), and `--output <file.vx>`.
+  SQL overrides `<table>`), and `--output <file.vx>`.
 - [ ] Auto-generate filename `<agent-id>-<table>-<timestamp>.vx` when
-      `--output` is omitted.
+  `--output` is omitted.
 - [ ] After successful export, print file size and a usage hint:
-      ```
-      Saved 42 MB → payments-http-2026-03-11T14:30Z.vx
+  ```
+  Saved 42 MB → payments-http-2026-03-11T14:30Z.vx
 
       Open in Python:
         import vortex
         tbl = vortex.read("payments-http-2026-03-11T14:30Z.vx").to_arrow()
       ```
 - [ ] Return a non-zero exit code and clear error message when the agent
-      reports `501` (Vortex extension unavailable).
+  reports `501` (Vortex extension unavailable).
 
 ### Phase 4: Testing and Documentation
 
 - [ ] Unit tests: Vortex handler validates allowlist, returns 501 when
-      disabled, streams a valid file for a known table.
+  disabled, streams a valid file for a known table.
 - [ ] Unit tests: CLI export command parses flags, auto-generates filename,
-      handles 501 gracefully.
+  handles 501 gracefully.
 - [ ] Integration test: agent with Vortex extension loaded exports
-      `beyla_http_metrics_local`; result is a valid Vortex file.
+  `beyla_http_metrics_local`; result is a valid Vortex file.
 - [ ] Integration test: colony proxy correctly forwards `/vortex/*` requests.
 - [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `coral duckdb
       export` command and flags.
 - [ ] Update `docs/STORAGE.md` with Vortex extension requirement and
-      `agent.storage.vortex_enabled` config key.
+  `agent.storage.vortex_enabled` config key.
 
 ## API Changes
 
@@ -268,8 +293,11 @@ The `/duckdb` discovery endpoint (JSON) gains one new field:
 
 ```json
 {
-  "databases": ["beyla", "telemetry"],
-  "vortex_enabled": true
+    "databases": [
+        "beyla",
+        "telemetry"
+    ],
+    "vortex_enabled": true
 }
 ```
 
@@ -289,7 +317,8 @@ The `/duckdb` discovery endpoint (JSON) gains one new field:
 
 ### Integration Tests
 
-- Agent initializes with Vortex extension; `/vortex/beyla/beyla_http_metrics_local`
+- Agent initializes with Vortex extension;
+  `/vortex/beyla/beyla_http_metrics_local`
   returns a parseable Vortex file.
 - Colony proxy forwards `/agent/{id}/vortex/*` and preserves HTTP status codes.
 - `coral duckdb export` end-to-end: CLI exports a table, file is written to
@@ -342,14 +371,19 @@ loops that issue many narrow queries.
 The Vortex extension is loaded via:
 
 ```sql
-INSTALL vortex FROM community;
-LOAD vortex;
+INSTALL
+vortex FROM community;
+LOAD
+vortex;
 ```
 
 Export syntax:
 
 ```sql
-COPY (SELECT * FROM beyla_http_metrics_local) TO '/tmp/export.vx' (FORMAT vortex);
+COPY
+(
+SELECT *
+FROM beyla_http_metrics_local) TO '/tmp/export.vx' (FORMAT vortex);
 ```
 
 The resulting `.vx` file is readable by the `vortex` Python package and any
