@@ -9,8 +9,9 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // AnthropicProvider implements the Provider interface for Anthropic Claude models.

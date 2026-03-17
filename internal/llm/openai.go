@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
+
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // OpenAIProvider implements the Provider interface for OpenAI-compatible APIs.
