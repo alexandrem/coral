@@ -27,7 +27,7 @@ held with AI-guided before/after comparison.
 
 ## Problem
 
-- **Current behavior**: Coral's investigation loop ends when `coral ask`
+- **Current behavior/limitations**: Coral's investigation loop ends when `coral ask`
   closes. There is no way to record what was diagnosed, preserve the raw
   telemetry that surfaced the problem, or compare metrics before and after a
   fix is deployed.
@@ -79,12 +79,14 @@ the AI during `coral ask` sessions.
   discarded on write (see `explorations/vortex-issue-bundle/outcome.md`).
   A single `.vx` file cannot carry both telemetry and metadata. Each snapshot
   is therefore stored as a directory bundle:
+
   ```
   <snapshot-id>/
     data.vx       ← immutable compressed telemetry rows
     meta.json     ← issue + snapshot metadata (written once at ingest)
     events.jsonl  ← append-only status log (open → resolved → regressed)
   ```
+
   This is semantically correct: telemetry is immutable by nature; mutable
   state (status changes) appends cheaply to `events.jsonl` without touching
   the `.vx` file.
@@ -211,7 +213,7 @@ coral issue verify checkout-latency
 
 3. **Agent**: no new code. The `/vortex` endpoint from RFD 097 handles the
    export, including the disk safety pre-flight that returns `413 Payload Too
-   Large` when the temp file write would push disk utilization above the
+Large` when the temp file write would push disk utilization above the
    configured threshold. The colony treats `413` as a recoverable error and
    surfaces a clear message to the user rather than failing silently.
 
@@ -274,7 +276,7 @@ colony:
       stream directly from `archive/tar` + `compress/gzip` into the response
       writer.
 - [ ] Implement `coral issue export <name> [--snapshot <label>]
-      [--output <file.tar.gz>]` — calls the colony HTTP endpoint and writes
+    [--output <file.tar.gz>]` — calls the colony HTTP endpoint and writes
       the stream to a local file; auto-generates filename
       `<name>-<snapshot-label>-<timestamp>.tar.gz` when `--output` is
       omitted.
@@ -282,7 +284,7 @@ colony:
       the colony via `POST /issues/import`, extracts it under `snapshot_dir`,
       and runs reindex for the imported bundle.
 - [ ] Implement `coral issue create <name> --service <s> --metric <m>
-      [--route <r>] [--threshold <expr>] [--notes <text>]` — creates the
+    [--route <r>] [--threshold <expr>] [--notes <text>]` — creates the
       issue and prints progress of the automatic pre-fix snapshot.
 - [ ] Implement `coral issue list` — tabular output: name, service, metric,
       route, threshold, status, detected_at, snapshot count.
@@ -290,7 +292,7 @@ colony:
       deploy markers, status changes) in chronological order with snapshot
       file size.
 - [ ] Implement `coral issue snapshot <name> [--label <l>]
-      [--snapshot-type <pre_fix|post_fix|checkpoint>]` — takes an additional
+    [--snapshot-type <pre_fix|post_fix|checkpoint>]` — takes an additional
       manual snapshot.
 - [ ] Implement `coral issue deploy <name> [--label <l>]` — inserts a
       `deployment` marker with current timestamp; no `.vx` capture.
