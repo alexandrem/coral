@@ -514,6 +514,12 @@ type AgentConfig struct {
 		} `yaml:"nat,omitempty"`
 		Bootstrap         BootstrapConfig `yaml:"bootstrap,omitempty"` // RFD 048
 		HeartbeatInterval time.Duration   `yaml:"heartbeat_interval,omitempty" env:"CORAL_HEARTBEAT_INTERVAL"`
+		Storage           struct {
+			// VortexEnabled controls whether the /vortex export endpoint is active (RFD 097).
+			// Defaults to true when unset.
+			VortexEnabled       *bool   `yaml:"vortex_enabled,omitempty" env:"CORAL_VORTEX_ENABLED"`
+			VortexDiskThreshold float64 `yaml:"vortex_disk_threshold,omitempty" env:"CORAL_VORTEX_DISK_THRESHOLD"`
+		} `yaml:"storage,omitempty"`
 	} `yaml:"agent"`
 	Telemetry struct {
 		Disabled              bool   `yaml:"disabled" env:"CORAL_TELEMETRY_DISABLED"`

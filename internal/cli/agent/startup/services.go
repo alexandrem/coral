@@ -439,6 +439,9 @@ func (s *ServiceRegistry) createHTTPServers(
 	// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
 	s.registerDuckDBHandler(mux)
 
+	// Add /vortex/ endpoint for Vortex export (RFD 097).
+	s.registerVortexHandler(mux)
+
 	// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
 	h2s := &http2.Server{}
 	httpHandler := h2c.NewHandler(mux, h2s)
@@ -539,6 +542,10 @@ func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeServi
 // registerDuckDBHandler registers the DuckDB HTTP handler.
 func (s *ServiceRegistry) registerDuckDBHandler(mux *http.ServeMux) {
 	duckdbHandler := duckdb.NewDuckDBHandler(s.logger)
+
+	// Surface vortex_enabled in the /duckdb discovery response (RFD 097).
+	vortexEnabled := s.agentCfg == nil || s.agentCfg.Agent.Storage.VortexEnabled == nil || *s.agentCfg.Agent.Storage.VortexEnabled
+	duckdbHandler.SetVortexEnabled(vortexEnabled)
 	registeredCount := 0
 
 	// Register shared metrics database (if using file-based storage).
@@ -563,6 +570,31 @@ func (s *ServiceRegistry) registerDuckDBHandler(mux *http.ServeMux) {
 	}
 
 	mux.Handle("/duckdb/", duckdbHandler)
+}
+
+// registerVortexHandler registers the Vortex export HTTP handler (RFD 097).
+//
+// Vortex export is enabled by default. Set agent.storage.vortex_disabled: true
+// in the config to disable it.
+func (s *ServiceRegistry) registerVortexHandler(mux *http.ServeMux) {
+	var diskThreshold float64
+	if s.agentCfg != nil {
+		diskThreshold = s.agentCfg.Agent.Storage.VortexDiskThreshold
+	}
+
+	// Default to enabled; opt out by setting vortex_enabled: false in config.
+	enabled := s.agentCfg == nil || s.agentCfg.Agent.Storage.VortexEnabled == nil || *s.agentCfg.Agent.Storage.VortexEnabled
+
+	handler := duckdb.NewVortexHandler(enabled, diskThreshold, s.logger)
+
+	if s.sharedDBPath != "" {
+		if err := handler.RegisterDatabase("metrics", s.sharedDBPath); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to register metrics database for Vortex export")
+		}
+	}
+
+	mux.Handle("/vortex/", handler)
+	s.logger.Info().Bool("enabled", enabled).Msg("Vortex export endpoint registered.")
 }
 
 // gatherMeshNetworkInfo collects mesh network debugging information.

@@ -41,28 +41,46 @@ func TestAgentDuckDBProxyHandler_ServeHTTP_Logic(t *testing.T) {
 		expectedPath   string
 	}{
 		{
-			name:           "base path no trailing slash",
+			name:           "duckdb base path no trailing slash",
 			requestPath:    "/agent/agent123/duckdb",
 			expectedTarget: "10.0.0.1:9001",
 			expectedPath:   "/duckdb/",
 		},
 		{
-			name:           "base path with trailing slash",
+			name:           "duckdb base path with trailing slash",
 			requestPath:    "/agent/agent123/duckdb/",
 			expectedTarget: "10.0.0.1:9001",
 			expectedPath:   "/duckdb/",
 		},
 		{
-			name:           "path with file",
+			name:           "duckdb path with file",
 			requestPath:    "/agent/agent123/duckdb/metrics.duckdb",
 			expectedTarget: "10.0.0.1:9001",
 			expectedPath:   "/duckdb/metrics.duckdb",
 		},
 		{
-			name:           "path with subdirectories",
+			name:           "duckdb path with subdirectories",
 			requestPath:    "/agent/agent123/duckdb/subdir/file.duckdb",
 			expectedTarget: "10.0.0.1:9001",
 			expectedPath:   "/duckdb/subdir/file.duckdb",
+		},
+		{
+			name:           "vortex base path",
+			requestPath:    "/agent/agent123/vortex",
+			expectedTarget: "10.0.0.1:9001",
+			expectedPath:   "/vortex/",
+		},
+		{
+			name:           "vortex with db and table",
+			requestPath:    "/agent/agent123/vortex/beyla/beyla_http_metrics_local",
+			expectedTarget: "10.0.0.1:9001",
+			expectedPath:   "/vortex/beyla/beyla_http_metrics_local",
+		},
+		{
+			name:           "vortex with db only",
+			requestPath:    "/agent/agent123/vortex/beyla",
+			expectedTarget: "10.0.0.1:9001",
+			expectedPath:   "/vortex/beyla",
 		},
 	}
 
@@ -70,19 +88,20 @@ func TestAgentDuckDBProxyHandler_ServeHTTP_Logic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.requestPath, nil)
 
-			// We want to intercept the outgoing request.
-			// Instead of running the whole proxy, let's just check the path construction.
-
+			// Verify path construction logic matches handler implementation.
 			trimmed := strings.TrimPrefix(req.URL.Path, "/")
 			parts := strings.SplitN(trimmed, "/", 4)
 			require.True(t, len(parts) >= 3)
 			require.Equal(t, "agent", parts[0])
 			require.Equal(t, "agent123", parts[1])
-			require.Equal(t, "duckdb", parts[2])
 
-			forwardedPath := "/duckdb/"
+			service := parts[2]
+			require.True(t, service == "duckdb" || service == "vortex",
+				"service should be duckdb or vortex, got %s", service)
+
+			forwardedPath := "/" + service + "/"
 			if len(parts) == 4 && parts[3] != "" {
-				forwardedPath = "/duckdb/" + parts[3]
+				forwardedPath = "/" + service + "/" + parts[3]
 			}
 
 			assert.Equal(t, tt.expectedPath, forwardedPath)
@@ -116,12 +135,17 @@ func TestAgentDuckDBProxyHandler_Errors(t *testing.T) {
 		},
 		{
 			name:       "wrong component",
-			path:       "/agent/active/notduckdb",
+			path:       "/agent/active/notsupported",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "agent not found",
+			name:       "agent not found duckdb",
 			path:       "/agent/missing/duckdb",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "agent not found vortex",
+			path:       "/agent/missing/vortex/beyla/table",
 			wantStatus: http.StatusNotFound,
 		},
 	}

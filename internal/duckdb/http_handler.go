@@ -18,8 +18,9 @@ import (
 type DuckDBHandler struct {
 	// Map of allowlisted database names to file paths.
 	// Only files in this map can be served (prevents directory traversal).
-	databases map[string]string
-	logger    zerolog.Logger
+	databases     map[string]string
+	vortexEnabled bool
+	logger        zerolog.Logger
 }
 
 // NewDuckDBHandler creates a new DuckDB HTTP handler.
@@ -28,6 +29,11 @@ func NewDuckDBHandler(logger zerolog.Logger) *DuckDBHandler {
 		databases: make(map[string]string),
 		logger:    logger.With().Str("component", "duckdb_handler").Logger(),
 	}
+}
+
+// SetVortexEnabled sets the vortex_enabled flag reported in the /duckdb discovery response (RFD 097).
+func (h *DuckDBHandler) SetVortexEnabled(enabled bool) {
+	h.vortexEnabled = enabled
 }
 
 // RegisterDatabase adds a database file to the allowlist for serving.
@@ -153,7 +159,8 @@ func (h *DuckDBHandler) serveListDatabases(w http.ResponseWriter, r *http.Reques
 	// Return as JSON.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"databases": databases,
+		"databases":      databases,
+		"vortex_enabled": h.vortexEnabled,
 	}); err != nil {
 		h.logger.Error().
 			Err(err).
