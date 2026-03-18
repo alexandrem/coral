@@ -197,7 +197,30 @@ Final state (both paths, one tool):
       `AgentEvent` and `ui.AgentEvent`).
 - [x] Display command string inline in TUI conversation view (`$ coral <cmd>`).
 
-### Phase 4: Testing and documentation
+### Phase 4: `coral_cli` as MCP tool in the proxy — retire the 21 per-operation tools
+
+The proxy (`internal/cli/colony/mcp.go`) runs the `coral` binary locally. It
+can intercept `coral_cli` tool calls and handle them as subprocesses, exactly
+as the TUI does, without adding any dependency on the colony MCP server.
+
+- [ ] **`--format json` parity audit** — add `AddFormatFlag` and JSON output to
+      the commands that currently lack it and are reachable via `coral_cli`:
+      `coral debug filter`, `coral debug session list/get/query/events/stop`,
+      `coral debug search/info/profile`.
+- [x] **Implement `coral_cli` in the proxy** — `mcpProxy.handleCallTool`
+      intercepts `coral_cli` and handles it locally: parses the `args` array,
+      appends `--format json`, execs `os.Executable()` as the subprocess,
+      returns stdout as the MCP tool result. All other tool names return an error.
+- [x] **Implement `coral_cli` in `mcpProxy.handleListTools`** — returns the
+      single `coral_cli` tool schema directly without delegating to the colony RPC.
+- [x] **Remove the 21 per-operation MCP tool handlers** — deleted
+      `internal/colony/mcp/` package entirely and `internal/colony/server/mcp_tools.go`.
+      Colony `CallTool`/`ListTools` gRPC handlers now return "not supported".
+- [ ] **Update `docs/MCP.md`** — replace the 21-tool reference with the
+      `coral_cli` contract, add a note that the proxy handles `coral_cli`
+      locally.
+
+### Phase 5: Testing and documentation
 
 - [x] Unit tests for `coral_cli` tool helpers (`appendFormatJSON`,
       `cliCommandString`, `buildCLITools`).
@@ -213,32 +236,6 @@ Final state (both paths, one tool):
       and `coral://cli/reference` resource.
 - [ ] Update `docs/MCP.md` architecture section to reflect the two-track model
       (TUI via CLI dispatch, external clients via MCP proxy).
-
-### Phase 5: `coral_cli` as MCP tool in the proxy — retire the 21 per-operation tools
-
-The proxy (`internal/cli/colony/mcp.go`) runs the `coral` binary locally. It
-can intercept `coral_cli` tool calls and handle them as subprocesses, exactly
-as the TUI does, without adding any dependency on the colony MCP server.
-
-- [ ] **`--format json` parity audit** — add `AddFormatFlag` and JSON output to
-      the commands that currently lack it and are reachable via `coral_cli`:
-      `coral debug filter`, `coral debug session list/get/query/events/stop`,
-      `coral debug search/info/profile`.
-- [ ] **Implement `coral_cli` in the proxy** — in `mcpProxy.handleCallTool`,
-      check for `toolName == "coral_cli"` and handle locally: parse the `args`
-      array, append `--format json`, exec `os.Executable()` as the subprocess,
-      return stdout as the MCP tool result. Everything else still forwards to the
-      colony RPC.
-- [ ] **Implement `coral_cli` in `mcpProxy.handleListTools`** — return the
-      single `coral_cli` tool schema (identical to the TUI schema) instead of
-      delegating to the colony `ListTools` RPC.
-- [ ] **Remove the 21 per-operation MCP tool handlers** from
-      `internal/colony/mcp/server.go` (`ExecuteTool` switch, `listToolNames`,
-      and all `tools_*.go` handler files). The colony MCP server gRPC endpoint
-      (`CallTool`, `ListTools`) can be removed once the proxy no longer calls it.
-- [ ] **Update `docs/MCP.md`** — replace the 21-tool reference with the
-      `coral_cli` contract, add a note that the proxy handles `coral_cli`
-      locally.
 
 ## API Changes
 

@@ -1,11 +1,14 @@
 package colony
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,7 +16,6 @@ import (
 	"connectrpc.com/connect"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
@@ -486,17 +488,17 @@ Examples:
 
 			logger.Info().Msg("Connected to colony")
 
-			// Proxy is now a simple MCP ↔ RPC translator (no database access!).
-			// It reads MCP JSON-RPC from stdin, calls colony via Connect RPC,
-			// and writes MCP responses to stdout.
+			// Proxy handles MCP protocol on stdio. Tool calls (coral_cli) are
+			// executed locally as coral subprocesses (RFD 100).
 
 			logger.Info().Msg("MCP protocol: stdio (JSON-RPC 2.0)")
-			logger.Info().Msg("Backend: Buf Connect gRPC")
+			logger.Info().Msg("Tool dispatch: local CLI subprocess (coral_cli)")
 			logger.Info().Msg("MCP Proxy ready - waiting for requests...")
 
-			// Create MCP proxy that translates stdio MCP requests to RPC calls.
+			// Create MCP proxy. Tool calls are handled locally via CLI subprocesses.
+			// The colony connection above is used only to verify the colony is reachable.
+			_ = client // verified above; not used for tool dispatch (RFD 100)
 			proxy := &mcpProxy{
-				client:   client,
 				colonyID: colonyID,
 				logger:   logger,
 			}
@@ -511,10 +513,9 @@ Examples:
 	return cmd
 }
 
-// mcpProxy is a simple MCP ↔ Connect RPC translator.
-// It reads MCP JSON-RPC from stdin, translates to Connect RPC, calls colony, and writes MCP responses to stdout.
+// mcpProxy handles the MCP stdio protocol for external clients (RFD 100).
+// Tool calls are handled locally via coral CLI subprocesses; no colony RPC is used for tools.
 type mcpProxy struct {
-	client   colonyv1connect.ColonyServiceClient
 	colonyID string
 	logger   logging.Logger
 }
@@ -641,65 +642,36 @@ func (p *mcpProxy) handleInitialize(ctx context.Context, req *mcpRequest) *mcpRe
 	}
 }
 
-// handleListTools calls colony's ListTools RPC.
-func (p *mcpProxy) handleListTools(ctx context.Context, req *mcpRequest) *mcpResponse {
-	resp, err := p.client.ListTools(ctx, connect.NewRequest(&colonyv1.ListToolsRequest{}))
-	if err != nil {
-		return &mcpResponse{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Error: &mcpError{
-				Code:    -32603,
-				Message: fmt.Sprintf("failed to list tools: %v", err),
+// handleListTools returns the coral_cli meta-tool schema (RFD 100).
+// The proxy handles coral_cli locally; no colony RPC is needed.
+func (p *mcpProxy) handleListTools(_ context.Context, req *mcpRequest) *mcpResponse {
+	tool := map[string]interface{}{
+		"name": "coral_cli",
+		"description": "Run a coral CLI command and return its JSON output. " +
+			"Use this to query metrics, traces, logs, debug sessions, and service status. " +
+			"Read coral://cli/reference first to see available commands.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"args": map[string]interface{}{
+					"type":  "array",
+					"items": map[string]interface{}{"type": "string"},
+					"description": `Coral subcommand and flags, e.g. ["query", "traces", "--service", "api", "--since", "10m"]. ` +
+						`Do not include "coral" itself. --format json is appended automatically.`,
+				},
 			},
-		}
+			"required": []string{"args"},
+		},
 	}
-
-	// Convert to MCP format.
-	tools := make([]map[string]interface{}, 0, len(resp.Msg.Tools))
-	for _, tool := range resp.Msg.Tools {
-		if !tool.Enabled {
-			continue
-		}
-
-		// Parse the input schema JSON from the response.
-		var inputSchema map[string]interface{}
-		if tool.InputSchemaJson != "" {
-			if err := json.Unmarshal([]byte(tool.InputSchemaJson), &inputSchema); err != nil {
-				p.logger.Warn().
-					Err(err).
-					Str("tool", tool.Name).
-					Msg("Failed to parse input schema, using empty schema")
-				inputSchema = map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				}
-			}
-		} else {
-			// Default to empty object schema if not provided.
-			inputSchema = map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			}
-		}
-
-		tools = append(tools, map[string]interface{}{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"inputSchema": inputSchema,
-		})
-	}
-
 	return &mcpResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result: map[string]interface{}{
-			"tools": tools,
-		},
+		Result:  map[string]interface{}{"tools": []interface{}{tool}},
 	}
 }
 
-// handleCallTool calls colony's CallTool RPC.
+// handleCallTool dispatches a tool call. coral_cli is handled locally (RFD 100);
+// all other tool names return an error since per-operation tools have been retired.
 func (p *mcpProxy) handleCallTool(ctx context.Context, req *mcpRequest) *mcpResponse {
 	// Extract tool name and arguments from params.
 	toolName, ok := req.Params["name"].(string)
@@ -707,72 +679,110 @@ func (p *mcpProxy) handleCallTool(ctx context.Context, req *mcpRequest) *mcpResp
 		return &mcpResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Error: &mcpError{
-				Code:    -32602,
-				Message: "missing or invalid 'name' parameter",
-			},
+			Error:   &mcpError{Code: -32602, Message: "missing or invalid 'name' parameter"},
 		}
 	}
 
-	arguments, ok := req.Params["arguments"].(map[string]interface{})
+	if toolName != "coral_cli" {
+		return &mcpResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &mcpError{Code: -32601, Message: fmt.Sprintf("unknown tool: %s (only coral_cli is supported)", toolName)},
+		}
+	}
+
+	arguments, _ := req.Params["arguments"].(map[string]interface{})
+
+	// Extract args array from arguments.
+	argsRaw, ok := arguments["args"]
 	if !ok {
-		arguments = make(map[string]interface{})
+		return &mcpResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &mcpError{Code: -32602, Message: "coral_cli: missing required 'args' parameter"},
+		}
+	}
+	argsIface, ok := argsRaw.([]interface{})
+	if !ok {
+		return &mcpResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &mcpError{Code: -32602, Message: "coral_cli: 'args' must be an array of strings"},
+		}
+	}
+	args := make([]string, len(argsIface))
+	for i, a := range argsIface {
+		s, ok := a.(string)
+		if !ok {
+			return &mcpResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &mcpError{Code: -32602, Message: fmt.Sprintf("coral_cli: args[%d] is not a string", i)},
+			}
+		}
+		args[i] = s
 	}
 
-	// Convert arguments to JSON.
-	argsJSON, err := json.Marshal(arguments)
+	result, err := p.executeCLITool(ctx, args)
 	if err != nil {
 		return &mcpResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Error: &mcpError{
-				Code:    -32603,
-				Message: fmt.Sprintf("failed to marshal arguments: %v", err),
-			},
+			Error:   &mcpError{Code: -32603, Message: err.Error()},
 		}
 	}
-
-	// Call colony's CallTool RPC.
-	rpcReq := &colonyv1.CallToolRequest{
-		ToolName:      toolName,
-		ArgumentsJson: string(argsJSON),
-	}
-
-	rpcResp, err := p.client.CallTool(ctx, connect.NewRequest(rpcReq))
-	if err != nil {
-		return &mcpResponse{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Error: &mcpError{
-				Code:    -32603,
-				Message: fmt.Sprintf("RPC call failed: %v", err),
-			},
-		}
-	}
-
-	// Check if tool execution failed.
-	if !rpcResp.Msg.Success {
-		return &mcpResponse{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Error: &mcpError{
-				Code:    -32000,
-				Message: rpcResp.Msg.Error,
-			},
-		}
-	}
-
-	// Return successful result.
 	return &mcpResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result: map[string]interface{}{
-			"content": []map[string]interface{}{
-				{
-					"type": "text",
-					"text": rpcResp.Msg.Result,
-				},
-			},
+			"content": []map[string]interface{}{{"type": "text", "text": result}},
 		},
 	}
+}
+
+// executeCLITool runs coral <args> --format json as a subprocess and returns stdout.
+// Non-zero exits produce a descriptive error message; the caller returns it as an MCP error.
+func (p *mcpProxy) executeCLITool(ctx context.Context, args []string) (string, error) {
+	args = appendProxyFormatJSON(args)
+
+	coralBin, err := os.Executable()
+	if err != nil {
+		coralBin = "coral"
+	}
+
+	fmt.Fprintf(os.Stderr, "→ coral_cli: coral %s\n", strings.Join(args, " "))
+
+	cmd := exec.CommandContext(ctx, coralBin, args...) // #nosec G204
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if runErr := cmd.Run(); runErr != nil {
+		msg := fmt.Sprintf("coral %s: %v", strings.Join(args, " "), runErr)
+		if stderr.Len() > 0 {
+			msg += "\nstderr: " + strings.TrimSpace(stderr.String())
+		}
+		return "", fmt.Errorf("%s", msg)
+	}
+
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
+		output = `{"result":"ok","output":""}`
+	}
+	return output, nil
+}
+
+// appendProxyFormatJSON returns args with --format json appended if not already present.
+func appendProxyFormatJSON(args []string) []string {
+	for i, arg := range args {
+		switch arg {
+		case "--format=json", "-o=json":
+			return args
+		case "--format", "-o":
+			if i+1 < len(args) && args[i+1] == "json" {
+				return args
+			}
+		}
+	}
+	return append(args, "--format", "json")
 }
