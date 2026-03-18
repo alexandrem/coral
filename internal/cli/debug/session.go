@@ -174,7 +174,7 @@ func newSessionEventsCmd() *cobra.Command {
 						fmt.Printf("[%s] %s duration=%s\n",
 							event.Timestamp.AsTime().Format(time.RFC3339),
 							event.FunctionName,
-							time.Duration(event.DurationNs),
+							time.Duration(event.DurationNs), // #nolint G115 - unlikely to ever overflow by design
 						)
 					}
 				}
