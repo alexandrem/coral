@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -12,16 +11,25 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
+	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/storage"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
+
+// MeshInfoProvider is a callback that fetches live WireGuard/mesh statistics.
+type MeshInfoProvider func() map[string]interface{}
+
+// WGStatsProvider returns the WireGuard device's live peer stats and configured peer list.
+// Returns (nil, nil) if the device is not available.
+type WGStatsProvider func() (*wireguard.DeviceStats, []*wireguard.PeerConfig)
 
 // Config contains configuration for the colony server.
 type Config struct {
@@ -41,14 +49,16 @@ type Config struct {
 
 // Server implements the ColonyService.
 type Server struct {
-	registry    *registry.Registry
-	database    *database.Database
-	caManager   *ca.Manager // RFD 047 - certificate authority manager.
-	mcpServer   interface{} // *mcp.Server - using interface to avoid import cycle
-	ebpfService interface{} // EbpfQueryService - using interface to avoid import cycle
-	config      Config
-	startTime   time.Time
-	logger      zerolog.Logger
+	registry         *registry.Registry
+	database         *database.Database
+	caManager        *ca.Manager // RFD 047 - certificate authority manager.
+	mcpServer        interface{} // *mcp.Server - using interface to avoid import cycle
+	ebpfService      interface{} // EbpfQueryService - using interface to avoid import cycle
+	config           Config
+	startTime        time.Time
+	logger           zerolog.Logger
+	meshInfoProvider MeshInfoProvider
+	wgStatsProvider  WGStatsProvider
 }
 
 // New creates a new colony server.
@@ -61,6 +71,16 @@ func New(reg *registry.Registry, db *database.Database, caManager *ca.Manager, c
 		startTime: time.Now(),
 		logger:    logger,
 	}
+}
+
+// SetMeshInfoProvider sets the callback used for providing mesh metrics dynamically.
+func (s *Server) SetMeshInfoProvider(provider MeshInfoProvider) {
+	s.meshInfoProvider = provider
+}
+
+// SetWGStatsProvider sets the callback for accessing WireGuard device stats and peer configs.
+func (s *Server) SetWGStatsProvider(provider WGStatsProvider) {
+	s.wgStatsProvider = provider
 }
 
 // SetEbpfService sets the eBPF query service instance.
@@ -116,6 +136,14 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		Int64("uptime_seconds", uptimeSeconds).
 		Msg("Colony status response prepared")
 
+	// Fetch dynamic mesh telemetry and map to strictly typed Protobuf struct
+	var meshTelemetry *networkv1.MeshTelemetry
+	if s.meshInfoProvider != nil {
+		if meshInfo := s.meshInfoProvider(); meshInfo != nil {
+			meshTelemetry = wireguard.MapToMeshTelemetryProto(meshInfo)
+		}
+	}
+
 	// Build response.
 	return &colonyv1.GetStatusResponse{
 		ColonyId:           s.config.ColonyID,
@@ -136,6 +164,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		MeshIpv4:           s.config.MeshIPv4,
 		MeshIpv6:           s.config.MeshIPv6,
 		PublicEndpointUrl:  s.config.PublicEndpointURL,
+		Wireguard:          meshTelemetry,
 	}
 }
 
@@ -183,8 +212,7 @@ func (s *Server) ListAgents(
 			if status == registry.StatusHealthy || status == registry.StatusDegraded {
 				// Create agent client.
 				// Agent listens on DefaultAgentPort for mesh traffic.
-				agentURL := fmt.Sprintf("http://%s:%d", e.MeshIPv4, constants.DefaultAgentPort)
-				client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+				client := colony.GetAgentClient(e)
 
 				// Short timeout for real-time query.
 				queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)

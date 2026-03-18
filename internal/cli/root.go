@@ -11,10 +11,12 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/debug"
 	"github.com/coral-mesh/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-mesh/coral/internal/cli/init"
+	"github.com/coral-mesh/coral/internal/cli/mesh"
 	"github.com/coral-mesh/coral/internal/cli/profile"
 	"github.com/coral-mesh/coral/internal/cli/proxy"
 	"github.com/coral-mesh/coral/internal/cli/query"
 	"github.com/coral-mesh/coral/internal/cli/run"
+	"github.com/coral-mesh/coral/internal/cli/terminal"
 	"github.com/coral-mesh/coral/internal/cli/tunhelper"
 	"github.com/coral-mesh/coral/pkg/version"
 )
@@ -56,6 +58,7 @@ func init() {
 	rootCmd.AddCommand(config.NewConfigCmd()) // RFD 050 - Config management commands.
 	rootCmd.AddCommand(agent.NewAgentCmd())
 	rootCmd.AddCommand(agent.NewConnectCmd())
+	rootCmd.AddCommand(mesh.NewMeshCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(agent.NewShellCmd())
@@ -64,7 +67,8 @@ func init() {
 	rootCmd.AddCommand(debug.NewDebugCmd())
 	rootCmd.AddCommand(profile.NewProfileCmd()) // On-demand profiling (CPU, memory).
 	rootCmd.AddCommand(query.NewQueryCmd())
-	rootCmd.AddCommand(run.NewRunCmd()) // RFD 076 - TypeScript script execution.
+	rootCmd.AddCommand(run.NewRunCmd())           // RFD 076 - TypeScript script execution.
+	rootCmd.AddCommand(terminal.NewTerminalCmd()) // RFD 094 - Rich mission-control TUI.
 	rootCmd.AddCommand(newVersionCmd())
 
 	// Add internal commands (hidden from help)

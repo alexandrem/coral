@@ -5,12 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRegistry_PersistenceWithDatabase(t *testing.T) {
@@ -49,7 +50,10 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for async persistence to complete
-		time.Sleep(100 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			dbServices, err := db.ListAllServices(context.Background())
+			return err == nil && len(dbServices) == 2
+		}, 2*time.Second, 10*time.Millisecond)
 
 		// Verify services were persisted to database
 		ctx := context.Background()
@@ -88,7 +92,10 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for async persistence
-		time.Sleep(100 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			dbServices, err := db2.ListAllServices(context.Background())
+			return err == nil && len(dbServices) == 1
+		}, 2*time.Second, 10*time.Millisecond)
 
 		// Verify legacy component was persisted as a service
 		ctx := context.Background()
@@ -123,7 +130,10 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for persistence
-		time.Sleep(100 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			dbServices, err := db3.ListAllServices(context.Background())
+			return err == nil && len(dbServices) == 2
+		}, 2*time.Second, 10*time.Millisecond)
 
 		// Create a new registry (simulating restart)
 		reg2 := New(db3)

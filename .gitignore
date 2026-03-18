@@ -1,4 +1,9 @@
-.claude
+# Personal claude settings
+.claude/settings.local.json
+!.claude/
+!.claude/skills/
+!.claude/skills/**
+
 .coral
 
 # Built binaries

@@ -29,3 +29,11 @@ type errorMsg struct {
 
 // conversationSavedMsg indicates conversation was saved successfully.
 type conversationSavedMsg struct{}
+
+// LoadConversationMsg asks the model to switch to a different conversation.
+// History contains pre-loaded messages; ConversationID is the new ID.
+// Sent by the terminal's sidebar when the user selects a past session.
+type LoadConversationMsg struct {
+	ConversationID string
+	History        []Message
+}

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -83,23 +82,11 @@ func (s *CLIMeshSuite) setupDiscoveryCA(colonyID string) {
 	}
 	s.T().Logf("Colony CA fingerprint: %s", s.caFingerprint)
 
-	// Create a test token for authentication.
-	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), "cli-mesh-ca-test-token", "admin")
-	if result.HasError() {
-		s.T().Logf("Warning: Failed to create test token (CA tests will be skipped): %v", result.Err)
-		return
-	}
-
-	// Extract token from CLI output.
-	for _, line := range strings.Split(result.Output, "\n") {
-		if strings.HasPrefix(line, "Token: ") {
-			s.testToken = strings.TrimPrefix(line, "Token: ")
-			break
-		}
-	}
-
-	if s.testToken != "" {
-		s.copyTokensToColony(colonyID)
+	// Create a test token inside the container so it is added to the colony's
+	// tokens.yaml without overwriting tokens created by other suites.
+	s.testToken, err = s.fixture.CreateToken(s.ctx, "cli-mesh-ca-test-token", "admin")
+	if err != nil {
+		s.T().Logf("Warning: Failed to create test token (CA tests will be skipped): %v", err)
 	}
 }
 
@@ -133,21 +120,6 @@ func (s *CLIMeshSuite) getColonyCAFingerprint(colonyID string) (string, []byte, 
 	fingerprint := "sha256:" + hex.EncodeToString(hash[:])
 
 	return fingerprint, caCertPEM, nil
-}
-
-// copyTokensToColony copies the tokens file to the colony container.
-func (s *CLIMeshSuite) copyTokensToColony(colonyID string) {
-	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
-	destPath := fmt.Sprintf("coral-e2e-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
-
-	cmd := exec.Command("docker", "cp", tokensPath, destPath)
-	if err := cmd.Run(); err != nil {
-		s.T().Logf("Warning: Failed to copy tokens: %v", err)
-	}
-
-	// Restart colony to reload tokens.
-	_ = s.fixture.RestartService(s.ctx, "colony")
-	_ = helpers.WaitForHTTPEndpoint(s.ctx, s.publicEndpoint+"/status", 30*time.Second)
 }
 
 // TearDownSuite cleans up after all tests.
@@ -261,6 +233,51 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 	s.Require().GreaterOrEqual(len(agents), 1, "Should have at least 1 agent")
 
 	s.T().Logf("✓ Agent list validated (%d agents)", len(agents))
+}
+
+// TestMeshPingCommand tests 'coral mesh ping' command.
+//
+// Validates:
+// - Command executes successfully
+// - Pings all agents if no agent ID provided
+// - Pings a specific agent if agent ID provided
+// - Table output format is correct
+func (s *CLIMeshSuite) TestMeshPingCommand() {
+	s.T().Log("Testing 'coral mesh ping' command...")
+
+	// 1. Test ping (all agents)
+	result := helpers.MeshPing(s.ctx, s.cliEnv, "", 2) // 2 pings each
+	result.MustSucceed(s.T())
+
+	s.T().Log("Ping (all) output:")
+	s.T().Log(result.Output)
+
+	// Validate output structure - should have headers and at least 2 rows (agents)
+	helpers.AssertContains(s.T(), result.Output, "AGENT ID")
+	helpers.AssertContains(s.T(), result.Output, "MESH IP")
+	helpers.AssertContains(s.T(), result.Output, "LOSS")
+	helpers.AssertContains(s.T(), result.Output, "STATUS")
+
+	// 2. Test ping (specific agent)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(agents)
+
+	// In JSON, fields are often lowercase
+	agentID, _ := agents[0]["agent_id"].(string)
+	s.Require().NotEmpty(agentID)
+
+	s.T().Logf("Testing ping for specific agent: %s", agentID)
+	result = helpers.MeshPing(s.ctx, s.cliEnv, agentID, 2)
+	result.MustSucceed(s.T())
+
+	s.T().Log("Ping (specific) output:")
+	s.T().Log(result.Output)
+
+	// Should show result for only one agent
+	helpers.AssertContains(s.T(), result.Output, agentID)
+
+	s.T().Log("✓ Mesh ping command validated")
 }
 
 // TestServiceListCommand tests 'coral service list' output.

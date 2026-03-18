@@ -70,6 +70,17 @@ type Config struct {
 	// If provided, it overrides CertFile/KeyFile in PublicConfig.
 	TLSCertificate *tls.Certificate
 
+	// DuckDBHandler is the optional handler for the /duckdb/ endpoint (RFD 039, RFD 046).
+	// If provided, it is registered on the public endpoint and exempted from auth
+	// because DuckDB's httpfs extension cannot send custom authentication headers.
+	// The endpoint is read-only and protected by TLS.
+	DuckDBHandler http.Handler
+
+	// AgentDuckDBProxyHandler is the optional reverse proxy for /agent/{id}/duckdb/* (RFD 095).
+	// If provided, it is registered on the public endpoint and exempted from auth for the
+	// same reason as DuckDBHandler: httpfs cannot send Bearer tokens.
+	AgentDuckDBProxyHandler http.Handler
+
 	// StatusHandler is the optional handler for the /status endpoint.
 	// If provided, it will be registered on the public endpoint and subject to auth.
 	StatusHandler http.Handler
@@ -143,6 +154,18 @@ func New(cfg Config) (*Server, error) {
 		logger.Debug().Msg("Registered /status endpoint")
 	}
 
+	// Register DuckDB handler if provided. Exempted from auth — see DuckDBHandler field docs.
+	if cfg.DuckDBHandler != nil {
+		mux.Handle("/duckdb/", cfg.DuckDBHandler)
+		logger.Debug().Msg("Registered /duckdb/ endpoint")
+	}
+
+	// Register agent DuckDB proxy if provided. Exempted from auth — see AgentDuckDBProxyHandler docs.
+	if cfg.AgentDuckDBProxyHandler != nil {
+		mux.Handle("/agent/", cfg.AgentDuckDBProxyHandler)
+		logger.Debug().Msg("Registered /agent/ DuckDB proxy endpoint")
+	}
+
 	// Create health endpoint (bypasses authentication).
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -151,11 +174,18 @@ func New(cfg Config) (*Server, error) {
 	})
 
 	// Build handler chain: audit -> ratelimit -> rbac -> auth -> handler.
-	// Health endpoint bypasses all middleware.
+	// Health, DuckDB, and agent DuckDB proxy endpoints bypass authentication.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Health endpoint bypasses auth.
 		if r.URL.Path == "/health" {
 			healthMux.ServeHTTP(w, r)
+			return
+		}
+
+		// DuckDB endpoints bypass auth: read-only, TLS-protected, httpfs cannot send tokens.
+		// Covers both /duckdb/* (colony DB) and /agent/*/duckdb/* (agent DB proxy, RFD 095).
+		if strings.HasPrefix(r.URL.Path, "/duckdb") || strings.HasPrefix(r.URL.Path, "/agent/") {
+			auditMw.Handler(mux).ServeHTTP(w, r)
 			return
 		}
 

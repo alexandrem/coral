@@ -36,5 +36,7 @@ export * as activity from "./activity.ts";
 export * as traces from "./traces.ts";
 export * as system from "./system.ts";
 export * as db from "./db.ts";
+export * as skills from "./skills/mod.ts";
+export * as correlation from "./correlation.ts";
 
 export type * from "./types.ts";

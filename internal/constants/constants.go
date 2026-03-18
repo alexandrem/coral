@@ -75,6 +75,8 @@ const (
 
 	// DefaultSDKDiscoveryAddress is the default address for SDK capability discovery.
 	DefaultSDKDiscoveryAddress = "localhost:9002"
+	// DefaultMeshPingPort is the default port for the mesh ping UDP echo receiver (RFD 097).
+	DefaultMeshPingPort = 9003
 )
 
 // Timeouts.
@@ -290,7 +292,7 @@ const (
 // Ask LLM Configuration.
 const (
 	// DefaultAskModel is the default LLM model for coral ask.
-	DefaultAskModel = "openai:gpt-4o-mini"
+	DefaultAskModel = "anthropic:claude-sonnet-4-6"
 
 	// DefaultAskMaxTurns is the default maximum conversation turns.
 	DefaultAskMaxTurns = 10

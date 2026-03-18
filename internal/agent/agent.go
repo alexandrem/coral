@@ -12,6 +12,7 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/correlation"
 	"github.com/coral-mesh/coral/internal/agent/debug"
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/coral-mesh/coral/internal/config"
@@ -33,9 +34,10 @@ type Agent struct {
 	ebpfManager              *ebpf.Manager
 	beylaManager             *beyla.Manager
 	debugManager             *debug.SessionManager
-	continuousProfiler       interface{}    // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds).
-	continuousMemoryProfiler interface{}    // RFD 077: Continuous memory profiler.
-	functionCache            *FunctionCache // RFD 063: Function discovery cache
+	correlationEngine        *correlation.Engine // RFD 091: probe correlation.
+	continuousProfiler       interface{}         // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds).
+	continuousMemoryProfiler interface{}         // RFD 077: Continuous memory profiler.
+	functionCache            *FunctionCache      // RFD 063: Function discovery cache
 	logger                   zerolog.Logger
 	mu                       sync.RWMutex
 	ctx                      context.Context
@@ -80,16 +82,23 @@ func New(config Config) (*Agent, error) {
 		}
 	}
 
+	// Initialize correlation engine (RFD 091).
+	corrEngine := correlation.NewEngine(config.AgentID, config.Logger)
+
 	agent := &Agent{
-		id:            config.AgentID,
-		monitors:      make(map[string]*ServiceMonitor),
-		ebpfManager:   ebpfManager,
-		beylaManager:  beylaManager,
-		functionCache: config.FunctionCache,
-		logger:        config.Logger.With().Str("agent_id", config.AgentID).Logger(),
-		ctx:           ctx,
-		cancel:        cancel,
+		id:                config.AgentID,
+		monitors:          make(map[string]*ServiceMonitor),
+		ebpfManager:       ebpfManager,
+		beylaManager:      beylaManager,
+		correlationEngine: corrEngine,
+		functionCache:     config.FunctionCache,
+		logger:            config.Logger.With().Str("agent_id", config.AgentID).Logger(),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
+
+	// Wire correlation engine as the eBPF event subscriber (RFD 091).
+	ebpfManager.SetEventSubscriber(agent.routeEventsToCorrelation)
 
 	// Initialize SessionManager (RFD 061).
 	agent.debugManager = debug.NewSessionManager(config.DebugConfig, config.Logger, agent)
@@ -431,6 +440,30 @@ func (a *Agent) ResolveSDK(serviceName string) (string, error) {
 	}
 
 	return caps.SdkAddr, nil
+}
+
+// routeEventsToCorrelation is the eBPF event subscriber that feeds UprobeEvents
+// to the correlation engine (RFD 091). It is called from GetEvents on the
+// eBPF manager whenever new events are returned.
+func (a *Agent) routeEventsToCorrelation(ebpfEvents []*meshv1.EbpfEvent) {
+	if a.correlationEngine == nil {
+		return
+	}
+	for _, e := range ebpfEvents {
+		ue, ok := e.Payload.(*meshv1.EbpfEvent_UprobeEvent)
+		if !ok || ue.UprobeEvent == nil {
+			continue
+		}
+		_ = a.correlationEngine.OnEvent(ue.UprobeEvent)
+		// Actions from synchronous strategies are discarded here; callers that
+		// need to act on them (e.g., goroutine snapshots) should use the
+		// DeployCorrelation handler which registers a dedicated callback.
+	}
+}
+
+// GetCorrelationEngine returns the agent's correlation engine (RFD 091).
+func (a *Agent) GetCorrelationEngine() *correlation.Engine {
+	return a.correlationEngine
 }
 
 // StartDebugSession starts a debug session for a service.

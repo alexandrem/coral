@@ -40,6 +40,14 @@ func (m *mockColonyClient) ListAgents(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(&colonyv1.ListAgentsResponse{}), nil
 }
 
+func (m *mockColonyClient) MeshPing(ctx context.Context, req *connect.Request[colonyv1.MeshPingRequest]) (*connect.Response[colonyv1.MeshPingResponse], error) {
+	return connect.NewResponse(&colonyv1.MeshPingResponse{}), nil
+}
+
+func (m *mockColonyClient) MeshAudit(ctx context.Context, req *connect.Request[colonyv1.MeshAuditRequest]) (*connect.Response[colonyv1.MeshAuditResponse], error) {
+	return connect.NewResponse(&colonyv1.MeshAuditResponse{}), nil
+}
+
 func (m *mockColonyClient) GetTopology(ctx context.Context, req *connect.Request[colonyv1.GetTopologyRequest]) (*connect.Response[colonyv1.GetTopologyResponse], error) {
 	return connect.NewResponse(&colonyv1.GetTopologyResponse{}), nil
 }

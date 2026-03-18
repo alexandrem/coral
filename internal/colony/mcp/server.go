@@ -175,6 +175,10 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	case "coral_debug_cpu_profile":
 		return s.executeDebugCPUProfileTool(ctx, argumentsJSON)
 
+	// RFD 093: Inline TypeScript execution tool.
+	case "coral_run":
+		return s.executeRunToolByArgs(ctx, argumentsJSON)
+
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -259,6 +263,12 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_profile_functions":  ProfileFunctionsInput{},
 		// RFD 074: Profiling-enriched debugging
 		"coral_debug_cpu_profile": DebugCPUProfileInput{},
+		// RFD 091: Probe correlation DSL tools
+		"coral_deploy_correlation": DeployCorrelationInput{},
+		"coral_remove_correlation": RemoveCorrelationInput{},
+		"coral_list_correlations":  ListCorrelationsInput{},
+		// RFD 093: Inline TypeScript execution
+		"coral_run": RunInput{},
 	}
 
 	for toolName, inputType := range toolInputTypes {
@@ -314,6 +324,12 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_profile_functions":  "Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Use this for performance investigation.",
 		// RFD 074: Profiling-enriched debugging
 		"coral_debug_cpu_profile": "Collect a high-frequency CPU profile (99Hz) for detailed analysis of specific functions. Use this AFTER coral_query_summary identifies a CPU hotspot that needs line-level investigation. Returns top stacks with sample counts.",
+		// RFD 091: Probe correlation DSL tools
+		"coral_deploy_correlation": "Deploy a stateful correlation descriptor to an agent. The agent evaluates the strategy against the live event stream and fires an action (emit_event, goroutine_snapshot, cpu_profile) when the condition is met. Strategies: rate_gate (N events in window), edge_trigger (first match after cooldown), causal_pair (A followed by B sharing a field), absence (no event in window), percentile_alarm (Pxx exceeds threshold), sequence (A then B in order).",
+		"coral_remove_correlation": "Remove an active correlation descriptor from the agent. Use this when the investigation condition is no longer needed or when the descriptor was deployed in error.",
+		"coral_list_correlations":  "List all active correlation descriptors across the agent mesh. Use this to review what pattern-detection rules are currently deployed before adding new ones or after an investigation.",
+		// RFD 093: Inline TypeScript execution
+		"coral_run": "Execute TypeScript using the Coral SDK and return structured output. IMPORTANT: Before writing code, you MUST read coral://sdk/reference to discover available SDK primitives and built-in skills. Write progress messages to stderr (console.error) and the final JSON result to stdout (console.log). Only stdout is returned to you.",
 	}
 }
 
@@ -342,6 +358,11 @@ func (s *Server) registerTools() error {
 	// Register probe filter update tool (RFD 090).
 	s.registerUpdateProbeFilterTool()
 
+	// Register correlation DSL tools (RFD 091).
+	s.registerDeployCorrelationTool()
+	s.registerRemoveCorrelationTool()
+	s.registerListCorrelationsTool()
+
 	// Register function discovery and profiling tools (RFD 069).
 	// These replace coral_search_functions, coral_get_function_context, and coral_list_probeable_functions.
 	s.registerDiscoverFunctionsTool()
@@ -351,6 +372,10 @@ func (s *Server) registerTools() error {
 	s.registerDebugCPUProfileTool()
 	s.registerQueryMemoryProfileTool()
 	s.registerProfileMemoryTool()
+
+	// Register inline TypeScript execution tool and SDK reference resource (RFD 093).
+	s.registerRunTool()
+	s.registerSDKReferenceResource()
 
 	// TODO: Register analysis tools.
 	// s.registerCorrelateEventsTool()
@@ -384,11 +409,17 @@ func (s *Server) listToolNames() []string {
 		"coral_detach_uprobe",
 		"coral_get_debug_results",
 		"coral_update_probe_filter",
+		// RFD 091: Probe correlation DSL tools
+		"coral_deploy_correlation",
+		"coral_remove_correlation",
+		"coral_list_correlations",
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions",
 		"coral_profile_functions",
 		// RFD 074: Profiling-enriched debugging
 		"coral_debug_cpu_profile",
+		// RFD 093: Inline TypeScript execution
+		"coral_run",
 	}
 }
 

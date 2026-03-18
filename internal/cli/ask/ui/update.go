@@ -72,6 +72,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Conversation saved successfully, nothing to do.
 		return m, nil
 
+	case LoadConversationMsg:
+		// Switch to the selected conversation (sent by coral terminal sidebar).
+		m.conversation = msg.History
+		m.conversationID = msg.ConversationID
+		m.currentState = stateIdle
+		m.input.Reset()
+		return m, nil
+
 	case errorMsg:
 		m.lastError = msg.err
 		m.currentState = stateError
@@ -148,8 +156,10 @@ func (m Model) handleInlineCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "/clear":
-		// Clear screen by resetting conversation display.
-		// (actual conversation history remains intact)
+		// Clear the displayed conversation and reset the agent's in-memory
+		// context so the next query starts fresh.
+		m.conversation = nil
+		m.agent.ResetConversation(m.conversationID)
 		m.input.Reset()
 		return m, tea.ClearScreen
 
@@ -158,6 +168,11 @@ func (m Model) handleInlineCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	default:
+		// Delegate to the external command handler (e.g. /browser in coral terminal).
+		if m.commandHandler != nil {
+			m.input.Reset()
+			return m, m.commandHandler(strings.ToLower(strings.TrimSpace(cmd)))
+		}
 		m.lastError = fmt.Errorf("unknown command: %s (try /help)", cmd)
 		m.currentState = stateError
 		m.input.Reset()
@@ -171,7 +186,7 @@ func (m *Model) showHelp() {
 
 **Available commands:**
 - /help      - Show this help message
-- /clear     - Clear the screen
+- /clear     - Clear conversation history and start fresh
 - /exit      - Exit interactive session
 
 **Natural language queries:**

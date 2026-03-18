@@ -86,7 +86,7 @@ feature:
     option: value
 ```
 
-## Implementation Plan (Optional)
+## Implementation Plan
 
 **IMPORTANT:** Do NOT include time estimates (weeks, hours, days). Focus on
 deliverable phases and concrete, testable tasks.
@@ -210,14 +210,14 @@ Feature Result:
 
 ## Implementation Status
 
-**Core Capability:** ✅ Complete | 🔄 In Progress | ⏳ Not Started
+**Core Capability:** 🎉 Implemented | 🔄 In Progress | ⏳ Not Started
 
 [Describe the current state of implementation. Focus on what works now, not what's missing.]
 
 Example:
 
 ```
-**Core Capability:** ✅ Complete
+**Core Capability:** 🎉 Implemented
 
 Agent trace collection implemented with OpenTelemetry support. Agents can
 discover apps via service registry and collect traces automatically.

@@ -103,6 +103,46 @@ coral agent stop
 
 ---
 
+## Mesh Diagnostics
+
+```bash
+# Verify end-to-end mesh connectivity (encrypted UDP ping via Colony)
+coral mesh ping [agent-id] [--count <n>] [--timeout <duration>] [--colony <id>]
+
+# Audit NAT topology: compare Colony's live observations vs agent STUN endpoints
+coral mesh audit [agent-id] [--format <format>] [--colony <id>]
+```
+
+**`coral mesh ping`** sends encrypted UDP pings from the Colony to one or all
+agents through the WireGuard mesh and reports round-trip latency and packet
+loss. No ICMP or OS-level tools required.
+
+**`coral mesh audit`** cross-references two data sources to classify each
+agent's NAT situation without any external tooling:
+
+| NAT Type | Meaning |
+|---|---|
+| `direct` | Cone NAT or public IP — port preserved, stable |
+| `symmetric` | Port differs per destination — WireGuard roaming handles it, no action usually needed |
+| `roaming` | No STUN at registration — Colony learns endpoint from incoming packets only |
+| `no_handshake` | Agent never successfully sent a packet through the mesh |
+| `unexpected` | Different observed IP — possible double NAT or carrier-grade NAT |
+
+```bash
+# Examples
+coral mesh ping                          # Ping all agents
+coral mesh ping prod-agent-01 -n 10      # 10 pings to one agent
+coral mesh audit                         # Audit all agents
+coral mesh audit prod-agent-01           # Audit one agent
+coral mesh audit -o json                 # JSON output for scripting
+coral mesh audit -o json | jq '.[] | select(.nat_type == "symmetric")'
+```
+
+See **[WIREGUARD_TROUBLESHOOTING.md](WIREGUARD_TROUBLESHOOTING.md)** for
+detailed interpretation of results and remediation steps.
+
+---
+
 ## Service Connections
 
 ```bash
@@ -126,6 +166,74 @@ coral connect frontend:3000 api:8080:/health  # Multiple services
 # Legacy syntax (single service)
 coral connect <name> --port <port> [--health <path>]
 ```
+
+---
+
+## Terminal (Mission-Control TUI)
+
+`coral terminal` is a rich multi-pane TUI for Coral sessions (RFD 094). It
+embeds the conversation UI alongside a live sidebar and opens a browser
+dashboard for rich skill visualisations.
+
+```bash
+# Launch the terminal TUI
+coral terminal [--colony <id>] [--model <provider:model>] [--auto-browser]
+
+# Flags:
+#   --colony <id>       Colony to connect to (default: from config)
+#   --model <name>      Override LLM model
+#   --auto-browser      Open browser dashboard automatically at launch
+#   --debug             Enable debug logging to stderr
+
+# Examples:
+coral terminal
+coral terminal --auto-browser
+coral terminal --colony my-colony --model anthropic:claude-sonnet-4-6
+```
+
+**Layout:**
+
+```
+┌─ ● prod-us-east  ·  12 agents (11✓  1✗)  ·  8 services  ·  sonnet-4-6 ─────┐
+│ Services (8)     │ Conversation pane (coral ask)                           │
+│ ──────────────── │                                                         │
+│ ● frontend  3/3  │                                                         │
+│ ● payment   5/5  │                                                         │
+│ ✗ notif-svc 0/1  │                                                         │
+│ Agents (12)      │                                                         │
+│ ✓ 11  ✗ 1        │                                                         │
+│ Sessions (3)     │                                                         │
+│ ▶ (current)      │                                                         │
+│   09:15 yesterday│                                                         │
+├──────────────────┴──────────────────────────────────────────────────────── │
+│ [Tab] switch pane  [/browser] http://localhost:PORT  [Ctrl+D] quit [main]  │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Keybindings:**
+
+| Key                 | Action                             |
+|---------------------|------------------------------------|
+| `Tab`               | Cycle focus: main pane ↔ sidebar   |
+| `↑` / `↓` (sidebar) | Navigate session list              |
+| `Enter` (sidebar)   | Load selected session in main pane |
+| `Ctrl+D`            | Exit terminal                      |
+| `Ctrl+C`            | Cancel current LLM query           |
+
+**Inline commands** (type in the conversation input):
+
+| Command    | Action                     |
+|------------|----------------------------|
+| `/browser` | Open browser dashboard     |
+| `/clear`   | Clear conversation display |
+| `/help`    | Show help                  |
+| `/exit`    | Exit terminal              |
+
+**Browser dashboard:**
+
+The dashboard is served at `http://localhost:<ephemeral-port>` and receives
+`RenderEvent`s over WebSocket when skills emit a `render` field in their
+`SkillResult`. Supported panel types: `table`, `bar`, `timeseries`.
 
 ---
 

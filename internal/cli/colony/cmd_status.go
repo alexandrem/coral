@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -19,6 +20,7 @@ func newStatusCmd() *cobra.Command {
 	var (
 		format   string
 		colonyID string
+		detail   bool
 	)
 
 	cmd := &cobra.Command{
@@ -123,6 +125,16 @@ This command is useful for troubleshooting connectivity issues.`,
 					networkEndpoints["public_endpoint"] = runtimeStatus.PublicEndpointUrl
 				}
 				output["network_endpoints"] = networkEndpoints
+
+				if runtimeStatus.Wireguard != nil {
+					// Merge dynamic telemetry into wireguard object
+					wgMap, _ := output["wireguard"].(map[string]interface{})
+					if wgMap == nil {
+						wgMap = make(map[string]interface{})
+					}
+					wgMap["telemetry"] = runtimeStatus.Wireguard
+					output["wireguard"] = wgMap
+				}
 			} else {
 				output["status"] = "configured"
 			}
@@ -158,6 +170,14 @@ This command is useful for troubleshooting connectivity issues.`,
 					agentCountStr = fmt.Sprintf("%d connected (✓%d ⚠%d)", runtimeStatus.AgentCount, runtimeStatus.ActiveAgentCount, runtimeStatus.DegradedAgentCount)
 				}
 				fmt.Printf("  Agents:        %s\n", agentCountStr)
+
+				var peerCount int
+				if runtimeStatus.Wireguard != nil && runtimeStatus.Wireguard.Status != nil {
+					peerCount = len(runtimeStatus.Wireguard.Status.Peers)
+				}
+				if peerCount > 0 {
+					fmt.Printf("  Mesh Peers:    %d connected (WireGuard)\n", peerCount)
+				}
 
 				if runtimeStatus.StorageBytes > 0 {
 					fmt.Printf("  Storage Used:  %s\n", formatBytes(runtimeStatus.StorageBytes))
@@ -230,6 +250,11 @@ This command is useful for troubleshooting connectivity issues.`,
 
 			if runtimeStatus != nil {
 				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)
+
+				if detail && runtimeStatus.Wireguard != nil {
+					fmt.Println()
+					printMeshStatus(runtimeStatus.Wireguard)
+				}
 			} else {
 				fmt.Println("Status: Colony is configured (not running)")
 				fmt.Println()
@@ -248,6 +273,40 @@ This command is useful for troubleshooting connectivity issues.`,
 		helpers.FormatYAML,
 	})
 	helpers.AddColonyFlag(cmd, &colonyID)
+	cmd.Flags().BoolVar(&detail, "detail", false, "Show detailed mesh configuration including peer endpoints")
 
 	return cmd
+}
+
+// printMeshStatus formats and prints WireGuard mesh telemetry natively for colony.
+func printMeshStatus(info *networkv1.MeshTelemetry) {
+	fmt.Println("Live Mesh Peers Information:")
+
+	if info.Status == nil {
+		fmt.Println("  WireGuard details unavailable")
+		return
+	}
+
+	peers := info.Status.Peers
+	if len(peers) == 0 {
+		fmt.Println("  Connected Peers: 0")
+		return
+	}
+
+	fmt.Printf("  Connected Peers: %d\n", len(peers))
+	for _, p := range peers {
+		fmt.Printf("    - %s\n", p.PublicKey)
+		if p.Endpoint != "" {
+			fmt.Printf("        Endpoint:   %s\n", p.Endpoint)
+		}
+		if p.RxBytes > 0 {
+			fmt.Printf("        Rx Bytes:   %d\n", p.RxBytes)
+		}
+		if p.TxBytes > 0 {
+			fmt.Printf("        Tx Bytes:   %d\n", p.TxBytes)
+		}
+		if p.LastHandshakeTime != "" {
+			fmt.Printf("        Handshake:  %s\n", p.LastHandshakeTime)
+		}
+	}
 }

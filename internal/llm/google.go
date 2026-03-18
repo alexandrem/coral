@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/google/generative-ai-go/genai"
 	"github.com/mark3labs/mcp-go/mcp"
 	"google.golang.org/api/option"
+
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // GoogleProvider implements the Provider interface for Google AI (Gemini).

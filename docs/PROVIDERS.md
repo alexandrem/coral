@@ -9,22 +9,20 @@ This document provides technical details about LLM provider support for the
 |---------------|-------------|------------------|----------------------|------------------|-------------|--------------------------------------|
 | **Google**    | ✅ Supported | ✅ Full           | Direct SDK (`genai`) | Yes              | Cloud       | Currently supported, all models work |
 | **OpenAI**    | ✅ Supported | ✅ Full           | Direct SDK (`openai-go`) | Yes          | Cloud       | OpenAI-compatible API support        |
-| **Anthropic** | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | Yes              | Cloud       | Native MCP support possible          |
-| **Ollama**    | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | No               | Local       | Best for air-gapped/offline          |
+| **Anthropic** | ✅ Supported | ✅ Full           | Direct SDK (`anthropic-sdk-go`) | Yes   | Cloud       | Claude Sonnet, Opus, Haiku           |
+| **Ollama**    | ✅ Supported | ✅ Full           | OpenAI-compatible API (`openai-go`) | No  | Local       | Any locally-installed model          |
 | **Grok**      | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | Yes              | Cloud       | Implementation needed                |
 
 ### Quick Recommendations
 
 **Currently Supported:**
 
-- **Google**: `google:gemini-3-fast` - Fast responses
+- **Anthropic**: `anthropic:claude-sonnet-4-6` - Best for everyday tasks (recommended)
+- **Anthropic**: `anthropic:claude-opus-4-6` - Most capable for complex tasks
+- **Google**: `google:gemini-2.0-flash` - Fast responses
 - **OpenAI**: `openai:gpt-4o` - High quality reasoning
 - **OpenAI**: `openai:gpt-4o-mini` - Fast, cost-effective
-
-**Coming Soon:**
-
-- Anthropic (`claude-3-5-sonnet-20241022`) - Native MCP support possible
-- Ollama (local models) - For air-gapped/offline deployments
+- **Ollama**: `ollama:llama3.2` - Local models (no API key, no data leaves your machine)
 
 ## Current Status
 
@@ -62,36 +60,102 @@ The OpenAI provider uses the official OpenAI Go SDK and supports:
 - `openai:gpt-4o` - GPT-4o (high quality reasoning)
 - `openai:gpt-4o-mini` - GPT-4o-mini (fast, cost-effective)
 
+### Anthropic - ✅ Fully Supported
+
+**Implementation**: `internal/llm/anthropic.go`
+**SDK**: `github.com/anthropics/anthropic-sdk-go`
+**Status**: ✅ Production-ready
+
+The Anthropic provider uses the official Anthropic Go SDK and supports:
+
+- Full MCP tool calling integration
+- Streaming responses
+- Multi-turn conversations with tool call correlation
+- System prompt support
+
+**Supported Models:**
+
+- `anthropic:claude-sonnet-4-6` - Best for everyday tasks (recommended)
+- `anthropic:claude-opus-4-6` - Most capable for complex tasks
+- `anthropic:claude-haiku-4-5-20251001` - Fastest and most compact
+- `anthropic:claude-3-5-sonnet-20241022` - Previous generation balanced model
+
+**Configuration:**
+
+```yaml
+ai:
+    ask:
+        default_model: "anthropic:claude-sonnet-4-6"
+        api_keys:
+            anthropic: "env://ANTHROPIC_API_KEY"
+```
+
+**Getting an Anthropic API Key:**
+
+1. Visit [Anthropic Console](https://console.anthropic.com/settings/keys)
+2. Create a new API key
+3. Set the environment variable:
+
+```bash
+export ANTHROPIC_API_KEY=your-api-key-here
+```
+
+**Tool Integration**: MCP tools are converted to Anthropic's tool use format via
+`ToolUnionParam`, passing the raw JSON Schema directly using `param.Override`.
+
+---
+
+### Ollama - ✅ Fully Supported
+
+**Implementation**: `internal/llm/ollama.go`
+**SDK**: OpenAI-compatible API via `openai-go` (Ollama exposes `/v1`)
+**Status**: ✅ Production-ready
+
+The Ollama provider runs entirely on your machine — no API key, no data sent to
+the cloud. It wraps Ollama's OpenAI-compatible endpoint using the existing
+OpenAI provider with a configurable base URL.
+
+**Supported Models (any locally-installed model works):**
+
+- `ollama:llama3.2` - Meta's Llama 3.2 (recommended)
+- `ollama:llama3.1` - Meta's Llama 3.1
+- `ollama:qwen2.5-coder` - Alibaba's code-focused model
+- `ollama:mistral` - Mistral 7B
+- `ollama:codellama` - Meta's Code Llama
+
+**Configuration:**
+
+```yaml
+ai:
+    ask:
+        default_model: "ollama:llama3.2"
+        api_keys:
+            ollama: "http://localhost:11434"  # Optional: override base URL
+```
+
+**Base URL resolution** (highest to lowest precedence):
+
+1. `api_keys.ollama` in coral config
+2. `OLLAMA_HOST` environment variable
+3. Default: `http://localhost:11434/v1`
+
+**Getting started:**
+
+```bash
+# Install Ollama from https://ollama.com
+ollama pull llama3.2
+coral ask "why is my service slow?" --model ollama:llama3.2
+```
+
+**Tool Integration**: Passes through to OpenAI-compatible tool calling. Tool
+support depends on the specific model; `llama3.2` and `qwen2.5-coder` have
+solid tool calling support.
+
+---
+
 ### Other Providers - 🚧 Not Yet Implemented
 
 The following providers are planned but not yet implemented:
-
-#### Anthropic - 🚧 Planned
-
-**Estimated Effort**: Medium
-**SDK**: `github.com/anthropics/anthropic-sdk-go`
-**Tool Format**: Anthropic tool use API
-
-Anthropic's Claude models have excellent reasoning capabilities for debugging:
-
-- Claude 3.5 Sonnet (best reasoning)
-- Native tool calling support
-- Extended thinking mode available
-- Prompt caching for efficiency
-
-#### Ollama - 🚧 Planned
-
-**Estimated Effort**: Medium
-**SDK**: HTTP API or community SDK
-**Tool Format**: Ollama tool calling
-
-Critical for:
-
-- Air-gapped deployments
-- Offline development
-- Local testing without API costs
-
-Models: llama3.2, mistral, codellama, etc.
 
 #### Grok (xAI) - 🚧 Planned
 
@@ -160,6 +224,36 @@ ai:
             openai: "env://OPENAI_API_KEY"
 ```
 
+**Base URL resolution** (highest to lowest precedence):
+
+1. `base_urls.openai` in coral config
+2. `OPENAI_BASE_URL` environment variable
+3. Default: OpenAI public API (`https://api.openai.com/v1`)
+
+### OpenAI-compatible endpoints
+
+Any OpenAI-compatible API can be used by setting a custom base URL. This
+includes self-hosted inference servers (vLLM, LocalAI), third-party compatible
+APIs (Groq, Together, Fireworks), and Azure OpenAI.
+
+```yaml
+ai:
+    ask:
+        default_model: "openai:llama-3.1-8b-instant"
+        api_keys:
+            openai: "env://GROQ_API_KEY"
+        base_urls:
+            openai: "https://api.groq.com/openai/v1"
+```
+
+Or via environment variable:
+
+```bash
+export OPENAI_BASE_URL=https://my-vllm-endpoint.internal/v1
+export OPENAI_API_KEY=my-api-key
+coral ask "why is my service slow?" --model openai:my-model
+```
+
 ### Getting an OpenAI API Key
 
 1. Visit [OpenAI Platform](https://platform.openai.com/api-keys)
@@ -184,6 +278,8 @@ The OpenAI provider (`internal/llm/openai.go`) implements:
 
 ## Recommendations
 
-- Use `google:gemini-3-fast` for fast, cost-effective queries
-- Use `openai:gpt-4o` for high-quality reasoning
+- Use `anthropic:claude-sonnet-4-6` for everyday debugging (recommended default)
+- Use `anthropic:claude-opus-4-6` for complex multi-step analysis
+- Use `google:gemini-2.0-flash` for fast, cost-effective queries
 - Use `openai:gpt-4o-mini` for a balance of speed and quality
+- Use `ollama:llama3.2` for air-gapped or offline deployments

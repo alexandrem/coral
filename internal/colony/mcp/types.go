@@ -234,3 +234,67 @@ type ProfileMemoryInput struct {
 	DurationSeconds *int32 `json:"duration_seconds,omitempty" jsonschema:"description=Profiling duration in seconds (default: 30, max: 300)"`
 	SampleRateBytes *int32 `json:"sample_rate_bytes,omitempty" jsonschema:"description=Allocation sampling rate in bytes (default: 524288 = 512KB)"`
 }
+
+// RFD 091 - Probe Correlation DSL Tools
+
+// DeployCorrelationInput is the input for coral_deploy_correlation (RFD 091).
+// The LLM selects a strategy, provides the probe sources, and configures the
+// action to take when the condition fires.
+type DeployCorrelationInput struct {
+	// Service is the target service to deploy the correlation on.
+	Service string `json:"service" jsonschema:"description=Service name to deploy the correlation on (required)"`
+
+	// Strategy selects the temporal correlation pattern.
+	Strategy string `json:"strategy" jsonschema:"description=Correlation strategy,enum=rate_gate,enum=edge_trigger,enum=causal_pair,enum=absence,enum=percentile_alarm,enum=sequence"`
+
+	// Probe is the primary function name for rate_gate, edge_trigger, absence,
+	// percentile_alarm, and sequence (source A).
+	Probe *string `json:"probe,omitempty" jsonschema:"description=Primary function name to probe (e.g. 'db.Query'\\, 'handleCheckout'). Used by all strategies except causal_pair."`
+
+	// FilterExpr is an optional CEL expression applied to each event from Probe.
+	// Available fields: event.duration_ns, event.pid, event.tid, event.function_name.
+	FilterExpr *string `json:"filter_expr,omitempty" jsonschema:"description=Optional CEL filter for the primary probe (e.g. 'event.duration_ns > 100000000' for >100ms). Leave empty to match all events."`
+
+	// ProbeA and ProbeB are the two sources for causal_pair and sequence.
+	ProbeA      *string `json:"probe_a,omitempty" jsonschema:"description=Source A function name (causal_pair and sequence strategies only)"`
+	FilterExprA *string `json:"filter_expr_a,omitempty" jsonschema:"description=Optional CEL filter for source A"`
+	ProbeB      *string `json:"probe_b,omitempty" jsonschema:"description=Source B function name (causal_pair and sequence strategies only)"`
+	FilterExprB *string `json:"filter_expr_b,omitempty" jsonschema:"description=Optional CEL filter for source B"`
+
+	// JoinOn is the event field used to correlate events across source A and B.
+	// Required for causal_pair.
+	JoinOn *string `json:"join_on,omitempty" jsonschema:"description=Field name to join events across sources (causal_pair only\\, e.g. 'trace_id')"`
+
+	// Window is the sliding time window as a Go duration string (e.g., "500ms", "5s").
+	Window *string `json:"window,omitempty" jsonschema:"description=Sliding time window as a duration (e.g. '500ms'\\, '5s'\\, '30s'). Required for rate_gate\\, causal_pair\\, percentile_alarm\\, sequence."`
+
+	// Threshold is the event count for rate_gate (fire when count >= threshold)
+	// or the numeric value threshold for percentile_alarm.
+	Threshold *float64 `json:"threshold,omitempty" jsonschema:"description=Trigger threshold: event count for rate_gate (e.g. 3)\\, or numeric value for percentile_alarm (e.g. 500000000 for 500ms in nanoseconds)"`
+
+	// Field is the numeric event field name used by percentile_alarm.
+	Field *string `json:"field,omitempty" jsonschema:"description=Numeric event field for percentile_alarm (e.g. 'duration_ns')"`
+
+	// Percentile is the percentile level for percentile_alarm (0.0–1.0).
+	Percentile *float64 `json:"percentile,omitempty" jsonschema:"description=Percentile level for percentile_alarm (0.0–1.0\\, e.g. 0.99 for P99)"`
+
+	// Action defines what the agent does when the condition fires.
+	Action string `json:"action" jsonschema:"description=Action when condition fires,enum=emit_event,enum=goroutine_snapshot,enum=cpu_profile"`
+
+	// ProfileDurationMs controls how long a CPU profile is captured.
+	ProfileDurationMs *uint32 `json:"profile_duration_ms,omitempty" jsonschema:"description=CPU profile capture duration in milliseconds (cpu_profile action only\\, default: 30000)"`
+
+	// CooldownMs is the minimum interval between consecutive firings (default: 5000).
+	CooldownMs *uint32 `json:"cooldown_ms,omitempty" jsonschema:"description=Minimum interval between firings in milliseconds (default: 5000\\, minimum enforced: 1000)"`
+}
+
+// RemoveCorrelationInput is the input for coral_remove_correlation (RFD 091).
+type RemoveCorrelationInput struct {
+	CorrelationID string  `json:"correlation_id" jsonschema:"description=Correlation descriptor ID to remove"`
+	Service       *string `json:"service,omitempty" jsonschema:"description=Service name (optional\\, speeds up agent lookup)"`
+}
+
+// ListCorrelationsInput is the input for coral_list_correlations (RFD 091).
+type ListCorrelationsInput struct {
+	Service *string `json:"service,omitempty" jsonschema:"description=Optional: filter by service name"`
+}

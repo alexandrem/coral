@@ -204,7 +204,7 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 		profilingConfig.TopKHotspots = int(*input.TopK)
 	}
 
-	ebpfService := colony.NewEbpfQueryServiceWithConfig(s.db, profilingConfig)
+	ebpfService := colony.NewEbpfQueryServiceWithConfig(s.db, profilingConfig, s.logger)
 	results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
 	if err != nil {
 		return "", fmt.Errorf("failed to query summary: %w", err)
@@ -741,7 +741,7 @@ func (s *Server) generateTracesOutput(ctx context.Context, input UnifiedTracesIn
 		traceID = *input.TraceID
 	}
 
-	ebpfService := colony.NewEbpfQueryService(s.db)
+	ebpfService := colony.NewEbpfQueryService(s.db, s.logger)
 	spans, err := ebpfService.QueryUnifiedTraces(ctx, traceID, serviceName, startTime, endTime, 0, 10)
 	if err != nil {
 		return "", fmt.Errorf("failed to query traces: %w", err)
@@ -827,7 +827,7 @@ func (s *Server) generateMetricsOutput(ctx context.Context, input UnifiedMetrics
 		serviceName = *input.Service
 	}
 
-	ebpfService := colony.NewEbpfQueryService(s.db)
+	ebpfService := colony.NewEbpfQueryService(s.db, s.logger)
 	metrics, err := ebpfService.QueryUnifiedMetrics(ctx, serviceName, startTime, endTime)
 	if err != nil {
 		return "", fmt.Errorf("failed to query metrics: %w", err)

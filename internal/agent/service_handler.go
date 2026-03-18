@@ -7,12 +7,17 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
+
+// MeshInfoProvider is a callback that fetches live WireGuard/mesh statistics for parity with the /status endpoint.
+type MeshInfoProvider func() map[string]interface{}
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
 type ServiceHandler struct {
@@ -24,6 +29,7 @@ type ServiceHandler struct {
 	functionCache        *FunctionCache
 	systemMetricsHandler *SystemMetricsHandler
 	sessionID            string // Database session UUID for checkpoint tracking (RFD 089).
+	meshInfoProvider     MeshInfoProvider
 }
 
 // NewServiceHandler creates a new service handler.
@@ -44,15 +50,29 @@ func (h *ServiceHandler) SetSessionID(sessionID string) {
 	h.sessionID = sessionID
 }
 
+// SetMeshInfoProvider sets the callback used for providing mesh metrics dynamically in GetRuntimeContext.
+func (h *ServiceHandler) SetMeshInfoProvider(provider MeshInfoProvider) {
+	h.meshInfoProvider = provider
+}
+
 // GetRuntimeContext implements the GetRuntimeContext RPC.
 func (h *ServiceHandler) GetRuntimeContext(
 	ctx context.Context,
 	req *connect.Request[agentv1.GetRuntimeContextRequest],
 ) (*connect.Response[agentv1.RuntimeContextResponse], error) {
 	// Delegate to runtime service.
-	resp, err := h.runtimeService.GetRuntimeContext(ctx, req.Msg)
+	cachedResp, err := h.runtimeService.GetRuntimeContext(ctx, req.Msg)
 	if err != nil {
 		return nil, err
+	}
+
+	resp := proto.Clone(cachedResp).(*agentv1.RuntimeContextResponse)
+
+	// Fetch dynamic mesh telemetry and map to strictly typed Protobuf struct
+	if h.meshInfoProvider != nil {
+		if meshInfo := h.meshInfoProvider(); meshInfo != nil {
+			resp.Wireguard = wireguard.MapToMeshTelemetryProto(meshInfo)
+		}
 	}
 
 	return connect.NewResponse(resp), nil

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package coral.network.v1;
+
+option go_package = "github.com/coral-mesh/coral/coral/network/v1;networkv1";
+
+// MeshTelemetry contains detailed state of the mesh network interface.
+message MeshTelemetry {
+  string mesh_ip = 1;
+  string mesh_subnet = 2;
+  string public_key = 3;
+  int32 listen_port = 4;
+  repeated string endpoints = 5;
+  WireGuardTelemetry status = 6;
+}
+
+// WireGuardTelemetry contains statistics and state of the WireGuard instance.
+message WireGuardTelemetry {
+  bool interface_exists = 1;
+  string link_status = 2;
+  repeated WireGuardPeer peers = 3;
+}
+
+// WireGuardPeer represents a connected peer within the mesh.
+message WireGuardPeer {
+  string public_key = 1;
+  string endpoint = 2;
+  int64 rx_bytes = 3;
+  int64 tx_bytes = 4;
+  string last_handshake_time = 5;
+}

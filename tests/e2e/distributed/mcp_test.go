@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -1338,6 +1339,80 @@ func (s *MCPSuite) TestMCPToolListIncludesMemoryProfilingTools() {
 	s.Require().True(foundProfileMemory, "coral_profile_memory should be in tool list")
 
 	s.T().Log("✓ Memory profiling tools found in tool list")
+}
+
+// TestMCPToolCoralRun tests the coral_run MCP tool (RFD 093).
+//
+// Validates:
+// - coral_run is registered in the tool list with code and timeout parameters
+// - A simple inline TypeScript script executes successfully
+// - The tool returns captured stdout as the tool result
+// - A script using the @coral/sdk can list services and return a SkillResult
+func (s *MCPSuite) TestMCPToolCoralRun() {
+	s.T().Log("Testing coral_run MCP tool (RFD 093)...")
+
+	s.ensureServicesConnected()
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Verify coral_run is listed in available tools.
+	listResp, err := proxy.ListTools()
+	s.Require().NoError(err, "tools/list should succeed")
+
+	foundCoralRun := false
+	for _, tool := range listResp.Tools {
+		if tool.Name == "coral_run" {
+			foundCoralRun = true
+			s.T().Logf("Found tool: %s", tool.Name)
+			// Verify schema has the code parameter.
+			if props, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+				_, hasCode := props["code"]
+				_, hasTimeout := props["timeout"]
+				s.Assert().True(hasCode, "Schema should have code property")
+				s.Assert().True(hasTimeout, "Schema should have timeout property")
+			}
+		}
+	}
+	s.Require().True(foundCoralRun, "coral_run should be in tool list")
+
+	// Execute a simple script using @coral/sdk: list services and return a SkillResult.
+	script := `
+import * as coral from "@coral/sdk";
+
+const services = await coral.services.list();
+const result = {
+  summary: "Listed " + services.length + " service(s)",
+  status: "healthy",
+  data: { service_count: services.length },
+};
+console.log(JSON.stringify(result));
+`
+
+	callResp, err := proxy.CallTool("coral_run", map[string]interface{}{
+		"code":    script,
+		"timeout": 30,
+	}, 100)
+	s.Require().NoError(err, "coral_run should succeed")
+	s.Require().NotEmpty(callResp.Content, "Response should have content")
+	s.Require().False(callResp.IsError, "Tool result should not be an error")
+
+	text := callResp.Content[0].Text
+	s.T().Logf("coral_run result: %s", text)
+
+	// Parse and validate the SkillResult shape.
+	var result map[string]interface{}
+	s.Require().NoError(json.Unmarshal([]byte(text), &result), "Result should be valid JSON")
+	s.Assert().NotEmpty(result["summary"], "Result should have a summary field")
+	s.Assert().NotEmpty(result["status"], "Result should have a status field")
+	_, hasData := result["data"]
+	s.Assert().True(hasData, "Result should have a data field")
+
+	s.T().Log("✓ coral_run tool executed successfully with SkillResult output")
 }
 
 // =============================================================================

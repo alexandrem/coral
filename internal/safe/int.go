@@ -70,3 +70,36 @@ func Uint64ToInt32(val uint64) (int32, bool) {
 	}
 	return int32(val), false
 }
+
+// Int64ToUint64 safely converts an int64 value to uint64, clamping to zero
+// if the value is negative.
+// Returns the converted value and a boolean indicating whether clamping occurred.
+func Int64ToUint64(val int64) (uint64, bool) {
+	if val < 0 {
+		return 0, true // clamped because negative
+	}
+	return uint64(val), false
+}
+
+// IntToUint32 safely converts an int value to uint32, clamping to zero if negative
+// or to math.MaxUint32 if the value exceeds uint32 range.
+// Returns the converted value and a boolean indicating whether clamping occurred.
+func IntToUint32(val int) (uint32, bool) {
+	if val < 0 {
+		return 0, true // clamped because negative
+	}
+	if val > math.MaxUint32 {
+		return math.MaxUint32, true
+	}
+	return uint32(val), false
+}
+
+// Int32ToUint64 safely converts an int32 value to uint64, clamping to zero
+// if the value is negative.
+// Returns the converted value and a boolean indicating whether clamping occurred.
+func Int32ToUint64(val int32) (uint64, bool) {
+	if val < 0 {
+		return 0, true // clamped because negative
+	}
+	return uint64(val), false
+}

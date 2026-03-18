@@ -7,6 +7,7 @@ import "coral/mesh/v1/auth.proto";
 import "coral/agent/v1/agent.proto";
 import "coral/colony/v1/mcp.proto";
 import "coral/colony/v1/queries.proto";
+import "coral/network/v1/network.proto";
 
 option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
 
@@ -55,6 +56,14 @@ service ColonyService {
 
   // Get CA status and fingerprint (RFD 047).
   rpc GetCAStatus(GetCAStatusRequest) returns (GetCAStatusResponse);
+
+  // Troubleshoot the WireGuard-based control mesh (RFD 097).
+  // Colony pings agents through the mesh and returns statistics.
+  rpc MeshPing(MeshPingRequest) returns (MeshPingResponse);
+
+  // Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
+  // against agent-announced STUN endpoints at registration.
+  rpc MeshAudit(MeshAuditRequest) returns (MeshAuditResponse);
 }
 
 message GetStatusRequest {}
@@ -115,6 +124,9 @@ message GetStatusResponse {
   // Public endpoint URL (RFD 031).
   // Empty if public endpoint is not enabled.
   string public_endpoint_url = 18;
+
+  // Structured mesh info (parity with /status).
+  coral.network.v1.MeshTelemetry wireguard = 19;
 }
 
 message ListAgentsRequest {}
@@ -240,4 +252,71 @@ message GetCAStatusResponse {
     int32 revoked = 3;
   }
   Stats statistics = 6;
+}
+
+message MeshPingRequest {
+  // Target agent ID. If empty, pings all connected agents.
+  string agent_id = 1;
+
+  // Number of pings to send for each agent.
+  int32 count = 2;
+
+  // Timeout for each ping response in milliseconds.
+  int32 timeout_ms = 3;
+}
+
+message MeshPingResponse {
+  message AgentPingResult {
+    string agent_id = 1;
+    string mesh_ip = 2;
+    int32 sent = 3;
+    int32 received = 4;
+    double packet_loss_percentage = 5;
+    double min_rtt_ms = 6;
+    double avg_rtt_ms = 7;
+    double max_rtt_ms = 8;
+    string error = 9;
+  }
+
+  repeated AgentPingResult results = 1;
+}
+
+message MeshAuditRequest {
+  // Target agent ID. If empty, audits all connected agents.
+  string agent_id = 1;
+}
+
+message MeshAuditResponse {
+  repeated MeshAuditAgentResult results = 1;
+}
+
+message MeshAuditAgentResult {
+  // Agent identifier.
+  string agent_id = 1;
+
+  // Agent's mesh IP.
+  string mesh_ip = 2;
+
+  // Endpoint Colony's WireGuard currently observes (live UAPI).
+  // Empty if no packets received yet.
+  string colony_observed_endpoint = 3;
+
+  // Endpoint the agent announced at registration (STUN-discovered).
+  // Empty if agent registered without STUN (roaming mode).
+  string agent_registered_endpoint = 4;
+
+  // NAT assessment: "direct", "symmetric", "roaming", "no_handshake", "unexpected", "error".
+  string nat_type = 5;
+
+  // Seconds since last WireGuard handshake. -1 if no handshake ever.
+  int64 handshake_age_seconds = 6;
+
+  // Bytes received by Colony from this agent.
+  int64 rx_bytes = 7;
+
+  // Bytes sent by Colony to this agent.
+  int64 tx_bytes = 8;
+
+  // Error message if this agent could not be assessed.
+  string error = 9;
 }

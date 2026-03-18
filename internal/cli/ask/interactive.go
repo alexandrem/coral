@@ -16,6 +16,16 @@ type agentAdapter struct {
 	agent *Agent
 }
 
+// NewUIAdapter returns a ui.Agent adapter wrapping the given Agent.
+// Used by coral terminal to embed the conversation UI in the terminal pane.
+func NewUIAdapter(agent *Agent) ui.Agent {
+	return &agentAdapter{agent: agent}
+}
+
+func (a *agentAdapter) ResetConversation(conversationID string) {
+	a.agent.ResetConversation(conversationID)
+}
+
 func (a *agentAdapter) AskWithChannel(ctx any, question, conversationID string, dryRun bool, ch chan<- any) (any, error) {
 	// Create a typed channel for AgentEvent.
 	eventChan := make(chan AgentEvent, 100)

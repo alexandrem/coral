@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -207,6 +208,64 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 		Err:    err,
 	}
 
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		result.ExitCode = exitErr.ExitCode()
+	}
+
+	return result
+}
+
+// RunCLIWithEnvAndStdin executes a coral CLI command with custom environment variables and standard input.
+func RunCLIWithEnvAndStdin(ctx context.Context, env map[string]string, stdin io.Reader, args ...string) *CLIResult {
+	coralBin := getCoralBinaryPath()
+	cmd := exec.CommandContext(ctx, coralBin, args...)
+
+	envMap := make(map[string]string)
+	safeVars := []string{
+		"HOME", "USER", "TMPDIR", "PATH", "TERM", "LANG", "LC_ALL", "TZ",
+		"CORAL_COLONY_ID", "CORAL_CONFIG",
+	}
+
+	for _, varName := range safeVars {
+		if value, ok := env[varName]; ok && value != "" {
+			envMap[varName] = value
+		} else if value := os.Getenv(varName); value != "" {
+			envMap[varName] = value
+		}
+	}
+
+	for key, value := range env {
+		found := false
+		for _, safeVar := range safeVars {
+			if key == safeVar {
+				found = true
+				break
+			}
+		}
+		if !found {
+			envMap[key] = value
+		}
+	}
+
+	coralDir := filepath.Dir(coralBin)
+	if currentPath, ok := envMap["PATH"]; ok {
+		envMap["PATH"] = coralDir + string(os.PathListSeparator) + currentPath
+	} else {
+		envMap["PATH"] = coralDir
+	}
+
+	cmd.Env = make([]string, 0, len(envMap))
+	for key, value := range envMap {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	cmd.Stdin = stdin
+	output, err := cmd.CombinedOutput()
+
+	result := &CLIResult{
+		Output: string(output),
+		Err:    err,
+	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		result.ExitCode = exitErr.ExitCode()
 	}
@@ -470,6 +529,19 @@ func ColonyAgentsJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interf
 	return agents, nil
 }
 
+// GetHealthyAgentID finds the first agent with 'healthy' status from the parsed JSON output.
+// Returns an empty string if no healthy agent is found.
+func GetHealthyAgentID(agents []map[string]interface{}) string {
+	for _, a := range agents {
+		if status, ok := a["status"].(string); ok && status == "healthy" {
+			if agentID, ok := a["agent_id"].(string); ok {
+				return agentID
+			}
+		}
+	}
+	return ""
+}
+
 // ColonyTokenCreate executes `coral colony token create` and returns the output.
 func ColonyTokenCreate(ctx context.Context, env map[string]string, tokenID, permissions string) *CLIResult {
 	args := []string{"colony", "token", "create", tokenID}
@@ -532,6 +604,18 @@ func QueryServicesJSON(ctx context.Context, env *CLITestEnv) ([]map[string]inter
 	}
 
 	return services, nil
+}
+
+// MeshPing executes `coral mesh ping` and returns the output.
+func MeshPing(ctx context.Context, env *CLITestEnv, agentID string, count int) *CLIResult {
+	args := []string{"mesh", "ping"}
+	if agentID != "" {
+		args = append(args, agentID)
+	}
+	if count > 0 {
+		args = append(args, "-n", fmt.Sprintf("%d", count))
+	}
+	return env.Run(ctx, args...)
 }
 
 // ConfigGetContexts executes `coral config get-contexts` and returns the output.
@@ -611,4 +695,35 @@ func (r *CLIResult) MustFail(t *testing.T) {
 	if !r.HasError() {
 		t.Fatalf("CLI command should have failed but succeeded\nOutput: %s", r.Output)
 	}
+}
+
+// DebugCorrelations executes `coral debug correlations [--service s]`.
+func DebugCorrelations(ctx context.Context, env *CLITestEnv, service string) *CLIResult {
+	args := []string{"debug", "correlations"}
+	if service != "" {
+		args = append(args, "--service", service)
+	}
+	return env.Run(ctx, args...)
+}
+
+// DebugCorrelationsJSON executes `coral debug correlations --format json` and parses the output.
+func DebugCorrelationsJSON(ctx context.Context, env *CLITestEnv, service string) (map[string]interface{}, error) {
+	args := []string{"debug", "correlations", "--format", "json"}
+	if service != "" {
+		args = append(args, "--service", service)
+	}
+	result := env.Run(ctx, args...)
+	if result.Err != nil {
+		return nil, fmt.Errorf("debug correlations failed: %w\nOutput: %s", result.Err, result.Output)
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(result.Output), &out); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON output: %w\nOutput: %s", err, result.Output)
+	}
+	return out, nil
+}
+
+// DebugCorrelationsRemove executes `coral debug correlations remove <id>`.
+func DebugCorrelationsRemove(ctx context.Context, env *CLITestEnv, correlationID string) *CLIResult {
+	return env.Run(ctx, "debug", "correlations", "remove", correlationID)
 }

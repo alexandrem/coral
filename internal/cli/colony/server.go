@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"time"
 
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
@@ -29,6 +32,23 @@ import (
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
+
+// registryAgentLookup adapts *registry.Registry to the httpapi.AgentLookup interface.
+type registryAgentLookup struct {
+	reg *registry.Registry
+}
+
+// GetAgent returns the WireGuard mesh IPv4 address for the given agent ID.
+func (r *registryAgentLookup) GetAgent(agentID string) (string, error) {
+	entry, err := r.reg.Get(agentID)
+	if err != nil {
+		return "", err
+	}
+	if entry.MeshIPv4 == "" {
+		return "", fmt.Errorf("agent %s has no mesh IP", agentID)
+	}
+	return entry.MeshIPv4, nil
+}
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
 // Returns the HTTP server, the token store (nil if public endpoint is disabled), and any error.
@@ -117,6 +137,17 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		PublicEndpointURL:  publicEndpointURL,
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+	colonySvc.SetMeshInfoProvider(func() map[string]interface{} {
+		return colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
+	})
+	colonySvc.SetWGStatsProvider(func() (*wireguard.DeviceStats, []*wireguard.PeerConfig) {
+		stats, err := wgDevice.GetStats()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to get WireGuard stats for audit")
+			return nil, wgDevice.ListPeers()
+		}
+		return stats, wgDevice.ListPeers()
+	})
 
 	// Load colony config early (needed by function registry, MCP, and other components).
 	mcpLoader, mcpErr := config.NewLoader()
@@ -191,7 +222,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 
 	// Initialize eBPF query service (RFD 035).
-	ebpfService := colony.NewEbpfQueryService(db)
+	ebpfService := colony.NewEbpfQueryService(db, logger)
 	colonySvc.SetEbpfService(ebpfService)
 	logger.Info().Msg("eBPF query service initialized and attached to colony")
 
@@ -232,22 +263,36 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	mux.Handle(debugPath, debugHandler)
 
 	// Add DuckDB HTTP handler for remote query (RFD 046).
+	// Handler is created separately from registration so it can be passed to the public endpoint.
 	duckdbHandler := duckdb.NewDuckDBHandler(logger.With().Str("component", "duckdb-handler").Logger())
+	var registeredDuckDB bool
 	if err := duckdbHandler.RegisterDatabase(filepath.Base(db.Path()), db.Path()); err != nil {
 		logger.Warn().Err(err).Msg("Failed to register colony database for HTTP serving")
 	} else {
 		mux.Handle("/duckdb/", duckdbHandler)
+		registeredDuckDB = true
 		logger.Info().
 			Str("path", db.Path()).
 			Str("db_name", filepath.Base(db.Path())).
 			Msg("Colony database registered for remote query")
 	}
 
+	// Build agent DuckDB proxy handler (RFD 095).
+	// Registered on the internal HTTP server so DuckDB's httpfs can attach without
+	// TLS certificate verification issues on localhost HTTPS setups.
+	agentProxyHandler := httpapi.NewAgentDuckDBProxyHandler(
+		&registryAgentLookup{reg: agentRegistry},
+		logger.With().Str("component", "agent-duckdb-proxy").Logger(),
+	)
+	mux.Handle("/agent/", agentProxyHandler)
+
 	// Create status handler (reused for public endpoint).
 	statusHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Call the colony service's internal GetStatusResponse method directly.
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
-		resp := colonySvc.GetStatusResponse()
+		cachedResp := colonySvc.GetStatusResponse()
+		resp := proto.Clone(cachedResp).(*colonyv1.GetStatusResponse)
+		resp.Wireguard = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := colonywg.GatherMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
@@ -271,15 +316,17 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				"dashboard_url":  resp.DashboardUrl,
 				"platform":       platformInfo,
 			},
-			"network": map[string]interface{}{
-				"wireguard_port":       resp.WireguardPort,
-				"wireguard_public_key": resp.WireguardPublicKey,
-				"wireguard_endpoints":  resp.WireguardEndpoints,
-				"connect_port":         resp.ConnectPort,
-				"mesh_ipv4":            resp.MeshIpv4,
-				"mesh_ipv6":            resp.MeshIpv6,
+			"wireguard": map[string]interface{}{
+				"port":       resp.WireguardPort,
+				"public_key": resp.WireguardPublicKey,
+				"endpoints":  resp.WireguardEndpoints,
+				"mesh_ipv4":  resp.MeshIpv4,
+				"mesh_ipv6":  resp.MeshIpv6,
+				"status":     meshInfo,
 			},
-			"mesh": meshInfo,
+			"network": map[string]interface{}{
+				"connect_port": resp.ConnectPort,
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -354,18 +401,26 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		}
 
 		// Create public endpoint server.
+		// Pass the DuckDB handler to the public endpoint only if registration succeeded.
+		var publicDuckDBHandler *duckdb.DuckDBHandler
+		if registeredDuckDB {
+			publicDuckDBHandler = duckdbHandler
+		}
+
 		publicConfig := httpapi.Config{
-			PublicConfig:   colonyConfig.PublicEndpoint,
-			ColonyPath:     colonyPath,
-			ColonyHandler:  colonyHandler,
-			DebugPath:      debugPath,
-			DebugHandler:   debugHandler,
-			MCPServer:      mcpServer,
-			TokenStore:     tokenStore,
-			ColonyDir:      colonyDir,
-			TLSCertificate: tlsCert,
-			StatusHandler:  statusHandler,
-			Logger:         logger.With().Str("component", "public-endpoint").Logger(),
+			PublicConfig:            colonyConfig.PublicEndpoint,
+			ColonyPath:              colonyPath,
+			ColonyHandler:           colonyHandler,
+			DebugPath:               debugPath,
+			DebugHandler:            debugHandler,
+			MCPServer:               mcpServer,
+			TokenStore:              tokenStore,
+			ColonyDir:               colonyDir,
+			TLSCertificate:          tlsCert,
+			StatusHandler:           statusHandler,
+			DuckDBHandler:           publicDuckDBHandler,
+			AgentDuckDBProxyHandler: agentProxyHandler,
+			Logger:                  logger.With().Str("component", "public-endpoint").Logger(),
 		}
 
 		publicServer, err := httpapi.New(publicConfig)

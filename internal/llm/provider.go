@@ -245,6 +245,22 @@ func (r *Registry) GetProviderStatus(providerName string, cfg *config.AskConfig)
 	return ProviderStatusNotConfigured
 }
 
+// resolveProviderBaseURL resolves the base URL for a provider. It checks the
+// config base_urls map first, then falls back to the given environment
+// variable. Returns an empty string when neither is set, meaning the
+// provider's default endpoint should be used.
+func resolveProviderBaseURL(cfg *config.AskConfig, provider string, envVar string) string {
+	if cfg != nil {
+		if url := cfg.BaseURLs[provider]; url != "" {
+			return url
+		}
+	}
+	if envVar != "" {
+		return os.Getenv(envVar)
+	}
+	return ""
+}
+
 // resolveProviderAPIKey resolves the API key for a provider. It checks the
 // config map first, falling back to the given default environment variable.
 // It returns an error if the key is missing or still contains an unresolved

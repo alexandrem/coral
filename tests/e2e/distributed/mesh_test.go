@@ -195,7 +195,7 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 		}
 
 		// Check if mesh is configured.
-		mesh, ok := statusResp["mesh"].(map[string]interface{})
+		mesh, ok := statusResp["wireguard"].(map[string]interface{})
 		if !ok {
 			return false
 		}
@@ -208,8 +208,8 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 	s.Require().NotNil(statusResp, "Status response should not be nil")
 
 	// Validate mesh configuration.
-	mesh, ok := statusResp["mesh"].(map[string]interface{})
-	s.Require().True(ok, "Status should include mesh section")
+	mesh, ok := statusResp["wireguard"].(map[string]interface{})
+	s.Require().True(ok, "Status should include wireguard section")
 
 	meshIP, _ := mesh["mesh_ip"].(string)
 	meshSubnet, _ := mesh["mesh_subnet"].(string)
@@ -220,8 +220,8 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 	s.T().Logf("✓ Mesh subnet configured: %s", meshSubnet)
 
 	// Validate WireGuard configuration.
-	wg, ok := mesh["wireguard"].(map[string]interface{})
-	s.Require().True(ok, "Status should include wireguard section")
+	wg, ok := mesh["status"].(map[string]interface{})
+	s.Require().True(ok, "Status should include status section")
 
 	interfaceExists, _ := wg["interface_exists"].(bool)
 	peerCount, _ := wg["peer_count"].(float64) // JSON numbers are float64
@@ -233,6 +233,24 @@ func (s *MeshSuite) TestAgentMeshConfiguration() {
 
 	s.T().Logf("✓ WireGuard interface: UP")
 	s.T().Logf("✓ WireGuard peers: %d", int(peerCount))
+
+	// Validate dynamic metrics exist on peers (if traffic happened or handshake happened, though in e2e it definitely did)
+	peers, ok := wg["peers"].([]interface{})
+	s.Require().True(ok, "Status should include peers array")
+	s.Require().Greater(len(peers), 0, "Agent should have at least 1 peer object")
+
+	firstPeer, ok := peers[0].(map[string]interface{})
+	s.Require().True(ok, "Peer should be a map")
+
+	_, hasRx := firstPeer["rx_bytes"]
+	_, hasTx := firstPeer["tx_bytes"]
+	_, hasHandshake := firstPeer["last_handshake_time"]
+
+	s.Require().True(hasRx, "Peer should contain rx_bytes")
+	s.Require().True(hasTx, "Peer should contain tx_bytes")
+	s.Require().True(hasHandshake, "Peer should contain last_handshake_time")
+
+	s.T().Log("✓ Internal Wireguard stats exposed (rx_bytes, tx_bytes, last_handshake_time)")
 	s.T().Log("✓ Agent mesh configuration validated successfully")
 }
 

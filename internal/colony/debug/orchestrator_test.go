@@ -585,6 +585,18 @@ func (m *mockFailingDebugServiceClient) UpdateProbeFilter(ctx context.Context, r
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
+func (m *mockFailingDebugServiceClient) DeployCorrelation(ctx context.Context, req *connect.Request[agentv1.DeployCorrelationRequest]) (*connect.Response[agentv1.DeployCorrelationResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
+func (m *mockFailingDebugServiceClient) RemoveCorrelation(ctx context.Context, req *connect.Request[agentv1.RemoveCorrelationRequest]) (*connect.Response[agentv1.RemoveCorrelationResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
+func (m *mockFailingDebugServiceClient) ListCorrelations(ctx context.Context, req *connect.Request[agentv1.ListCorrelationsRequest]) (*connect.Response[agentv1.ListCorrelationsResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
 func TestConcurrentSessionOperations(t *testing.T) {
 	orch, db := setupTestOrchestrator(t)
 	defer db.Close()
@@ -914,6 +926,18 @@ func (m *mockDebugServiceClient) QueryMemoryProfileSamples(ctx context.Context, 
 
 func (m *mockDebugServiceClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[agentv1.UpdateProbeFilterRequest]) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
 	return connect.NewResponse(&agentv1.UpdateProbeFilterResponse{}), nil
+}
+
+func (m *mockDebugServiceClient) DeployCorrelation(ctx context.Context, req *connect.Request[agentv1.DeployCorrelationRequest]) (*connect.Response[agentv1.DeployCorrelationResponse], error) {
+	return connect.NewResponse(&agentv1.DeployCorrelationResponse{}), nil
+}
+
+func (m *mockDebugServiceClient) RemoveCorrelation(ctx context.Context, req *connect.Request[agentv1.RemoveCorrelationRequest]) (*connect.Response[agentv1.RemoveCorrelationResponse], error) {
+	return connect.NewResponse(&agentv1.RemoveCorrelationResponse{}), nil
+}
+
+func (m *mockDebugServiceClient) ListCorrelations(ctx context.Context, req *connect.Request[agentv1.ListCorrelationsRequest]) (*connect.Response[agentv1.ListCorrelationsResponse], error) {
+	return connect.NewResponse(&agentv1.ListCorrelationsResponse{}), nil
 }
 
 // Generate mock events with specified latency

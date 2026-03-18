@@ -3,10 +3,7 @@ package distributed
 import (
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,58 +21,18 @@ type PublicEndpointSuite struct {
 func (s *PublicEndpointSuite) SetupSuite() {
 	s.E2EDistributedSuite.SetupSuite()
 
-	// Setup CLI environment
 	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
-	// Use the actual colony ID from the fixture (discovered from the container)
-	colonyID := s.fixture.ColonyID
-
-	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
+	// Setup CLI environment (used by TestCLIUsingPublicEndpoint).
+	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, s.fixture.ColonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
 
-	// Create token using CLI
-	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), "e2e-test-token", "admin")
-	result.MustSucceed(s.T())
-
-	// Extract token from CLI output
-	var token string
-	for _, line := range strings.Split(result.Output, "\n") {
-		if strings.HasPrefix(line, "Token: ") {
-			token = strings.TrimPrefix(line, "Token: ")
-			break
-		}
-	}
-	s.Require().NotEmpty(token, "Token should be in CLI output")
-	s.testToken = token
+	// Create a token inside the container so it is added to the colony's
+	// tokens.yaml without overwriting tokens created by other suites.
+	s.testToken, err = s.fixture.CreateToken(s.ctx, "e2e-test-token", "admin")
+	s.Require().NoError(err, "Failed to create test token")
 	s.T().Logf("Using api token: %s", s.testToken)
-
-	// Copy tokens.yaml from CLI env to colony container
-	// The colony server looks for tokens at /root/.coral/colonies/<colony-id>/tokens.yaml
-	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
-	destPath := fmt.Sprintf("coral-e2e-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
-	cmd := exec.Command("docker", "cp", tokensPath, destPath)
-	err = cmd.Run()
-	s.Require().NoError(err, "Failed to copy tokens.yaml to colony container")
-
-	// Restart colony to reload tokens (TokenStore loads from file only on startup)
-	s.T().Log("Restarting colony to reload tokens...")
-	err = s.fixture.RestartService(s.ctx, "colony")
-	s.Require().NoError(err, "Failed to restart colony service")
-
-	// Wait for colony to be healthy again
-	// Note: We use the discovery service to check checking colony health indirectly,
-	// or we can use the colony's HTTP endpoint if it's exposed.
-	// The fixture doesn't have a direct "waitForColony" but waitForServices checks dependencies.
-	// Let's use written helper logic or just sleep briefly + wait for endpoint.
-
-	// Wait for the internal endpoint to be up.
-	err = helpers.WaitForHTTPEndpoint(s.ctx, s.fixture.ColonyEndpoint+"/status", 30*time.Second)
-	s.Require().NoError(err, "Colony service failed to become healthy after restart")
-
-	// Wait for the public endpoint (self-signed TLS, so use InsecureSkipVerify).
-	err = helpers.WaitForHTTPSEndpoint(s.ctx, "https://localhost:8443/health", 30*time.Second)
-	s.Require().NoError(err, "Public endpoint failed to become healthy after restart")
 }
 
 func (s *PublicEndpointSuite) TearDownSuite() {

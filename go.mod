@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	connectrpc.com/connect v1.19.1
+	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
@@ -12,9 +13,11 @@ require (
 	github.com/cilium/ebpf v0.16.0
 	github.com/coral-mesh/coral-crypto v0.1.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/google/cel-go v0.27.0
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/pprof v0.0.0-20260202012954-cb029daf43ef
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/invopop/jsonschema v0.13.0
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
@@ -29,6 +32,7 @@ require (
 	github.com/zeebo/xxh3 v1.0.2
 	go.opentelemetry.io/collector/pdata v1.45.0
 	go.opentelemetry.io/proto/otlp v1.9.0
+	golang.org/x/arch v0.24.0
 	golang.org/x/crypto v0.44.0
 	golang.org/x/net v0.47.0
 	golang.org/x/sys v0.39.0
@@ -41,6 +45,7 @@ require (
 )
 
 require (
+	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.120.0 // indirect
 	cloud.google.com/go/ai v0.8.0 // indirect
 	cloud.google.com/go/auth v0.16.2 // indirect
@@ -48,6 +53,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/longrunning v0.6.7 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apache/arrow-go/v18 v18.1.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -108,7 +114,7 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect

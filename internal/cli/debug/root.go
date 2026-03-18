@@ -36,6 +36,7 @@ For CPU and memory profiling, use 'coral profile' and 'coral query' commands.`,
 
 	// Other
 	cmd.AddCommand(NewTraceCmd())
+	cmd.AddCommand(NewCorrelationsCmd())
 
 	return cmd
 }
