@@ -192,8 +192,12 @@ External clients (Claude Desktop) — unchanged:
       provider-specific identifiers (repo slug, project key, team prefix). The
       gateway's `ServiceResolver` looks up these identifiers before dispatching
       to each provider. If a mapping is absent for a required provider, the
-      gateway logs a warning and skips that provider for the call rather than
-      guessing.
+      resolver produces a `ProviderWarning{status: "missing_mapping", message:
+      "service 'payments' has no GitHub mapping — add it under
+      integrations.service_mappings.payments.github in ~/.coral/config.yaml"}`
+      and skips that provider. The warning surfaces in the result's `warnings`
+      field so the LLM can relay the gap to the user rather than silently
+      returning an incomplete timeline.
     - `env://VAR` syntax for credential references — resolved at connection time
       from the process environment, never written to disk as literal values.
 
@@ -234,7 +238,11 @@ External clients (Claude Desktop) — unchanged:
       key, etc.).
 - [ ] Implement `ServiceResolver` in `internal/cli/integrations/resolver.go`:
       given a service name and provider alias, return the configured external
-      identifier; return a descriptive error if the mapping is absent.
+      identifier; if the mapping is absent, return a
+      `ProviderWarning{status: "missing_mapping"}` with a message pointing to
+      the exact config key the user needs to add. The resolver never errors —
+      it always returns either an identifier or a warning, so the orchestrator
+      can include it in the result and continue.
 - [ ] `coral integration list` output includes a mapping coverage summary: which
       services have mappings and which providers are covered per service.
 - [ ] Implement `env://VAR` resolution in config loader; warn on literal
