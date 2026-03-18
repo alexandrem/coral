@@ -8,6 +8,7 @@ type streamChunkMsg struct {
 // toolStartMsg indicates a tool call has started.
 type toolStartMsg struct {
 	toolName string
+	command  string // full CLI command string in CLI dispatch mode (RFD 100)
 }
 
 // toolCompleteMsg indicates a tool call has completed.

@@ -50,8 +50,9 @@ type Model struct {
 	conversation []Message
 
 	// Streaming state
-	streamBuffer string
-	currentTool  string
+	streamBuffer   string
+	currentTool    string
+	currentCommand string // CLI command string for the active tool (RFD 100)
 
 	// Error state
 	lastError error

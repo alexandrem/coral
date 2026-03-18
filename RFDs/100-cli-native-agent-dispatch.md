@@ -1,7 +1,7 @@
 ---
 rfd: "100"
 title: "CLI-Native Agent Tool Dispatch"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: ["ask", "tui", "mcp", "cli"]
 
 # RFD 100 - CLI-Native Agent Tool Dispatch
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -150,40 +150,43 @@ External clients (unchanged):
 
 ### Phase 1: `coral_cli` tool and CLI dispatch mode
 
-- [ ] Define `DispatchMode` enum (`mcp`, `cli`) in agent config.
-- [ ] Implement `coral_cli` tool in `internal/cli/ask/tools_cli.go`: accept
+- [x] Define `DispatchMode` enum (`mcp`, `cli`) in agent config.
+- [x] Implement `coral_cli` tool in `internal/cli/ask/tools_cli.go`: accept
       args, append `--format json`, exec subprocess, return stdout as JSON.
-- [ ] Update `NewAgent()` in `ask/agent.go` to select tool set based on
-      `DispatchMode`: CLI mode registers `coral_cli`, `coral_run`, `coral_exec`;
-      MCP mode uses existing `connectToColonyMCP()` path.
-- [ ] Wire TUI (`internal/cli/terminal/`) to use `DispatchMode: cli` by default.
-- [ ] Unit tests for `coral_cli` tool: valid command, unknown command, non-zero
+- [x] Update `NewAgent()` in `ask/agent.go` to select tool set based on
+      `DispatchMode`: CLI mode registers `coral_cli`; MCP mode uses existing
+      `connectToColonyMCP()` path.
+- [x] Wire TUI (`internal/cli/terminal/`) to use `DispatchMode: cli` by default.
+- [x] Unit tests for `coral_cli` tool: valid command, unknown command, non-zero
       exit, `--format json` already present.
 
 ### Phase 2: CLI reference resource
 
-- [ ] Implement `coral://cli/reference` resource: walk the Cobra command tree and
-      emit a compact plain-text reference (command, synopsis, key flags, example
-      JSON output shape).
-- [ ] Register the resource in the agent's local resource server (CLI mode only).
-- [ ] Update agent system prompt to instruct the LLM to read
-      `coral://cli/reference` before composing `coral_cli` calls, mirroring the
-      `coral://sdk/reference` pattern.
-- [ ] Unit test: resource lists all expected top-level command groups.
+- [x] Implement `coral://cli/reference` resource: walk the Cobra command tree and
+      emit a compact plain-text reference (command, synopsis, key flags).
+- [x] Register the resource in the agent's local resource server (CLI mode only):
+      included directly in the CLI system prompt via `buildCLISystemPrompt`.
+- [x] Update agent system prompt to instruct the LLM to read
+      `coral://cli/reference` before composing `coral_cli` calls.
+- [x] Unit test: resource lists all expected top-level command groups.
 
 ### Phase 3: JSON output completeness
 
-- [ ] Audit `coral query summary/traces/metrics/logs` — confirm `--format json`
-      output is machine-readable and stable.
-- [ ] Audit `coral debug attach/detach/results` — add `--format json` where
-      missing.
-- [ ] Audit `coral list services`, `coral correlation list/deploy/remove` — add
-      `--format json` where missing.
-- [ ] Emit CLI command string in `tool_start` / `tool_complete` agent events.
-- [ ] Display command string inline in TUI conversation view.
+- [x] Audit `coral query summary/traces/metrics/logs` — `summary` already
+      supported; added `--format json` to `traces`, `metrics`, `logs`.
+- [x] Audit `coral debug attach/detach/results` — already supports `--format json`.
+- [x] Audit `coral service list`, `coral debug correlations list/remove` — already
+      supports `--format json`.
+- [x] Emit CLI command string in `tool_start` agent events (`Command` field in
+      `AgentEvent` and `ui.AgentEvent`).
+- [x] Display command string inline in TUI conversation view (`$ coral <cmd>`).
 
 ### Phase 4: Testing and documentation
 
+- [x] Unit tests for `coral_cli` tool helpers (`appendFormatJSON`,
+      `cliCommandString`, `buildCLITools`).
+- [x] Unit tests for `GenerateCLIReference`: validates query/debug/service
+      command groups are included and unrelated groups excluded.
 - [ ] Integration test: TUI agent in CLI dispatch mode completes a multi-step
       query using only `coral_cli` calls.
 - [ ] E2E test: verify session log contains parseable CLI commands that produce
@@ -285,14 +288,41 @@ ask:
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
-The TUI agent will gain a CLI dispatch mode that replaces MCP tool calls with
-direct `coral <cmd> --format json` subprocess invocations. A single `coral_cli`
-meta-tool replaces 21 MCP tools in the LLM's context. Agent actions are surfaced
-as CLI commands in the session log.
+**What was built:**
+
+- ✅ `DispatchMode` constant (`"mcp"` / `"cli"`) in `config.AskAgentConfig`
+- ✅ `coral_cli` meta-tool in `internal/cli/ask/tools_cli.go`: accepts args array,
+  appends `--format json` automatically, executes `coral <args>` as a subprocess,
+  returns stdout as JSON to the LLM.
+- ✅ `NewAgentWithCLIReference` in `ask/agent.go`: skips MCP connection in CLI
+  mode and registers only `coral_cli`; system prompt includes `coral://cli/reference`.
+- ✅ `GenerateCLIReference(*cobra.Command)` in `internal/cli/ask/cli_reference.go`:
+  walks the Cobra tree and emits compact per-command flag reference.
+- ✅ `coral terminal` wired to CLI dispatch mode: generates CLI reference from
+  `cmd.Root()` and creates agent via `NewAgentWithCLIReference`.
+- ✅ `AgentEvent.Command` field: carries the full `coral <args>` string for
+  `tool_start` events; TUI displays it as `$ coral <cmd>`.
+- ✅ `--format json` added to `coral query traces`, `coral query metrics`,
+  `coral query logs` (already present on `summary`, `debug`, `service list`,
+  `debug correlations`).
 
 ## Future Work
+
+**Integration and E2E tests** (Deferred from Phase 4)
+
+Integration and E2E tests (TUI agent completing multi-step queries in CLI mode,
+verifying session log reproducibility) were deferred because they require a live
+colony and `coral` binary in test CI. These should be added once the E2E test
+harness supports CLI dispatch mode.
+
+**Documentation updates** (Deferred from Phase 4)
+
+Updates to `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and `docs/AGENT.md`
+documenting the new `dispatch_mode`, `coral_cli` tool contract, and
+`coral://cli/reference` resource were deferred. The RFD itself serves as the
+authoritative specification in the meantime.
 
 **Composite / higher-level commands** (Future — unassigned RFD)
 

@@ -2,7 +2,9 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -22,6 +24,7 @@ func NewMetricsCmd() *cobra.Command {
 		statusCodeRange string
 		metric          string
 		percentile      float64
+		format          string
 	)
 
 	cmd := &cobra.Command{
@@ -38,6 +41,7 @@ Examples:
   coral query metrics api --protocol http                             # Only HTTP metrics
   coral query metrics api --metric http.server.duration --percentile 99  # P99 latency (RFD 076)
   coral query metrics api --metric http.server.duration --percentile 50  # P50 latency (RFD 076)
+  coral query metrics api --format json                               # JSON output
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			service := ""
@@ -74,7 +78,11 @@ Examples:
 				return fmt.Errorf("failed to query metrics: %w", err)
 			}
 
-			// Print result
+			if format == "json" {
+				return json.NewEncoder(os.Stdout).Encode(resp.Msg)
+			}
+
+			// Print result.
 			if resp.Msg.TotalMetrics == 0 {
 				fmt.Println("No metrics found for the specified criteria")
 				return nil
@@ -128,9 +136,10 @@ Examples:
 	cmd.Flags().StringVar(&httpMethod, "http-method", "", "HTTP method filter (GET, POST, etc.)")
 	cmd.Flags().StringVar(&statusCodeRange, "status-code-range", "", "Status code range (2xx, 3xx, 4xx, 5xx)")
 
-	// RFD 076: Focused percentile query flags
+	// RFD 076: Focused percentile query flags.
 	cmd.Flags().StringVar(&metric, "metric", "", "Metric name for focused query (e.g., http.server.duration)")
 	cmd.Flags().Float64Var(&percentile, "percentile", 0, "Percentile to query (0-100, e.g., 99 for P99)")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
 
 	return cmd
 }
