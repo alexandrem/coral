@@ -312,12 +312,14 @@ func TestBeylaConfig(t *testing.T) {
 	}
 
 	config.Discovery.Instrument = []struct {
-		OpenPorts string `yaml:"open_ports,omitempty"`
-		ExeName   string `yaml:"exe_name,omitempty"`
+		OpenPorts   string `yaml:"open_ports,omitempty"`
+		ExeName     string `yaml:"exe_name,omitempty"`
+		ServiceName string `yaml:"service_name,omitempty"`
 	}{
 		{
-			OpenPorts: "8080-9090",
-			ExeName:   "my-app",
+			OpenPorts:   "8080-9090",
+			ExeName:     "my-app",
+			ServiceName: "test-service",
 		},
 	}
 

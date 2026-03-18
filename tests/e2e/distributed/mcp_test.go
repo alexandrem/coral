@@ -1496,12 +1496,10 @@ func (s *MCPSuite) ensureCrossServiceData() {
 		s.T().Logf("Traffic generation attempt %d/%d...", attempt, batches)
 		for i := 0; i < callsPerBatch; i++ {
 			resp, err := client.Get(otelAppURL + "/chain")
+			s.Require().NoError(err, "Traffic generation failed (otel-app endpoint unreachable)")
+			s.Require().Equal(http.StatusOK, resp.StatusCode, "Traffic generation failed (otel-app returned error)")
+			resp.Body.Close()
 			calls++
-			if err != nil {
-				s.T().Logf("cross-service call failed: %v", err)
-				continue
-			}
-			_ = resp.Body.Close()
 			time.Sleep(100 * time.Millisecond)
 		}
 

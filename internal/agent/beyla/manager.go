@@ -111,6 +111,9 @@ type DiscoveryConfig struct {
 	// Instrument processes listening on these ports.
 	OpenPorts []int
 
+	// Port to service name mapping (RFD 110, fixes topology missing edges in shared namespaces).
+	ServiceMap map[int]string
+
 	// Kubernetes-based discovery (for node agents).
 	K8sNamespaces []string
 	K8sPodLabels  map[string]string
@@ -660,33 +663,60 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	cfg := beylaConfig{
 		LogLevel: "INFO",
 	}
-
 	// Discovery: open ports.
 	if len(m.config.Discovery.OpenPorts) > 0 {
-		ports := make([]string, len(m.config.Discovery.OpenPorts))
-		for i, port := range m.config.Discovery.OpenPorts {
-			ports[i] = strconv.Itoa(port)
+		// Group ports by service name to create separate instrument rules.
+		// This ensures Beyla attributes spans to the correct service even in
+		// shared network/PID namespaces (RFD 110).
+		servicePorts := make(map[string][]string)
+		var unnamedPorts []string
+
+		for _, port := range m.config.Discovery.OpenPorts {
+			portStr := strconv.Itoa(port)
+			if name, ok := m.config.Discovery.ServiceMap[port]; ok && name != "" {
+				servicePorts[name] = append(servicePorts[name], portStr)
+			} else {
+				unnamedPorts = append(unnamedPorts, portStr)
+			}
 		}
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-		}{OpenPorts: strings.Join(ports, ",")})
+
+		type instrumentRule struct {
+			OpenPorts   string `yaml:"open_ports,omitempty"`
+			ExeName     string `yaml:"exe_name,omitempty"`
+			ServiceName string `yaml:"service_name,omitempty"`
+		}
+
+		// Create rules for named services.
+		for name, ports := range servicePorts {
+			cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, instrumentRule{
+				OpenPorts:   strings.Join(ports, ","),
+				ServiceName: name,
+			})
+		}
+
+		// Create catch-all rules for unnamed ports.
+		if len(unnamedPorts) > 0 {
+			cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, instrumentRule{
+				OpenPorts: strings.Join(unnamedPorts, ","),
+			})
+		}
 	}
 
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
 		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
+			OpenPorts   string `yaml:"open_ports,omitempty"`
+			ExeName     string `yaml:"exe_name,omitempty"`
+			ServiceName string `yaml:"service_name,omitempty"`
 		}{ExeName: name})
 	}
 
-	// Default discovery: only use catch-all if MonitorAll is explicitly enabled (RFD 053).
-	// If no ports/processes are specified and MonitorAll is false, Beyla won't instrument anything.
-	if len(cfg.Discovery.Instrument) == 0 && m.config.MonitorAll {
+	// Add special rule for container-shared mode if requested (RFD 053/084).
+	if m.config.MonitorAll {
 		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
+			OpenPorts   string `yaml:"open_ports,omitempty"`
+			ExeName     string `yaml:"exe_name,omitempty"`
+			ServiceName string `yaml:"service_name,omitempty"`
 		}{OpenPorts: "1-65535"})
 		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
 	}
@@ -813,34 +843,37 @@ func (w *beylaLogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// UpdateDiscovery updates the port discovery configuration (RFD 053).
-// If ports differ from current config, triggers debounced Beyla restart.
-// Thread-safe: can be called concurrently from multiple goroutines.
-func (m *Manager) UpdateDiscovery(ports []int) error {
-	if !m.config.Enabled {
-		m.logger.Debug().Msg("Beyla is disabled, ignoring discovery update")
-		return nil
-	}
-
+// UpdateDiscovery updates Beyla's discovery configuration dynamically (RFD 053/110).
+// If the list of ports or service names changes, Beyla is restarted with the new config.
+func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if ports have changed.
-	if portsEqual(m.configuredPorts, ports) {
-		m.logger.Debug().
-			Ints("ports", ports).
-			Msg("Discovery ports unchanged, skipping restart")
+	if !m.config.Enabled {
 		return nil
+	}
+
+	// Extract ports and check for changes.
+	ports := make([]int, 0, len(serviceMap))
+	for port := range serviceMap {
+		ports = append(ports, port)
+	}
+
+	mappingChanged := !mapsEqual(m.config.Discovery.ServiceMap, serviceMap)
+
+	if portsEqual(m.configuredPorts, ports) && !mappingChanged {
+		return nil // No changes needed
 	}
 
 	m.logger.Info().
 		Ints("old_ports", m.configuredPorts).
 		Ints("new_ports", ports).
-		Msg("Discovery ports changed, scheduling Beyla restart")
+		Int("mapping_size", len(serviceMap)).
+		Msg("Discovery configuration changed")
 
-	// Update configured ports.
-	m.configuredPorts = append([]int{}, ports...)
-	m.config.Discovery.OpenPorts = append([]int{}, ports...)
+	m.configuredPorts = ports
+	m.config.Discovery.OpenPorts = ports
+	m.config.Discovery.ServiceMap = serviceMap
 
 	// Cancel existing debounce timer if any.
 	if m.debounceTimer != nil {
@@ -926,5 +959,18 @@ func portsEqual(a, b []int) bool {
 		}
 	}
 
+	return true
+}
+
+// mapsEqual checks if two maps are identical.
+func mapsEqual(a, b map[int]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
 	return true
 }
