@@ -270,13 +270,13 @@ Empty if no cross-service calls observed in the last hour.
 
 All five phases implemented. Build passes, all unit tests pass.
 
-| Component | File | Status |
-|-----------|------|--------|
-| Database materialization + cache | `internal/colony/database/connections.go` | ✅ |
-| `GetTopology` RPC handler | `internal/colony/server/server.go` | ✅ |
-| `coral_topology` MCP tool | `internal/colony/mcp/tools_discovery.go` | ✅ |
-| `coral query topology` CLI | `internal/cli/query/topology.go` | ✅ |
-| Ask system prompt injection | `internal/cli/ask/agent.go` | ✅ |
+| Component                        | File                                      | Status |
+|----------------------------------|-------------------------------------------|--------|
+| Database materialization + cache | `internal/colony/database/connections.go` | ✅      |
+| `GetTopology` RPC handler        | `internal/colony/server/server.go`        | ✅      |
+| `coral_topology` MCP tool        | `internal/colony/mcp/tools_discovery.go`  | ✅      |
+| `coral query topology` CLI       | `internal/cli/query/topology.go`          | ✅      |
+| Ask system prompt injection      | `internal/cli/ask/agent.go`               | ✅      |
 
 ## Future Work
 
