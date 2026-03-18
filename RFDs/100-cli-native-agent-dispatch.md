@@ -205,12 +205,14 @@ Final state (both paths, one tool):
       command groups are included and unrelated groups excluded.
 - [ ] Integration test: TUI agent in CLI dispatch mode completes a multi-step
       query using only `coral_cli` calls.
-- [ ] E2E test: verify session log contains parseable CLI commands that produce
-      the same output when run manually.
+- [ ] E2E test in `tests/e2e/distributed`: verify TUI agent session log contains
+      parseable CLI commands that produce the same output when run manually.
 - [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `--format json` flag
       coverage.
 - [ ] Update `docs/AGENT.md` with CLI dispatch mode, `coral_cli` tool contract,
       and `coral://cli/reference` resource.
+- [ ] Update `docs/MCP.md` architecture section to reflect the two-track model
+      (TUI via CLI dispatch, external clients via MCP proxy).
 
 ### Phase 5: `coral_cli` as MCP tool in the proxy — retire the 21 per-operation tools
 
@@ -352,20 +354,6 @@ ask:
   `debug correlations`).
 
 ## Future Work
-
-**Integration and E2E tests** (Deferred from Phase 4)
-
-Integration and E2E tests (TUI agent completing multi-step queries in CLI mode,
-verifying session log reproducibility) were deferred because they require a live
-colony and `coral` binary in test CI. These should be added once the E2E test
-harness supports CLI dispatch mode.
-
-**Documentation updates** (Deferred from Phase 4)
-
-Updates to `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and `docs/AGENT.md`
-documenting the new `dispatch_mode`, `coral_cli` tool contract, and
-`coral://cli/reference` resource were deferred. The RFD itself serves as the
-authoritative specification in the meantime.
 
 **Composite / higher-level commands** (Future — unassigned RFD)
 
