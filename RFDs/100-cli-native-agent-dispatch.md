@@ -371,15 +371,13 @@ the broader E2E suite expansion.
 
 **Composite / higher-level commands** (Future — unassigned RFD)
 
-Common multi-step patterns observed in real sessions should be promoted to
-composite CLI commands that run their sub-commands in parallel and return a
-unified JSON response. Examples:
+If usage data shows that agents repeatedly follow the same multi-step pattern
+across sessions, that pattern is a candidate for a composite CLI command —
+reducing round-trip count while keeping the action auditable. The right
+candidates should be derived from real session logs, not designed speculatively.
 
-- `coral diagnose --service api` → runs `query summary`, `query traces`, `query
-  logs` concurrently and returns a single JSON object.
-- `coral triage --service api` → runs diagnosis + attaches a probe to the top
-  offending function.
-
-These commands reduce agent round-trip count (fewer LLM inference steps) while
-remaining auditable. They should be derived from usage data gathered after this
-RFD is implemented, not designed speculatively.
+One genuine gap: `coral query summary` tells the agent *what* is wrong but not
+*where in the code*. A `coral triage` command that crosses the
+observability-to-debugging boundary (identify degraded service → find slowest
+function → attach probe) could reduce a 3-step loop to 1, with no duplication
+of existing commands.
