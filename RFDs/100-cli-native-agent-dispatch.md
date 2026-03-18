@@ -369,6 +369,34 @@ that produce the same output when run manually. Deferred because this requires
 a live `tests/e2e/distributed` colony environment and should be added alongside
 the broader E2E suite expansion.
 
+**On-demand investigation scripts via `coral script`** (Future — unassigned RFD)
+
+Some investigations require logic that cannot be expressed as a single CLI
+command: parallel multi-service queries, conditional branching based on
+intermediate results, or custom aggregations. The TypeScript SDK (`coral run`)
+already handles this, but the right agent integration is not LLM-generated
+inline code — it is a write-review-execute flow:
+
+1. The LLM composes a TypeScript script and calls
+   `coral_cli(["script", "write", "--name", "<name>", "--content", "..."])`.
+2. The TUI intercepts the write and pauses the agent loop, showing the script
+   content for human review before it is committed to disk.
+3. After approval, the file is written to `~/.coral/scripts/<name>.ts` —
+   following the existing `~/.coral/` convention for configs, conversations,
+   and certs.
+4. The LLM executes it with
+   `coral_cli(["run", "--file", "~/.coral/scripts/<name>.ts"])`.
+
+This keeps everything within `coral_cli` (no second MCP tool), makes LLM
+actions auditable (the script is on disk and reviewable), and puts the human in
+the loop before any code runs. Scripts accumulate in `~/.coral/scripts/` across
+sessions; those worth keeping get committed and promoted to permanent named
+skills callable without writing new code.
+
+The `coral script` subcommand family (`write`, `list`, `remove`) is the only
+new CLI surface needed. The TUI approval gate for `coral script write` is the
+key enabler that makes dynamic code generation safe.
+
 **Composite / higher-level commands** (Future — unassigned RFD)
 
 If usage data shows that agents repeatedly follow the same multi-step pattern
