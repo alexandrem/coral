@@ -379,6 +379,9 @@ coral query summary [service] [--since <duration>]
 # Percentile queries (precise DuckDB quantile calculations)
 coral query metrics <service> --metric <name> --percentile <0-100>
 
+# Service topology (call graph)
+coral query topology [--since <duration>] [--format json]
+
 # Raw SQL queries with safety guardrails
 coral query sql "<sql-query>" [--max-rows <n>]
 

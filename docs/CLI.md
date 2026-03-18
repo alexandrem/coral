@@ -711,6 +711,9 @@ coral query metrics [service] [--since <duration>]
 
 # Application logs (OTLP)
 coral query logs [service] [--since <duration>]
+
+# Service topology (call graph)
+coral query topology [--since <duration>] [--format json]
 ```
 
 ---
@@ -821,6 +824,54 @@ coral query summary api --since 10m    # Specific service metrics
 - Service is registered but health checks failing
 - Data is still queryable: `coral query summary <service>`
 - Reconnect if needed: `coral connect <service>:<port>`
+
+---
+
+### Service Topology
+
+Coral's service topology provides a **live call graph** of your distributed
+system, derived automatically from observed trace data. Unlike static diagrams,
+the topology reflects actual traffic and dependencies discovered in real-time.
+
+**Key Features:**
+
+- **Call Graph** - Visualization of which services depend on each other
+- **Protocol Detection** - Identifies HTTP, gRPC, and SQL dependencies
+- **Real-Time** - Materialized from trace data with a 30-second TTL
+- **Compact View** - Designed for rapid understanding and AI context injection
+
+**Commands:**
+
+```bash
+# Get the call graph for the last hour (default)
+coral query topology
+
+# Specify a custom time window
+coral query topology --since 30m
+
+# Get machine-readable output for scripts or integration
+coral query topology --format json
+```
+
+**Example Output:**
+
+```bash
+$ coral query topology
+Service call graph (last 1h):
+api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)
+user-service → postgres (SQL, 1823 calls, last: 5s ago)
+worker → queue (gRPC, 234 calls, last: 1m ago)
+```
+
+**Common Use Cases:**
+
+- **Incident Investigation** - Understand which downstream services might be
+  causing issues
+- **Architecture Validation** - Verify that services are only calling intended
+  dependencies
+- **Onboarding** - Quickly understand the layout of a complex microservices
+  environment
+- **AI Context** - Injected automatically into `coral ask` for smarter RCA
 
 ---
 

@@ -597,7 +597,7 @@ Then copy/paste the following snippets in the terminal.
                     },
                     "type": "object"
                 },
-                "name": "coral_get_service_topology"
+                "name": "coral_topology"
             },
             {
                 "description": "Query distributed traces collected via eBPF. Can search by trace ID, service, time range, or duration threshold.",

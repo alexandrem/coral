@@ -609,9 +609,7 @@ scale
 
 ## References
 
-- **RFD 084:
-  ** [Dual-Source Service Discovery](../RFDs/084-dual-source-service-discovery.md)
+- **RFD 084:** [Dual-Source Service Discovery](../RFDs/084-dual-source-service-discovery.md)
+- **RFD 092:** [Service Topology](../RFDs/092-service-topology.md)
 - **RFD 067:** [Unified Query Interface](../RFDs/067-unified-query-interface.md)
-- **RFD 064:
-  ** [Service Registry Process Info](../RFDs/064-service-registry-process-info.md)
-
+- **RFD 064:** [Service Registry Process Info](../RFDs/064-service-registry-process-info.md)

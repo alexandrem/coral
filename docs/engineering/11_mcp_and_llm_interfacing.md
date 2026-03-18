@@ -16,7 +16,7 @@ The Colony hosts a full MCP server that bridges the LLM to Coral's internal
 capabilities.
 
 - **Tool Registry**: Statically registers tools like `coral_query_summary`,
-  `coral_shell_exec`, `coral_attach_uprobe`, and `coral_deploy_correlation`.
+  `coral_topology`, `coral_shell_exec`, `coral_attach_uprobe`, and `coral_deploy_correlation`.
 - **Schema Generation**: Automatically generates JSON Schemas from Go structs
   using reflection. This ensures that the LLM always receives accurate type
   information for tool arguments.
@@ -55,10 +55,10 @@ Coral abstracts LLM providers to remain vendor-agnostic.
 The `Agent` manages the high-level reasoning loop:
 
 1. **Context Discovery**: Before the first user prompt, the Agent calls
-   `coral_list_services` to populate the system prompt with "live" knowledge of
+   `coral_list_services` and `coral_topology` to populate the system prompt with "live" knowledge of
    the environment.
-2. **System Prompting**: Injects "Parameter Extraction Rules" and current
-   healthy/unhealthy snapshots to guide the LLM's tool selection.
+2. **System Prompting**: Injects "Parameter Extraction Rules", current
+   healthy/unhealthy snapshots, and a compact "Call Graph" (`api-gateway → user-service`) to guide the LLM's tool selection.
 3. **Execution Loop**:
    - LLM requests one or more tool calls.
    - Agent executes them via the MCP client.

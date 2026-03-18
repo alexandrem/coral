@@ -33,9 +33,10 @@ analytical summaries.
     - **Latencies**: Calculates P50, P95, and P99 percentiles for the bucket.
     - **Errors**: Counts total occurrences of error flags.
     - **Throughput**: Records total span/sample counts.
+    - **Service Topology**: Discovers and persists cross-service dependencies in `service_connections` (materialized with a 30s TTL).
     - **Exemplars**: Selects up to 5 "Sample Trace IDs" per bucket to allow "
       pivot-to-trace" navigation from aggregate charts.
-4. **Store**: Only the summarized `otel_summaries` are kept in the central
+4. **Store**: Only the summarized `otel_summaries` and `service_connections` are kept in the central
    DuckDB.
 
 ## Persistence Trade-offs

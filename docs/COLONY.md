@@ -88,6 +88,9 @@ coral-colony query metrics my-service --metric http.server.duration --percentile
 coral-colony query logs my-service --level error
 coral-colony query logs my-service --since 30m
 
+# Service topology (call graph)
+coral-colony query topology [--since 1h]
+
 # Historical CPU profiles (folded stack format, pipe to flamegraph.pl)
 coral-colony query cpu-profile my-service --since 1h
 coral-colony query cpu-profile my-service --since 5m | flamegraph.pl > cpu.svg

@@ -314,7 +314,7 @@ Connect gRPC.
 **Tools Implemented:**
 
 - `coral_get_service_health` - Service health monitoring
-- `coral_get_service_topology` - Service dependency graph
+- `coral_topology` - Service dependency graph
 - `coral_query_beyla_http_metrics` - HTTP RED metrics
 - `coral_query_beyla_grpc_metrics` - gRPC metrics
 - `coral_query_beyla_sql_metrics` - SQL query metrics
