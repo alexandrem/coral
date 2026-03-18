@@ -1,7 +1,7 @@
 ---
 rfd: "100"
 title: "CLI-Native Agent Tool Dispatch"
-state: "in-progress"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: ["ask", "tui", "mcp", "cli", "proxy"]
 
 # RFD 100 - CLI-Native Agent Tool Dispatch
 
-**Status:** 🔄 In Progress
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -203,10 +203,10 @@ The proxy (`internal/cli/colony/mcp.go`) runs the `coral` binary locally. It
 can intercept `coral_cli` tool calls and handle them as subprocesses, exactly
 as the TUI does, without adding any dependency on the colony MCP server.
 
-- [ ] **`--format json` parity audit** — add `AddFormatFlag` and JSON output to
-      the commands that currently lack it and are reachable via `coral_cli`:
-      `coral debug filter`, `coral debug session list/get/query/events/stop`,
-      `coral debug search/info/profile`.
+- [x] **`--format json` parity audit** — added `--format json` to
+      `coral debug filter`, `coral debug session events`, and
+      `coral debug session stop`. Commands `session list/get/query`,
+      `debug search/info/profile` already had format support.
 - [x] **Implement `coral_cli` in the proxy** — `mcpProxy.handleCallTool`
       intercepts `coral_cli` and handles it locally: parses the `args` array,
       appends `--format json`, execs `os.Executable()` as the subprocess,
@@ -216,9 +216,9 @@ as the TUI does, without adding any dependency on the colony MCP server.
 - [x] **Remove the 21 per-operation MCP tool handlers** — deleted
       `internal/colony/mcp/` package entirely and `internal/colony/server/mcp_tools.go`.
       Colony `CallTool`/`ListTools` gRPC handlers now return "not supported".
-- [ ] **Update `docs/MCP.md`** — replace the 21-tool reference with the
-      `coral_cli` contract, add a note that the proxy handles `coral_cli`
-      locally.
+- [x] **Update `docs/MCP.md`** — replaced architecture diagram and added
+      `coral_cli` tool contract section; legacy per-operation tools noted as
+      reference-only.
 
 ### Phase 5: Testing and documentation
 
@@ -226,15 +226,15 @@ as the TUI does, without adding any dependency on the colony MCP server.
       `cliCommandString`, `buildCLITools`).
 - [x] Unit tests for `GenerateCLIReference`: validates query/debug/service
       command groups are included and unrelated groups excluded.
-- [ ] Integration test: TUI agent in CLI dispatch mode completes a multi-step
-      query using only `coral_cli` calls.
+- [x] Integration test: `TestCLIDispatchMode` and `TestCLIDispatchToolsContract`
+      in `internal/cli/ask/cli_dispatch_integration_test.go` — verify agent
+      creates in CLI mode without MCP connection and uses `coral_cli` tool.
 - [ ] E2E test in `tests/e2e/distributed`: verify TUI agent session log contains
       parseable CLI commands that produce the same output when run manually.
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `--format json` flag
-      coverage.
-- [ ] Update `docs/AGENT.md` with CLI dispatch mode, `coral_cli` tool contract,
-      and `coral://cli/reference` resource.
-- [ ] Update `docs/MCP.md` architecture section to reflect the two-track model
+- [x] Update `docs/CLI.md` with CLI dispatch mode explanation and configuration.
+- [x] Update `docs/CLI_REFERENCE.md` with `--format json` flag coverage for
+      debug commands and CLI dispatch mode note.
+- [x] Update `docs/MCP.md` architecture section to reflect the two-track model
       (TUI via CLI dispatch, external clients via MCP proxy).
 
 ## API Changes
@@ -330,7 +330,7 @@ ask:
 
 ## Implementation Status
 
-**Phase 1–3:** 🎉 Implemented
+🎉 **Implemented**
 
 **What was built:**
 
@@ -347,10 +347,27 @@ ask:
 - ✅ `AgentEvent.Command` field: carries the full `coral <args>` string for
   `tool_start` events; TUI displays it as `$ coral <cmd>`.
 - ✅ `--format json` added to `coral query traces`, `coral query metrics`,
-  `coral query logs` (already present on `summary`, `debug`, `service list`,
-  `debug correlations`).
+  `coral query logs`, `coral debug filter`, `coral debug session events`,
+  `coral debug session stop` (already present on `summary`, `attach`, `detach`,
+  `results`, `session list/get/query`, `search`, `info`, `profile`,
+  `service list`, `correlations`).
+- ✅ `coral_cli` in MCP proxy (`internal/cli/colony/mcp.go`): proxy intercepts
+  `coral_cli` tool calls and handles them locally as subprocesses.
+- ✅ Colony MCP server per-operation tools removed: `internal/colony/mcp/` and
+  `internal/colony/server/mcp_tools.go` deleted; `CallTool`/`ListTools` handlers
+  return "not supported".
+- ✅ Integration tests: `TestCLIDispatchMode` and `TestCLIDispatchToolsContract`
+  verify CLI dispatch creates correctly without MCP and registers `coral_cli`.
+- ✅ `docs/MCP.md`, `docs/CLI.md`, `docs/CLI_REFERENCE.md` updated.
 
 ## Future Work
+
+**E2E test for CLI dispatch session log** (Future — requires running colony)
+
+Verify end-to-end that a TUI agent session log contains parseable CLI commands
+that produce the same output when run manually. Deferred because this requires
+a live `tests/e2e/distributed` colony environment and should be added alongside
+the broader E2E suite expansion.
 
 **Composite / higher-level commands** (Future — unassigned RFD)
 

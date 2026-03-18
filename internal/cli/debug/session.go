@@ -130,6 +130,7 @@ func newSessionEventsCmd() *cobra.Command {
 		maxEvents int32
 		follow    bool
 		since     time.Duration
+		format    string
 	)
 
 	cmd := &cobra.Command{
@@ -166,8 +167,16 @@ func newSessionEventsCmd() *cobra.Command {
 					if startTime == nil || event.Timestamp.AsTime().After(startTime.AsTime()) {
 						startTime = event.Timestamp
 					}
-					data, _ := json.Marshal(event)
-					fmt.Println(string(data))
+					if format == "json" {
+						data, _ := json.Marshal(event)
+						fmt.Println(string(data))
+					} else {
+						fmt.Printf("[%s] %s duration=%s\n",
+							event.Timestamp.AsTime().Format(time.RFC3339),
+							event.FunctionName,
+							time.Duration(event.DurationNs),
+						)
+					}
 				}
 
 				if !follow {
@@ -184,11 +193,14 @@ func newSessionEventsCmd() *cobra.Command {
 	cmd.Flags().Int32Var(&maxEvents, "max", 100, "Max events to retrieve")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow new events")
 	cmd.Flags().DurationVar(&since, "since", 0, "Show events since duration (e.g. 5m)")
+	cmd.Flags().StringVar(&format, "format", "json", "Output format (text, json)")
 
 	return cmd
 }
 
 func newSessionStopCmd() *cobra.Command {
+	var format string
+
 	cmd := &cobra.Command{
 		Use:   "stop <session-id>",
 		Short: "Stop a debug session",
@@ -202,7 +214,9 @@ func newSessionStopCmd() *cobra.Command {
 				return fmt.Errorf("failed to create debug client: %w", err)
 			}
 
-			fmt.Printf("Stopping session %s...\n", sessionID)
+			if format == "text" {
+				fmt.Printf("Stopping session %s...\n", sessionID)
+			}
 
 			req := &colonypb.DetachUprobeRequest{
 				SessionId: sessionID,
@@ -217,10 +231,22 @@ func newSessionStopCmd() *cobra.Command {
 				return fmt.Errorf("failed to stop session: %s", resp.Msg.Error)
 			}
 
+			if format == "json" {
+				result := map[string]any{
+					"success":    true,
+					"session_id": sessionID,
+				}
+				data, _ := json.MarshalIndent(result, "", "  ")
+				_, err = fmt.Fprintln(os.Stdout, string(data))
+				return err
+			}
+
 			fmt.Println("✓ Debug session stopped")
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
 
 	return cmd
 }

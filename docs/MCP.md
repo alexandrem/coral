@@ -74,29 +74,46 @@ the results.
 
 ## Architecture
 
-### Current Implementation
+### Two-Track Design (RFD 100)
+
+Coral supports two client paths that share a single tool vocabulary:
+
+```
+TUI (coral terminal)
+  └─ Agent → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
+
+External clients (Claude Desktop, Cursor, custom)
+  └─ MCP stdio → coral colony mcp proxy → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
+```
+
+Both paths use the same `coral_cli` meta-tool. The agent always issues
+human-readable coral CLI commands, making every session log reproducible
+and auditable.
+
+### External Client Flow
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Claude Desktop / coral ask / Custom MCP Client          │
+│  Claude Desktop / Custom MCP Client                      │
 │  (External LLM - Anthropic Claude, OpenAI, Ollama)       │
 └─────────────────────┬────────────────────────────────────┘
                       │ MCP Protocol (stdio)
                       ▼
          ┌────────────────────────────┐
          │   Proxy Command            │
-         │   (MCP ↔ RPC translator)   │
+         │   coral colony mcp proxy   │
+         │   • Exposes coral_cli tool │
+         │   • Handles locally via    │
+         │     subprocess             │
          └────────────┬───────────────┘
-                      │ Buf Connect gRPC
-                      │ (CallTool, StreamTool, ListTools)
+                      │ coral <cmd> --format json
                       ▼
          ┌────────────────────────────┐
-         │   Colony Server            │
-         │   • MCP Server (Genkit)    │
-         │   • Tool execution         │
-         │   • Business logic         │
+         │   Colony gRPC              │
+         │   • Real-time queries      │
+         │   • eBPF debug sessions    │
          └────────────┬───────────────┘
-                      │ (real-time queries)
+                      │
                       ▼
          ┌────────────────────────────┐
          │   Colony DuckDB            │
@@ -110,15 +127,59 @@ the results.
 **Architecture Benefits:**
 
 - Real-time data (no stale snapshots)
-- Clean separation: proxy only translates protocols, no business logic
-- No database access in proxy
-- Scalable: multiple proxies can connect to same colony
-- Type-safe with protocol buffers
+- One tool vocabulary for both TUI and external clients
+- Proxy handles `coral_cli` locally — no colony MCP server required
+- Every agent action is a reproducible CLI command in the session log
+- New CLI commands are immediately available to the agent
 
 **Key Point:** The LLM lives OUTSIDE the colony. Colony just provides data
 access tools.
 
 ## Available MCP Tools
+
+### `coral_cli` — Unified Meta-Tool (RFD 100)
+
+The proxy exposes a single `coral_cli` tool that replaces the previous suite
+of 21 per-operation tools. The LLM composes standard coral CLI commands and
+the proxy executes them as subprocesses, returning JSON output.
+
+```
+Tool name: coral_cli
+Description: Run a coral CLI command and return its JSON output.
+
+Input schema:
+{
+  "args": {
+    "type": "array",
+    "items": { "type": "string" },
+    "description": "coral subcommand and flags, e.g. [\"query\", \"traces\", \"--service\", \"api\", \"--since\", \"10m\"]"
+  }
+}
+
+Output: stdout of `coral <args> --format json`
+```
+
+**Examples (args arrays):**
+
+```json
+["query", "summary", "--service", "api"]
+["query", "traces", "--service", "api", "--since", "30m"]
+["query", "metrics", "--service", "api", "--protocol", "http"]
+["query", "logs", "--service", "api", "--level", "error"]
+["debug", "attach", "api", "--function", "processPayment"]
+["debug", "session", "list"]
+["service", "list"]
+```
+
+`--format json` is appended automatically by the proxy. Do not include it
+in `args`.
+
+---
+
+### Legacy Per-Operation Tools
+
+> **Note:** The per-operation tools below are preserved here for reference
+> but are no longer served by the proxy. Use `coral_cli` instead.
 
 ### Unified Query Interface (RFD 067)
 

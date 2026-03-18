@@ -2,7 +2,9 @@ package debug
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,6 +20,7 @@ func NewFilterCmd() *cobra.Command {
 		minDuration time.Duration
 		maxDuration time.Duration
 		filterRate  uint32
+		format      string
 	)
 
 	cmd := &cobra.Command{
@@ -56,6 +59,18 @@ dimension unchanged (i.e. set to zero = passthrough).`,
 				return fmt.Errorf("failed to update probe filter: %w", err)
 			}
 
+			if format == "json" {
+				result := map[string]any{
+					"session_id":      sessionID,
+					"min_duration_ns": minDuration.Nanoseconds(),
+					"max_duration_ns": maxDuration.Nanoseconds(),
+					"filter_rate":     filterRate,
+				}
+				data, _ := json.MarshalIndent(result, "", "  ")
+				_, err = fmt.Fprintln(os.Stdout, string(data))
+				return err
+			}
+
 			fmt.Printf("Filter updated for session %s\n", sessionID)
 			if minDuration > 0 {
 				fmt.Printf("  min-duration: %s\n", minDuration)
@@ -74,6 +89,7 @@ dimension unchanged (i.e. set to zero = passthrough).`,
 	cmd.Flags().DurationVar(&minDuration, "min-duration", 0, "Only emit events slower than this threshold (e.g. 50ms)")
 	cmd.Flags().DurationVar(&maxDuration, "max-duration", 0, "Only emit events faster than this threshold (e.g. 500ms)")
 	cmd.Flags().Uint32Var(&filterRate, "filter-rate", 0, "Emit 1 in every N events at kernel level (0 or 1 = all)")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
 
 	return cmd
 }
