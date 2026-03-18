@@ -1,19 +1,19 @@
 ---
 rfd: "100"
 title: "CLI-Native Agent Tool Dispatch"
-state: "implemented"
+state: "in-progress"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: []
 database_migrations: []
-areas: ["ask", "tui", "mcp", "cli"]
+areas: ["ask", "tui", "mcp", "cli", "proxy"]
 ---
 
 # RFD 100 - CLI-Native Agent Tool Dispatch
 
-**Status:** 🎉 Implemented
+**Status:** 🔄 In Progress
 
 ## Summary
 
@@ -71,9 +71,10 @@ directly into postmortems or incident reports.
 - **`coral_cli` as a meta-tool.** A single tool replaces 21 MCP tools. The LLM
   receives a compact CLI reference resource and composes commands from it, the
   same way a human would read `coral --help`.
-- **Two-track architecture.** External clients (Claude Desktop, Cursor) continue
-  to use the MCP protocol unchanged. This RFD only changes the TUI's first-party
-  path.
+- **Two-track architecture, unified tool vocabulary.** External clients (Claude
+  Desktop, Cursor) continue to use the MCP protocol. Phase 5 extends the same
+  `coral_cli` meta-tool to the proxy layer, so all clients — TUI and external —
+  converge on a single tool and the 21 per-operation tools are removed.
 - **Latency is not a real concern.** Subprocess fork for a compiled Go binary
   adds ~10–50ms. LLM inference and colony network round-trips dominate agent loop
   latency. The round-trip count (number of LLM steps) matters far more than
@@ -97,11 +98,15 @@ directly into postmortems or incident reports.
 Current (TUI via MCP):
   TUI → Agent → MCP Client (stdio) → coral colony mcp proxy → gRPC → Colony → MCP Server → tool handler
 
-Proposed (TUI via CLI):
+Phase 1-3 (TUI via CLI):
   TUI → Agent → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
 
-External clients (unchanged):
-  Claude Desktop → MCP stdio → coral colony mcp proxy → gRPC → Colony → MCP Server → tool handler
+Phase 5 (external clients via CLI, proxy intercepts):
+  Claude Desktop → MCP stdio → coral colony mcp proxy → [intercept coral_cli] → subprocess: coral <cmd> --format json → gRPC → Colony
+
+Final state (both paths, one tool):
+  TUI          → Agent       → coral_cli tool    → subprocess: coral <cmd> --format json → gRPC → Colony
+  Claude Desktop → MCP stdio → proxy coral_cli   → subprocess: coral <cmd> --format json → gRPC → Colony
 ```
 
 ### Component Changes
@@ -145,6 +150,17 @@ External clients (unchanged):
      the tool name.
    - Display commands inline in the conversation (e.g., `$ coral query traces
      --service api --since 10m`) so users see exactly what the agent ran.
+
+6. **MCP proxy (`internal/cli/colony/mcp.go`) — Phase 5**:
+
+   - In `mcpProxy.handleListTools`, return the `coral_cli` tool schema instead
+     of delegating to the colony `ListTools` RPC.
+   - In `mcpProxy.handleCallTool`, intercept `coral_cli` calls: parse the `args`
+     array, append `--format json`, exec `os.Executable()` as a subprocess,
+     return stdout as the MCP tool result. All other tool names are rejected
+     (the colony no longer exposes per-operation tools).
+   - Colony MCP server (`internal/colony/mcp/`) and its `CallTool` / `ListTools`
+     gRPC handlers are removed once the proxy no longer calls them.
 
 ## Implementation Plan
 
@@ -196,12 +212,39 @@ External clients (unchanged):
 - [ ] Update `docs/AGENT.md` with CLI dispatch mode, `coral_cli` tool contract,
       and `coral://cli/reference` resource.
 
+### Phase 5: `coral_cli` as MCP tool in the proxy — retire the 21 per-operation tools
+
+The proxy (`internal/cli/colony/mcp.go`) runs the `coral` binary locally. It
+can intercept `coral_cli` tool calls and handle them as subprocesses, exactly
+as the TUI does, without adding any dependency on the colony MCP server.
+
+- [ ] **`--format json` parity audit** — add `AddFormatFlag` and JSON output to
+      the commands that currently lack it and are reachable via `coral_cli`:
+      `coral debug filter`, `coral debug session list/get/query/events/stop`,
+      `coral debug search/info/profile`.
+- [ ] **Implement `coral_cli` in the proxy** — in `mcpProxy.handleCallTool`,
+      check for `toolName == "coral_cli"` and handle locally: parse the `args`
+      array, append `--format json`, exec `os.Executable()` as the subprocess,
+      return stdout as the MCP tool result. Everything else still forwards to the
+      colony RPC.
+- [ ] **Implement `coral_cli` in `mcpProxy.handleListTools`** — return the
+      single `coral_cli` tool schema (identical to the TUI schema) instead of
+      delegating to the colony `ListTools` RPC.
+- [ ] **Remove the 21 per-operation MCP tool handlers** from
+      `internal/colony/mcp/server.go` (`ExecuteTool` switch, `listToolNames`,
+      and all `tools_*.go` handler files). The colony MCP server gRPC endpoint
+      (`CallTool`, `ListTools`) can be removed once the proxy no longer calls it.
+- [ ] **Update `docs/MCP.md`** — replace the 21-tool reference with the
+      `coral_cli` contract, add a note that the proxy handles `coral_cli`
+      locally.
+
 ## API Changes
 
 ### New tool: `coral_cli`
 
-Registered in the agent's local tool set when operating in CLI dispatch mode.
-Not exposed via MCP.
+Registered in the agent's local tool set when operating in CLI dispatch mode
+(TUI). Also exposed via the MCP proxy (Phase 5), replacing the 21
+per-operation MCP tools for external clients.
 
 ```
 Tool name: coral_cli
@@ -288,7 +331,7 @@ ask:
 
 ## Implementation Status
 
-**Core Capability:** 🎉 Implemented
+**Phase 1–3:** 🎉 Implemented
 
 **What was built:**
 
@@ -338,10 +381,3 @@ unified JSON response. Examples:
 These commands reduce agent round-trip count (fewer LLM inference steps) while
 remaining auditable. They should be derived from usage data gathered after this
 RFD is implemented, not designed speculatively.
-
-**MCP tool surface reduction for external clients** (Future — unassigned RFD)
-
-Once the CLI dispatch path is proven for the TUI, the same principle can be
-applied to external MCP clients by exposing `coral_cli` as an MCP tool and
-retiring the per-operation tools. This is a separate change with different
-trade-offs (external clients may not have the `coral` binary available).
