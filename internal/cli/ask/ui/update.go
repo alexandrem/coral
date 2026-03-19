@@ -34,11 +34,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolStartMsg:
 		m.currentTool = msg.toolName
+		m.currentCommand = msg.command
 		m.currentState = stateQuerying
 		return m, m.spinner.Tick
 
 	case toolCompleteMsg:
 		m.currentTool = ""
+		m.currentCommand = ""
 		return m, nil
 
 	case queryCompleteMsg:

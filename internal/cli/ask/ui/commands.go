@@ -12,6 +12,7 @@ type AgentEvent struct {
 	Type     string
 	Content  string
 	ToolName string
+	Command  string // Full CLI command string for tool_start in CLI dispatch mode (RFD 100)
 	Duration float64
 	Error    error
 	Response any
@@ -47,7 +48,7 @@ func askQuestionCmd(agent Agent, question, conversationID string, debug, dryRun 
 				case "stream":
 					return streamChunkMsg{chunk: agentEvent.Content}
 				case "tool_start":
-					return toolStartMsg{toolName: agentEvent.ToolName}
+					return toolStartMsg{toolName: agentEvent.ToolName, command: agentEvent.Command}
 				case "tool_complete":
 					return toolCompleteMsg{toolName: agentEvent.ToolName, duration: agentEvent.Duration}
 				case "complete":
