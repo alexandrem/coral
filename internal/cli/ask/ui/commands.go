@@ -2,63 +2,66 @@
 package ui
 
 import (
-	"context"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// AgentEvent represents an event from the agent (to avoid import cycle).
-type AgentEvent struct {
-	Type     string
-	Content  string
-	ToolName string
-	Command  string // Full CLI command string for tool_start in CLI dispatch mode (RFD 100)
-	Duration float64
-	Error    error
-	Response any
+// UIScriptApproval carries script review data for the "script_review" event.
+// ApprovalReply is shared with the agent goroutine: send true to approve,
+// false to reject.
+type UIScriptApproval struct {
+	Name          string
+	Content       string
+	ApprovalReply chan bool
 }
 
-// askQuestionCmd executes an agent query in a goroutine.
-func askQuestionCmd(agent Agent, question, conversationID string, debug, dryRun bool) tea.Cmd {
+// AgentEvent represents an event from the agent (to avoid import cycle).
+type AgentEvent struct {
+	Type           string
+	Content        string
+	ToolName       string
+	Command        string // Full CLI command string for tool_start in CLI dispatch mode (RFD 100)
+	Duration       float64
+	Error          error
+	Response       any
+	ScriptApproval *UIScriptApproval // Non-nil for "script_review" events.
+}
+
+// waitForEventCmd returns a Bubbletea command that reads the next event from ch
+// and converts it to a Bubbletea message.  The channel is created by the model
+// (in handleKeyMsg) and stored in Model.eventChan so subsequent calls can
+// continue listening without restarting the query.
+func waitForEventCmd(ch <-chan any) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		eventChan := make(chan any, 100)
-
-		// Execute query in goroutine.
-		go func() {
-			defer close(eventChan)
-
-			resp, err := agent.AskWithChannel(ctx, question, conversationID, dryRun, eventChan)
-
-			// Send completion message.
-			eventChan <- AgentEvent{
-				Type:     "complete",
-				Response: resp,
-				Error:    err,
-			}
-		}()
-
-		// Convert agent events to Bubbletea messages.
-		// This function will be called repeatedly by Bubbletea,
-		// returning one message at a time from the channel.
-		for event := range eventChan {
-			// Type assert to AgentEvent
-			if agentEvent, ok := event.(AgentEvent); ok {
-				switch agentEvent.Type {
-				case "stream":
-					return streamChunkMsg{chunk: agentEvent.Content}
-				case "tool_start":
-					return toolStartMsg{toolName: agentEvent.ToolName, command: agentEvent.Command}
-				case "tool_complete":
-					return toolCompleteMsg{toolName: agentEvent.ToolName, duration: agentEvent.Duration}
-				case "complete":
-					return queryCompleteMsg{response: agentEvent.Response, err: agentEvent.Error}
+		event, ok := <-ch
+		if !ok {
+			// Channel closed — query finished or cancelled.
+			return queryCompleteMsg{err: nil}
+		}
+		e, ok := event.(AgentEvent)
+		if !ok {
+			return errorMsg{err: fmt.Errorf("unexpected event type %T", event)}
+		}
+		switch e.Type {
+		case "stream":
+			return streamChunkMsg{chunk: e.Content}
+		case "tool_start":
+			return toolStartMsg{toolName: e.ToolName, command: e.Command}
+		case "tool_complete":
+			return toolCompleteMsg{toolName: e.ToolName, duration: e.Duration}
+		case "complete":
+			return queryCompleteMsg{response: e.Response, err: e.Error}
+		case "script_review":
+			if e.ScriptApproval != nil {
+				return scriptReviewMsg{
+					name:    e.ScriptApproval.Name,
+					content: e.ScriptApproval.Content,
+					reply:   e.ScriptApproval.ApprovalReply,
 				}
 			}
 		}
-
-		// Channel closed without completion message.
-		return errorMsg{err: context.Canceled}
+		return errorMsg{err: fmt.Errorf("unknown agent event %q", e.Type)}
 	}
 }
 

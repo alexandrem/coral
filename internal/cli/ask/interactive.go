@@ -34,7 +34,7 @@ func (a *agentAdapter) AskWithChannel(ctx any, question, conversationID string, 
 	go func() {
 		defer close(ch)
 		for event := range eventChan {
-			ch <- ui.AgentEvent{
+			uiEvent := ui.AgentEvent{
 				Type:     event.Type,
 				Content:  event.Content,
 				ToolName: event.ToolName,
@@ -43,6 +43,14 @@ func (a *agentAdapter) AskWithChannel(ctx any, question, conversationID string, 
 				Error:    event.Error,
 				Response: event.Response,
 			}
+			if event.ScriptApproval != nil {
+				uiEvent.ScriptApproval = &ui.UIScriptApproval{
+					Name:          event.ScriptApproval.Name,
+					Content:       event.ScriptApproval.Content,
+					ApprovalReply: event.ScriptApproval.ApprovalReply,
+				}
+			}
+			ch <- uiEvent
 		}
 	}()
 
