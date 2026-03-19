@@ -5,7 +5,6 @@ package profiler
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -32,7 +31,7 @@ type ServiceInfo struct {
 // ContinuousCPUProfiler stub for non-Linux platforms.
 type ContinuousCPUProfiler struct{}
 
-// NewContinuousCPUProfiler is not supported on non-Linux platforms.
+// NewContinuousCPUProfiler returns a no-op profiler on non-Linux platforms.
 func NewContinuousCPUProfiler(
 	parentCtx context.Context,
 	db *sql.DB,
@@ -40,7 +39,7 @@ func NewContinuousCPUProfiler(
 	logger zerolog.Logger,
 	config Config,
 ) (*ContinuousCPUProfiler, error) {
-	return nil, fmt.Errorf("continuous CPU profiling not supported on this platform")
+	return &ContinuousCPUProfiler{}, nil
 }
 
 // Start is a no-op on non-Linux platforms.

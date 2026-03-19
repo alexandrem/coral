@@ -289,6 +289,9 @@ type BeylaPollerConfig struct {
 	// PollInterval is how often to poll agents for Beyla data.
 	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_BEYLA_POLL_INTERVAL"`
 
+	// ConnectionsCacheTTL is the TTL for materialized connections cache (RFD 092).
+	ConnectionsCacheTTL time.Duration `yaml:"connections_cache_ttl,omitempty" env:"CORAL_CONNECTIONS_CACHE_TTL"`
+
 	// Retention settings for different data types.
 	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
 }

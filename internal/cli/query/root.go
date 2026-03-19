@@ -22,6 +22,7 @@ Commands:
   cpu-profile    - Historical CPU profiles (RFD 072)
   memory-profile - Historical memory profiles (RFD 077 - coming soon)
   sql            - Execute raw SQL queries (RFD 076)
+  topology       - Service dependency graph (RFD 092)
 
 Examples:
   coral query summary                  # List all services with telemetry
@@ -42,6 +43,7 @@ Examples:
 	cmd.AddCommand(NewCPUProfileCmd())
 	cmd.AddCommand(NewMemoryProfileCmd())
 	cmd.AddCommand(NewSQLCmd())
+	cmd.AddCommand(NewTopologyCmd()) // RFD 092: Service topology
 
 	return cmd
 }

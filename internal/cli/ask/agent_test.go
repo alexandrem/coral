@@ -108,6 +108,51 @@ func TestCompactServiceAlert(t *testing.T) {
 	})
 }
 
+func TestFormatCompactCallGraph(t *testing.T) {
+	t.Run("empty input", func(t *testing.T) {
+		assert.Equal(t, "", formatCompactCallGraph(""))
+	})
+
+	t.Run("header only — no edges", func(t *testing.T) {
+		assert.Equal(t, "", formatCompactCallGraph("Service call graph (last 1h):"))
+	})
+
+	t.Run("no cross-service calls", func(t *testing.T) {
+		// The tool returns this when there are no connections.
+		input := "Service call graph (last 1h):\n(no cross-service calls observed)"
+		assert.Equal(t, "", formatCompactCallGraph(input))
+	})
+
+	t.Run("single edge", func(t *testing.T) {
+		input := "Service call graph (last 1h):\napi-gateway → user-service (HTTP, 2341 calls, last: 2s ago)"
+		result := formatCompactCallGraph(input)
+		assert.Equal(t, "Call graph: api-gateway→user-service (HTTP)", result)
+	})
+
+	t.Run("multiple edges", func(t *testing.T) {
+		input := strings.Join([]string{
+			"Service call graph (last 1h):",
+			"api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)",
+			"user-service → postgres (SQL, 1823 calls, last: 5s ago)",
+			"worker → queue (gRPC, 234 calls, last: 1m ago)",
+		}, "\n")
+		result := formatCompactCallGraph(input)
+		assert.Equal(t, "Call graph: api-gateway→user-service (HTTP), user-service→postgres (SQL), worker→queue (gRPC)", result)
+	})
+
+	t.Run("service names with hyphens and dots", func(t *testing.T) {
+		input := "Service call graph (last 30m):\nmy-svc.v2 → db.primary (HTTP, 5 calls, last: 10s ago)"
+		result := formatCompactCallGraph(input)
+		assert.Equal(t, "Call graph: my-svc.v2→db.primary (HTTP)", result)
+	})
+
+	t.Run("blank lines are ignored", func(t *testing.T) {
+		input := "Service call graph (last 1h):\n\napi → db (HTTP, 1 calls, last: 1s ago)\n\n"
+		result := formatCompactCallGraph(input)
+		assert.Equal(t, "Call graph: api→db (HTTP)", result)
+	})
+}
+
 func TestConversationPersistence(t *testing.T) {
 	// Setup minimalist agent
 	askCfg := &config.AskConfig{

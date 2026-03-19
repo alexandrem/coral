@@ -216,6 +216,7 @@ func (w *traceServiceWrapper) Export(
 
 	spansReceived := 0
 	spansFiltered := 0
+	spansProcessed := 0
 
 	// Process all resource spans.
 	for _, resourceSpans := range req.ResourceSpans {
@@ -244,6 +245,8 @@ func (w *traceServiceWrapper) Export(
 							Err(err).
 							Str("trace_id", span.TraceID).
 							Msg("SpanHandler failed to process span")
+					} else {
+						spansProcessed++
 					}
 				} else {
 					// Store in local storage (default behavior).
@@ -252,17 +255,22 @@ func (w *traceServiceWrapper) Export(
 							Err(err).
 							Str("trace_id", span.TraceID).
 							Msg("Failed to store span")
+					} else {
+						spansProcessed++
 					}
 				}
 			}
 		}
 	}
 
-	w.receiver.logger.Debug().
-		Int("received", spansReceived).
-		Int("filtered", spansFiltered).
-		Int("stored", spansReceived-spansFiltered).
-		Msg("Processed OTLP trace export")
+	if spansReceived > 0 {
+		w.receiver.logger.Debug().
+			Int("received", spansReceived).
+			Int("filtered", spansFiltered).
+			Int("processed", spansProcessed).
+			Str("service_name", extractServiceName(req.ResourceSpans[0].Resource)).
+			Msg("Processed OTLP spans export")
+	}
 
 	return &otlptracev1.ExportTraceServiceResponse{}, nil
 }
@@ -316,6 +324,15 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 	traceID := hex.EncodeToString(otlpSpan.TraceId)
 	spanID := hex.EncodeToString(otlpSpan.SpanId)
 
+	parentSpanID := ""
+	if len(otlpSpan.ParentSpanId) > 0 {
+		parentSpanID = hex.EncodeToString(otlpSpan.ParentSpanId)
+		// If it's all zeros, treat as empty (root span).
+		if parentSpanID == "0000000000000000" {
+			parentSpanID = ""
+		}
+	}
+
 	// Calculate duration in milliseconds.
 	startTime := time.Unix(0, int64(otlpSpan.StartTimeUnixNano))
 	endTime := time.Unix(0, int64(otlpSpan.EndTimeUnixNano))
@@ -354,17 +371,18 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 	spanKind := spanKindToString(otlpSpan.Kind)
 
 	return Span{
-		Timestamp:   startTime,
-		TraceID:     traceID,
-		SpanID:      spanID,
-		ServiceName: serviceName,
-		SpanKind:    spanKind,
-		DurationMs:  durationMs,
-		IsError:     isError,
-		HTTPStatus:  httpStatus,
-		HTTPMethod:  httpMethod,
-		HTTPRoute:   httpRoute,
-		Attributes:  attributes,
+		Timestamp:    startTime,
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		ServiceName:  serviceName,
+		SpanKind:     spanKind,
+		DurationMs:   durationMs,
+		IsError:      isError,
+		HTTPStatus:   httpStatus,
+		HTTPMethod:   httpMethod,
+		HTTPRoute:    httpRoute,
+		Attributes:   attributes,
 	}
 }
 

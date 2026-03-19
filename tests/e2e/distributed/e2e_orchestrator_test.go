@@ -280,6 +280,7 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryInvalidFlags", cliQuerySuite.TestQueryInvalidFlags)
 	s.Run("CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
 	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
+	s.Run("CLI_QueryTopology", cliQuerySuite.TestCLIQueryTopology)
 
 	// Run CLIConfigSuite (config commands - Phase 3)
 	cliConfigSuite := &CLIConfigSuite{

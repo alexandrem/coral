@@ -84,9 +84,18 @@ func New(config Config) (*Agent, error) {
 		Logger: config.Logger,
 	})
 
-	// Initialize Beyla manager (RFD 032).
+	// Initialize Beyla manager (RFD 032/110).
 	var beylaManager *beyla.Manager
 	if config.BeylaConfig != nil {
+		// Populate initial service map from provided services.
+		if config.BeylaConfig.Discovery.ServiceMap == nil {
+			config.BeylaConfig.Discovery.ServiceMap = make(map[int]string)
+		}
+		for _, svc := range config.Services {
+			config.BeylaConfig.Discovery.ServiceMap[int(svc.Port)] = svc.Name
+			config.BeylaConfig.Discovery.OpenPorts = append(config.BeylaConfig.Discovery.OpenPorts, int(svc.Port))
+		}
+
 		var err error
 		beylaManager, err = beyla.NewManager(ctx, config.BeylaConfig, config.Logger)
 		if err != nil {
@@ -338,10 +347,10 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 		Int32("port", service.Port).
 		Msg("Service connected")
 
-	// Update Beyla discovery with new port (RFD 053).
+	// Update Beyla discovery with new port (RFD 053/110).
 	if a.beylaManager != nil {
-		ports := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(ports); err != nil {
+		portMap := a.collectPortsLocked()
+		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service connect")
@@ -370,10 +379,10 @@ func (a *Agent) DisconnectService(serviceName string) error {
 		Str("service", serviceName).
 		Msg("Service disconnected")
 
-	// Update Beyla discovery with remaining ports (RFD 053).
+	// Update Beyla discovery with remaining ports (RFD 053/110).
 	if a.beylaManager != nil {
-		ports := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(ports); err != nil {
+		portMap := a.collectPortsLocked()
+		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service disconnect")
@@ -394,14 +403,14 @@ func (a *Agent) GetBeylaManager() *beyla.Manager {
 	return a.beylaManager
 }
 
-// collectPortsLocked collects all service ports from monitors (RFD 053).
+// collectPortsLocked collects all service port-to-name mappings from monitors (RFD 053/110).
 // Caller must hold a.mu lock.
-func (a *Agent) collectPortsLocked() []int {
-	ports := make([]int, 0, len(a.monitors))
-	for _, monitor := range a.monitors {
-		ports = append(ports, int(monitor.service.Port))
+func (a *Agent) collectPortsLocked() map[int]string {
+	portMap := make(map[int]string)
+	for name, monitor := range a.monitors {
+		portMap[int(monitor.service.Port)] = name
 	}
-	return ports
+	return portMap
 }
 
 // Resolve resolves service name to address (ServiceResolver interface).

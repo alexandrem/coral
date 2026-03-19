@@ -436,6 +436,50 @@ func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
 	return parseHealthAlerts(textContent.Text)
 }
 
+// formatCompactCallGraph converts coral_topology multi-line output into a compact
+// one-line call graph suitable for injection into the system prompt.
+// Input format (one edge per line):
+//
+//	api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)
+//
+// Output format:
+//
+//	Call graph: api-gateway→user-service (HTTP), user-service→postgres (SQL)
+func formatCompactCallGraph(topologyText string) string {
+	var edges []string
+	for _, line := range strings.Split(topologyText, "\n") {
+		line = strings.TrimSpace(line)
+		// Skip header lines and empty lines.
+		if line == "" || strings.HasPrefix(line, "Service call graph") {
+			continue
+		}
+		// Compact "a → b (HTTP, 2341 calls, last: 2s ago)" → "a→b (HTTP)".
+		// Split on " (", take from/to from before the parens and protocol from inside.
+		const arrowSeq = " → "
+		arrow := strings.Index(line, arrowSeq)
+		if arrow < 0 {
+			continue
+		}
+		from := line[:arrow]
+		rest := line[arrow+len(arrowSeq):]
+		paren := strings.Index(rest, " (")
+		if paren < 0 {
+			continue
+		}
+		to := rest[:paren]
+		detail := rest[paren+2:] // skip " ("
+		// Extract just the protocol (first comma-separated word).
+		parts := strings.SplitN(detail, ",", 2)
+		protocol := strings.TrimSuffix(strings.TrimSpace(parts[0]), ")")
+		edges = append(edges, fmt.Sprintf("%s→%s (%s)", from, to, protocol))
+	}
+
+	if len(edges) == 0 {
+		return ""
+	}
+	return "Call graph: " + strings.Join(edges, ", ")
+}
+
 // parseHealthAlerts extracts compact one-liners for degraded/critical services from
 // the coral_query_summary text output. Returns empty string if no issues found.
 func parseHealthAlerts(summaryText string) string {

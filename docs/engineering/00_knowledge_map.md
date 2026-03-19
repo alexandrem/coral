@@ -39,6 +39,10 @@ distributed systems principles that power the platform.
   Strategic use of DuckDB at the edge vs. central data aggregation.
 - **[09_reliable_telemetry_polling](09_reliable_telemetry_polling.md)**:
   Detailed exploration of sequence-based checkpoints and gap recovery logic.
+- **[15_service_topology_and_graph_materialization](15_service_topology_and_graph_materialization.md)**:
+  Zero-instrumentation service dependency graph: parent-span self-join on
+  `beyla_traces`, TTL-cached materialization into `service_connections`, and
+  exposure through CLI, MCP tool, and LLM system prompt.
 
 ## 5. Intelligence & Analysis
 

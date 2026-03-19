@@ -1,8 +1,10 @@
 package distributed
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -322,6 +324,139 @@ func (s *CLIQuerySuite) TestQueryTableOutputFormatting() {
 	s.T().Log("✓ Table formatting validated")
 }
 
+// TestCLIQueryTopology tests 'coral query topology' CLI command (RFD 092).
+//
+// Validates:
+//   - Cross-service edges (otel-app → cpu-app) appear after traffic generation
+//   - Default text output contains directed call edges
+//   - JSON output flag works and includes colony_id and connections fields
+func (s *CLIQuerySuite) TestCLIQueryTopology() {
+	s.T().Log("Testing 'coral query topology' CLI command (RFD 092)...")
+
+	// Generate real cross-service HTTP traffic so MaterializeConnections has
+	// parent-child span relationships to mine across service boundaries.
+	s.ensureCrossServiceData()
+
+	// Poll 'coral query topology' until the otel-app → cpu-app edge appears or
+	// the deadline is exceeded. On each cycle, send a few more /chain calls so
+	// fresh Beyla spans are always available — this handles cases where the
+	// otel-app container restarted mid-suite and Beyla's eBPF uprobes needed
+	// time to re-attach to the new process.
+	const (
+		topologyTimeout  = 320 * time.Second
+		topologyInterval = 5 * time.Second
+	)
+	otelAppURL := "http://localhost:8082"
+	chainClient := &http.Client{Timeout: 3 * time.Second}
+	deadline := time.Now().Add(topologyTimeout)
+	var result *helpers.CLIResult
+	for {
+		// Keep generating cross-service calls so there is always fresh traffic
+		// for Beyla to capture once its uprobe attaches to the new process.
+		for i := 0; i < 3; i++ {
+			if resp, err := chainClient.Get(otelAppURL + "/chain"); err == nil {
+				_ = resp.Body.Close()
+			}
+		}
+
+		result = s.cliEnv.Run(s.ctx, "query", "topology")
+		if result.Err == nil && strings.Contains(result.Output, "otel-app") {
+			break
+		}
+		if time.Now().After(deadline) {
+			s.T().Logf("coral query topology last output:\n%s", result.Output)
+			s.Require().Fail("timed out waiting for otel-app to appear in coral query topology output")
+			return
+		}
+		s.T().Logf("otel-app not yet in topology output, retrying in %s...", topologyInterval)
+		time.Sleep(topologyInterval)
+	}
+
+	result.MustSucceed(s.T())
+	s.Require().NotEmpty(result.Output, "CLI topology output should not be empty")
+	s.T().Logf("coral query topology output:\n%s", result.Output)
+
+	// The output must include a detected edge between the two services.
+	// otel-app calls cpu-app via the /chain endpoint; Beyla's eBPF interceptor
+	// owns the traceparent header so the parent-child span pair lives entirely
+	// in beyla_traces, letting MaterializeConnections find the edge.
+	s.Require().Contains(result.Output, "otel-app", "Output should name the caller service")
+	s.Require().Contains(result.Output, "cpu-app", "Output should name the callee service")
+	s.Require().Contains(result.Output, "→", "Output should show a directed call edge")
+
+	// JSON output format.
+	jsonResult := s.cliEnv.Run(s.ctx, "query", "topology", "--format", "json")
+	jsonResult.MustSucceed(s.T())
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonResult.Output), &parsed); err != nil {
+		s.T().Logf("JSON parse error (output was): %s", jsonResult.Output)
+		s.Require().NoError(err, "JSON output should be valid JSON")
+	}
+	s.Require().Contains(parsed, "colony_id", "JSON output must include colony_id field")
+	s.Require().Contains(parsed, "connections", "JSON output must include connections field")
+
+	s.T().Log("✓ coral query topology CLI validated with real cross-service connections")
+}
+
+// ensureCrossServiceData drives traffic through otel-app's /chain endpoint.
+// That handler makes a plain HTTP call to cpu-app (no OTel SDK traceparent
+// injection) so Beyla's eBPF interceptor can own the traceparent header end-
+// to-end: it injects its own span_id on the outgoing side and the cpu-app
+// SERVER span records it as parent_span_id, giving MaterializeConnections a
+// consistent parent-child pair inside beyla_traces.
+func (s *CLIQuerySuite) ensureCrossServiceData() {
+	s.T().Log("Generating cross-service traffic (otel-app → cpu-app)...")
+
+	otelAppURL := "http://localhost:8082"
+
+	if err := helpers.WaitForHTTPEndpoint(s.ctx, otelAppURL+"/health", 10*time.Second); err != nil {
+		s.T().Log("otel-app not reachable, cross-service traffic generation skipped")
+		return
+	}
+
+	// Verify the /chain endpoint exists before generating traffic. A 404 means
+	// the otel-app image was not rebuilt after the /chain handler was added.
+	client := &http.Client{Timeout: 5 * time.Second}
+	probe, err := client.Get(otelAppURL + "/chain")
+	s.Require().NoError(err, "/chain probe request should succeed (is the otel-app image rebuilt?)")
+	_ = probe.Body.Close()
+	s.Require().Equal(http.StatusOK, probe.StatusCode,
+		"/chain returned %d — rebuild the otel-app Docker image to include the /chain handler", probe.StatusCode)
+
+	// Retry loop — Beyla may need a few seconds to attach uprobes after the process
+	// is first exercised by the probe request above. By making multiple batches
+	// spaced out over time, we ensure the eBPF uprobes are active for the later calls.
+	const (
+		batches       = 3
+		callsPerBatch = 5
+	)
+	calls := 0
+	for attempt := 1; attempt <= batches; attempt++ {
+		s.T().Logf("Traffic generation attempt %d/%d...", attempt, batches)
+		for i := 0; i < callsPerBatch; i++ {
+			resp, err := client.Get(otelAppURL + "/chain")
+			s.Require().NoError(err, "Traffic generation failed (otel-app endpoint unreachable)")
+			s.Require().Equal(http.StatusOK, resp.StatusCode, "Traffic generation failed (otel-app returned error)")
+			resp.Body.Close()
+			calls++
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		if attempt < batches {
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	// Allow time for Beyla to capture both span sides, the colony's Beyla poll
+	// (1s in e2e config) to forward them, and the first topology materialization
+	// to run. Ten seconds gives comfortable headroom across that pipeline.
+	s.T().Log("Waiting for cross-service spans to propagate to colony...")
+	time.Sleep(10 * time.Second)
+
+	s.T().Logf("Generated %d cross-service calls", calls)
+}
+
 // Helper: ensureTelemetryData generates telemetry data by sending requests to test apps.
 // This ensures query commands have data to work with.
 func (s *CLIQuerySuite) ensureTelemetryData() {
@@ -354,10 +489,11 @@ func (s *CLIQuerySuite) ensureTelemetryData() {
 
 // ensureServicesConnected ensures test services are connected to agent for query tests.
 func (s *CLIQuerySuite) ensureServicesConnected() {
-	// CLI query tests need otel-app for testing queries.
-	// This populates the services registry table via ConnectService API.
+	// CLI query tests need otel-app and cpu-app — the topology test requires
+	// both services to be connected so cross-service edges are materialized.
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
 		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
 	})
 }
 
@@ -365,5 +501,6 @@ func (s *CLIQuerySuite) ensureServicesConnected() {
 func (s *CLIQuerySuite) disconnectAllServices() {
 	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{
 		"otel-app",
+		"cpu-app",
 	})
 }

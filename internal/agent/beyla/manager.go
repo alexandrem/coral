@@ -111,6 +111,9 @@ type DiscoveryConfig struct {
 	// Instrument processes listening on these ports.
 	OpenPorts []int
 
+	// Port to service name mapping (RFD 110, fixes topology missing edges in shared namespaces).
+	ServiceMap map[int]string
+
 	// Kubernetes-based discovery (for node agents).
 	K8sNamespaces []string
 	K8sPodLabels  map[string]string
@@ -433,6 +436,14 @@ func (m *Manager) startOTLPReceiver() error {
 	// Configure OTLP receiver for Beyla's output.
 	// Use ports 4319/4320 to avoid conflict with the shared OTLP receiver (4317/4318)
 	// which handles user application telemetry.
+	// Beyla already performs its own eBPF-level filtering; default to capturing
+	// 100% of spans so that normal-latency cross-service calls are never dropped
+	// by the OTLP receiver filter (required for topology materialisation).
+	sampleRate := m.config.SamplingRate
+	if sampleRate == 0 {
+		sampleRate = constants.DefaultBeylaSampleRate
+	}
+
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
 		GRPCEndpoint:          fmt.Sprintf("127.0.0.1:%d", constants.DefaultBeylaGRPCPort), // Beyla-specific gRPC port (avoids 4317 conflict).
@@ -441,7 +452,7 @@ func (m *Manager) startOTLPReceiver() error {
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,
-			SampleRate:             m.config.SamplingRate,
+			SampleRate:             sampleRate,
 		},
 		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
 		SpanHandler: m.handleBeylaSpan,
@@ -504,7 +515,7 @@ func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) erro
 		"", // agentID - not available from OTLP span, will be empty
 		span.TraceID,
 		span.SpanID,
-		"", // parentSpanID - not available from telemetry.Span
+		span.ParentSpanID,
 		span.ServiceName,
 		spanName,
 		span.SpanKind,
@@ -624,7 +635,9 @@ func (m *Manager) startBeyla() error {
 
 	// Force delta temporality to prevent duplicate cumulative metrics (RFD 032).
 	// Beyla defaults to cumulative, but our agent stores events, so we need deltas.
-	cmd.Env = append(os.Environ(), "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta")
+	cmd.Env = append(os.Environ(),
+		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta",
+	)
 
 	// Start Beyla process.
 	if err := cmd.Start(); err != nil {
@@ -652,49 +665,76 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	cfg := beylaConfig{
 		LogLevel: "INFO",
 	}
-
 	// Discovery: open ports.
 	if len(m.config.Discovery.OpenPorts) > 0 {
-		ports := make([]string, len(m.config.Discovery.OpenPorts))
-		for i, port := range m.config.Discovery.OpenPorts {
-			ports[i] = strconv.Itoa(port)
+		// Group ports by service name to create separate instrument rules.
+		// This ensures Beyla attributes spans to the correct service even in
+		// shared network/PID namespaces (RFD 110).
+		servicePorts := make(map[string][]string)
+		var unnamedPorts []string
+
+		for _, port := range m.config.Discovery.OpenPorts {
+			portStr := strconv.Itoa(port)
+			if name, ok := m.config.Discovery.ServiceMap[port]; ok && name != "" {
+				servicePorts[name] = append(servicePorts[name], portStr)
+			} else {
+				unnamedPorts = append(unnamedPorts, portStr)
+			}
 		}
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+
+		type instrumentRule struct {
 			OpenPorts string `yaml:"open_ports,omitempty"`
 			ExeName   string `yaml:"exe_name,omitempty"`
-		}{OpenPorts: strings.Join(ports, ",")})
+			Name      string `yaml:"name,omitempty"`
+		}
+
+		// Create rules for named services.
+		for name, ports := range servicePorts {
+			cfg.Discovery.Services = append(cfg.Discovery.Services, instrumentRule{
+				OpenPorts: strings.Join(ports, ","),
+				Name:      name,
+			})
+		}
+
+		// Create catch-all rules for unnamed ports.
+		if len(unnamedPorts) > 0 {
+			cfg.Discovery.Services = append(cfg.Discovery.Services, instrumentRule{
+				OpenPorts: strings.Join(unnamedPorts, ","),
+			})
+		}
 	}
 
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
 			OpenPorts string `yaml:"open_ports,omitempty"`
 			ExeName   string `yaml:"exe_name,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}{ExeName: name})
 	}
 
-	// Default discovery: only use catch-all if MonitorAll is explicitly enabled (RFD 053).
-	// If no ports/processes are specified and MonitorAll is false, Beyla won't instrument anything.
-	if len(cfg.Discovery.Instrument) == 0 && m.config.MonitorAll {
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+	// Add special rule for container-shared mode if requested (RFD 053/084).
+	if m.config.MonitorAll {
+		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
 			OpenPorts string `yaml:"open_ports,omitempty"`
 			ExeName   string `yaml:"exe_name,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}{OpenPorts: "1-65535"})
 		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
 	}
 
-	// OTLP export endpoint (gRPC).
-	// Beyla exports to the Beyla-specific OTLP receiver on port 4319 (not the shared 4317).
-	// This avoids conflict with the shared OTLP receiver that handles user application telemetry.
-	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaGRPCPort)
+	// OTLP export endpoint (HTTP Protobuf).
+	// Beyla exports to the Beyla-specific OTLP receiver on port 4320 (HTTP).
+	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaHTTPPort)
 	cfg.OtelTracesExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
-	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "http/protobuf"}
+
 	cfg.OtelMetricsExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
-	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "http/protobuf"}
 
 	// Use wildcard route matching to capture all routes.
 	cfg.Routes = &struct {
@@ -729,7 +769,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	return configFile.Name(), nil
 }
 
-// monitorBeylaProcess monitors the Beyla process and logs when it exits.
+// monitorBeylaProcess monitors the Beyla process and restarts it on unexpected exit.
 func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 
@@ -741,22 +781,40 @@ func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	wasReplaced := m.beylaCmd != cmd
 	m.mu.RUnlock()
 
-	if err != nil && m.ctx.Err() == nil && !wasReplaced {
-		// Process exited unexpectedly (not due to restart or context cancellation).
-		m.logger.Error().
-			Err(err).
-			Int("pid", cmd.Process.Pid).
-			Msg("Beyla process exited unexpectedly")
-	} else if wasReplaced {
+	if wasReplaced {
 		// Expected exit during restart.
 		m.logger.Debug().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process stopped for restart")
-	} else {
-		// Normal shutdown.
+		return
+	}
+
+	if m.ctx.Err() != nil {
+		// Normal shutdown due to context cancellation.
 		m.logger.Info().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process exited")
+		return
+	}
+
+	// Unexpected exit: restart Beyla so trace capture resumes automatically.
+	// This can happen if Beyla crashes or if the eBPF subsystem encounters an error.
+	m.logger.Error().
+		Err(err).
+		Int("pid", cmd.Process.Pid).
+		Msg("Beyla process exited unexpectedly, restarting")
+
+	// Brief pause before restart to avoid tight restart loops.
+	time.Sleep(2 * time.Second)
+
+	if m.ctx.Err() != nil {
+		return
+	}
+
+	if err := m.restartBeyla(); err != nil {
+		m.logger.Error().Err(err).Msg("Failed to restart Beyla after unexpected exit")
+	} else {
+		m.logger.Info().Msg("Beyla restarted successfully after unexpected exit")
 	}
 }
 
@@ -787,34 +845,37 @@ func (w *beylaLogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// UpdateDiscovery updates the port discovery configuration (RFD 053).
-// If ports differ from current config, triggers debounced Beyla restart.
-// Thread-safe: can be called concurrently from multiple goroutines.
-func (m *Manager) UpdateDiscovery(ports []int) error {
-	if !m.config.Enabled {
-		m.logger.Debug().Msg("Beyla is disabled, ignoring discovery update")
-		return nil
-	}
-
+// UpdateDiscovery updates Beyla's discovery configuration dynamically (RFD 053/110).
+// If the list of ports or service names changes, Beyla is restarted with the new config.
+func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if ports have changed.
-	if portsEqual(m.configuredPorts, ports) {
-		m.logger.Debug().
-			Ints("ports", ports).
-			Msg("Discovery ports unchanged, skipping restart")
+	if !m.config.Enabled {
 		return nil
+	}
+
+	// Extract ports and check for changes.
+	ports := make([]int, 0, len(serviceMap))
+	for port := range serviceMap {
+		ports = append(ports, port)
+	}
+
+	mappingChanged := !mapsEqual(m.config.Discovery.ServiceMap, serviceMap)
+
+	if portsEqual(m.configuredPorts, ports) && !mappingChanged {
+		return nil // No changes needed
 	}
 
 	m.logger.Info().
 		Ints("old_ports", m.configuredPorts).
 		Ints("new_ports", ports).
-		Msg("Discovery ports changed, scheduling Beyla restart")
+		Int("mapping_size", len(serviceMap)).
+		Msg("Discovery configuration changed")
 
-	// Update configured ports.
-	m.configuredPorts = append([]int{}, ports...)
-	m.config.Discovery.OpenPorts = append([]int{}, ports...)
+	m.configuredPorts = ports
+	m.config.Discovery.OpenPorts = ports
+	m.config.Discovery.ServiceMap = serviceMap
 
 	// Cancel existing debounce timer if any.
 	if m.debounceTimer != nil {
@@ -900,5 +961,18 @@ func portsEqual(a, b []int) bool {
 		}
 	}
 
+	return true
+}
+
+// mapsEqual checks if two maps are identical.
+func mapsEqual(a, b map[int]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
 	return true
 }

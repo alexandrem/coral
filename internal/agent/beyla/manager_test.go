@@ -369,7 +369,11 @@ func TestUpdateDiscovery(t *testing.T) {
 			}
 
 			// Update discovery.
-			err = mgr.UpdateDiscovery(tt.updatePorts)
+			expectedMap := make(map[int]string)
+			for _, port := range tt.updatePorts {
+				expectedMap[port] = "test-service"
+			}
+			err = mgr.UpdateDiscovery(expectedMap)
 			if err != nil {
 				t.Fatalf("UpdateDiscovery() error = %v", err)
 			}
@@ -409,7 +413,7 @@ func TestUpdateDiscoveryDisabled(t *testing.T) {
 	}
 
 	// UpdateDiscovery should not fail when Beyla is disabled.
-	err = mgr.UpdateDiscovery([]int{8080, 9090})
+	err = mgr.UpdateDiscovery(map[int]string{8080: "service-1", 9090: "service-2"})
 	if err != nil {
 		t.Errorf("UpdateDiscovery() on disabled manager should not error, got: %v", err)
 	}

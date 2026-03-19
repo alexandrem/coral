@@ -260,7 +260,9 @@ func (s *Server) ListAgents(
 	return connect.NewResponse(resp), nil
 }
 
-// GetTopology handles topology request.
+// GetTopology handles topology request (RFD 092).
+// Returns all registered agents and the live service dependency graph derived
+// from observed trace data.
 func (s *Server) GetTopology(
 	ctx context.Context,
 	req *connect.Request[colonyv1.GetTopologyRequest],
@@ -290,15 +292,34 @@ func (s *Server) GetTopology(
 		agents = append(agents, agent)
 	}
 
-	// Return empty connections list for now (topology discovery is a future enhancement).
+	// Derive service connections from trace data (default 1h window).
+	since := time.Now().Add(-time.Hour)
+	serviceConns, err := s.database.GetServiceConnections(ctx, since)
+	if err != nil {
+		// Non-fatal: return agents without connections rather than failing.
+		s.logger.Warn().Err(err).Msg("Failed to fetch service connections for topology")
+		serviceConns = nil
+	}
+
+	// Map ServiceConnection rows to proto Connection messages.
+	connections := make([]*colonyv1.Connection, 0, len(serviceConns))
+	for _, sc := range serviceConns {
+		connections = append(connections, &colonyv1.Connection{
+			SourceId:       sc.FromService,
+			TargetId:       sc.ToService,
+			ConnectionType: sc.Protocol,
+		})
+	}
+
 	resp := &colonyv1.GetTopologyResponse{
 		ColonyId:    s.config.ColonyID,
 		Agents:      agents,
-		Connections: []*colonyv1.Connection{},
+		Connections: connections,
 	}
 
 	s.logger.Debug().
 		Int("agent_count", len(agents)).
+		Int("connection_count", len(connections)).
 		Msg("Get topology response prepared")
 
 	return connect.NewResponse(resp), nil

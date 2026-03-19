@@ -311,13 +311,15 @@ func TestBeylaConfig(t *testing.T) {
 		LogLevel: "info",
 	}
 
-	config.Discovery.Instrument = []struct {
+	config.Discovery.Services = []struct {
 		OpenPorts string `yaml:"open_ports,omitempty"`
 		ExeName   string `yaml:"exe_name,omitempty"`
+		Name      string `yaml:"name,omitempty"`
 	}{
 		{
 			OpenPorts: "8080-9090",
 			ExeName:   "my-app",
+			Name:      "test-service",
 		},
 	}
 
@@ -327,12 +329,12 @@ func TestBeylaConfig(t *testing.T) {
 		t.Errorf("LogLevel = %q, want %q", config.LogLevel, "info")
 	}
 
-	if len(config.Discovery.Instrument) != 1 {
-		t.Errorf("Instrument count = %d, want 1", len(config.Discovery.Instrument))
+	if len(config.Discovery.Services) != 1 {
+		t.Errorf("Services count = %d, want 1", len(config.Discovery.Services))
 	}
 
-	if config.Discovery.Instrument[0].OpenPorts != "8080-9090" {
-		t.Errorf("OpenPorts = %q, want %q", config.Discovery.Instrument[0].OpenPorts, "8080-9090")
+	if config.Discovery.Services[0].OpenPorts != "8080-9090" {
+		t.Errorf("OpenPorts = %q, want %q", config.Discovery.Services[0].OpenPorts, "8080-9090")
 	}
 
 	if config.Attributes.Kubernetes.Enable != "true" {
