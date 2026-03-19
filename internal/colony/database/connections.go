@@ -35,7 +35,7 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 		WITH joined_traces AS (
 			SELECT  parent.service_name AS from_service,
 					child.service_name  AS to_service,
-					child.span_kind     AS protocol,
+					'http'              AS protocol,
 					COUNT(*)            AS connection_count,
 					MIN(child.start_time) AS first_observed,
 					MAX(child.start_time) AS last_observed
