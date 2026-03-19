@@ -49,6 +49,9 @@ func (p *ContinuousCPUProfiler) Start(services []ServiceInfo) {}
 // Stop is a no-op on non-Linux platforms.
 func (p *ContinuousCPUProfiler) Stop() {}
 
+// AddService is a no-op on non-Linux platforms.
+func (p *ContinuousCPUProfiler) AddService(_ string, _ int, _ string) {}
+
 // GetStorage is a no-op on non-Linux platforms.
 func (p *ContinuousCPUProfiler) GetStorage() interface{} {
 	return nil

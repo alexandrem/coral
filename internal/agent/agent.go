@@ -27,6 +27,19 @@ const (
 	AgentStatusUnhealthy AgentStatus = "unhealthy"
 )
 
+// cpuProfiler is the subset of profiler.ContinuousCPUProfiler used by the agent.
+// Defined as an interface to support Linux/non-Linux builds without import cycles.
+type cpuProfiler interface {
+	AddService(serviceID string, pid int, binaryPath string)
+	Stop()
+}
+
+// memProfiler is the subset of profiler.ContinuousMemoryProfiler used by the agent.
+type memProfiler interface {
+	AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
+	Stop()
+}
+
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
 	id                       string
@@ -35,8 +48,8 @@ type Agent struct {
 	beylaManager             *beyla.Manager
 	debugManager             *debug.SessionManager
 	correlationEngine        *correlation.Engine // RFD 091: probe correlation.
-	continuousProfiler       interface{}         // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds).
-	continuousMemoryProfiler interface{}         // RFD 077: Continuous memory profiler.
+	continuousProfiler       cpuProfiler         // RFD 072: Continuous CPU profiler.
+	continuousMemoryProfiler memProfiler         // RFD 077: Continuous memory profiler.
 	functionCache            *FunctionCache      // RFD 063: Function discovery cache
 	logger                   zerolog.Logger
 	mu                       sync.RWMutex
@@ -165,16 +178,12 @@ func (a *Agent) Stop() error {
 
 	// Stop continuous profiler (RFD 072).
 	if a.continuousProfiler != nil {
-		if profiler, ok := a.continuousProfiler.(interface{ Stop() }); ok {
-			profiler.Stop()
-		}
+		a.continuousProfiler.Stop()
 	}
 
 	// Stop continuous memory profiler (RFD 077).
 	if a.continuousMemoryProfiler != nil {
-		if profiler, ok := a.continuousMemoryProfiler.(interface{ Stop() }); ok {
-			profiler.Stop()
-		}
+		a.continuousMemoryProfiler.Stop()
 	}
 
 	a.cancel()
@@ -182,14 +191,14 @@ func (a *Agent) Stop() error {
 }
 
 // SetContinuousProfiler sets the continuous CPU profiler (RFD 072).
-func (a *Agent) SetContinuousProfiler(profiler interface{}) {
+func (a *Agent) SetContinuousProfiler(profiler cpuProfiler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousProfiler = profiler
 }
 
 // SetContinuousMemoryProfiler sets the continuous memory profiler (RFD 077).
-func (a *Agent) SetContinuousMemoryProfiler(profiler interface{}) {
+func (a *Agent) SetContinuousMemoryProfiler(profiler memProfiler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousMemoryProfiler = profiler
@@ -206,20 +215,13 @@ func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath st
 		return
 	}
 
-	// Type assert to get the AddService method.
-	type profilerWithAddService interface {
-		AddService(serviceID string, pid int, binaryPath string)
-	}
+	a.logger.Info().
+		Str("service", serviceName).
+		Int32("pid", pid).
+		Str("binary", binaryPath).
+		Msg("Adding service to continuous CPU profiling")
 
-	if p, ok := profiler.(profilerWithAddService); ok {
-		a.logger.Info().
-			Str("service", serviceName).
-			Int32("pid", pid).
-			Str("binary", binaryPath).
-			Msg("Adding service to continuous CPU profiling")
-
-		p.AddService(serviceName, int(pid), binaryPath)
-	}
+	profiler.AddService(serviceName, int(pid), binaryPath)
 }
 
 // onSDKDiscovered is called when a service's SDK capabilities are set (RFD 077).
@@ -233,20 +235,13 @@ func (a *Agent) onSDKDiscovered(serviceName string, pid int32, sdkAddr string) {
 		return
 	}
 
-	// Type assert to get the AddService method.
-	type memProfilerWithAddService interface {
-		AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
-	}
+	a.logger.Info().
+		Str("service", serviceName).
+		Int32("pid", pid).
+		Str("sdk_addr", sdkAddr).
+		Msg("Adding service to continuous memory profiling")
 
-	if p, ok := memProfiler.(memProfilerWithAddService); ok {
-		a.logger.Info().
-			Str("service", serviceName).
-			Int32("pid", pid).
-			Str("sdk_addr", sdkAddr).
-			Msg("Adding service to continuous memory profiling")
-
-		p.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
-	}
+	memProfiler.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
 }
 
 // GetContext returns the agent's context.
