@@ -128,6 +128,14 @@ the colony's own tools.
   the available set and the LLM is notified via a brief system message.
   The session continues with colony tools intact.
 
+- **Controlled tool surface**: External MCP servers can expose dozens of
+  tools each; loading all of them inflates the LLM's context window and
+  degrades tool selection accuracy. Two complementary mechanisms bound
+  this: per-server `allowed_tools` allowlists in config (permanent scoping)
+  and `--with`/`--without` CLI flags (per-session scoping). Servers with
+  no `allowed_tools` entry expose all their tools, preserving the
+  zero-configuration path while giving users an explicit escape valve.
+
 **Architecture Overview:**
 
 ```
@@ -200,7 +208,8 @@ Relevant:
    - `MCPClientConfig` holds: `alias` (string, unique identifier),
      `transport` (`stdio` or `http`), `command` + `args` (for stdio),
      `url` (for HTTP), `env` (map of env var overrides), `enabled`
-     (default true), `timeout_seconds` (default 30).
+     (default true), `timeout_seconds` (default 30), `allowed_tools`
+     (optional list of tool names to expose; empty means all tools).
    - Environment values in `env` may reference shell variables using
      `${VAR}` syntax, expanded at connection time from the process
      environment.
@@ -209,9 +218,12 @@ Relevant:
 
    - `MCPClientManager` manages the lifecycle of all configured external
      MCP connections for a single session.
-   - `Connect()`: iterates configured servers, starts or connects to each,
-     fetches their tool lists via `tools/list`, prefixes names with the
-     alias, and registers them in an internal dispatch table.
+   - `Connect(active []string)`: iterates configured servers, skipping any
+     not in `active` (populated from `--with`/`--without` flags; empty
+     means all enabled servers), starts or connects to each, fetches their
+     tool lists via `tools/list`, applies the server's `allowed_tools`
+     filter if set, prefixes remaining names with the alias, and registers
+     them in an internal dispatch table.
    - `Dispatch(toolName, args)`: routes a prefixed tool call to the correct
      backing server and returns the result.
    - `MergedToolList()`: returns the full flat list of colony + external
@@ -241,6 +253,17 @@ Relevant:
    - `coral mcp clients add`: interactive wizard to append a new server to
      `~/.coral/config.yaml`. Supports common presets (github, sentry,
      linear, pagerduty).
+
+5. **Session flags** (`coral ask` and `coral terminal`):
+
+   - `--with <alias,...>`: activate only the named external servers for
+     this session, regardless of the `enabled` field in config. Servers
+     not listed are not connected.
+   - `--without <alias,...>`: activate all enabled servers except the
+     named ones. Useful for temporarily suppressing a server without
+     editing config.
+   - The two flags are mutually exclusive. `--with` takes precedence if
+     both are supplied (the CLI reports an error).
 
 5. **`coral terminal` sidebar** (`internal/cli/terminal/`, RFD 094):
 
@@ -333,12 +356,15 @@ themselves.
 
 - [ ] Add `MCPClientConfig` struct to `internal/config/schema.go`:
       `alias`, `transport`, `command`, `args`, `env`, `url`, `auth`,
-      `enabled`, `timeout_seconds`
+      `enabled`, `timeout_seconds`, `allowed_tools`
 - [ ] Add `MCPClients []MCPClientConfig` to root config struct
 - [ ] Validate aliases are unique; reject reserved prefix `coral`
 - [ ] Validate that `transport: stdio` has `command`, `transport: http`
       has `url`
 - [ ] Expand `${VAR}` references in `env` values at config load time
+- [ ] Validate `allowed_tools` entries are non-empty strings; warn if a
+      listed name does not appear in the server's `tools/list` response
+      at connect time
 
 ### Phase 2: MCP client manager
 
@@ -348,8 +374,8 @@ themselves.
       already used for the MCP server)
 - [ ] HTTP transport: SSE client for 2024-11-05 transport; Streamable
       HTTP client for 2025-03-26 transport; detect from server response
-- [ ] `tools/list` call on connect; prefix each tool name with
-      `<alias>/`
+- [ ] `tools/list` call on connect; apply `allowed_tools` filter if set;
+      prefix remaining tool names with `<alias>/`
 - [ ] Internal dispatch table: `map[string]backingServer`
 - [ ] `Dispatch()`: look up server, forward JSON-RPC `tools/call`, return
       result
@@ -360,6 +386,10 @@ themselves.
 
 ### Phase 3: Agent integration
 
+- [ ] Add `--with` and `--without` flags to `coral ask` and
+      `coral terminal` cobra commands; validate mutual exclusivity
+- [ ] Resolve the active server set from flags and config `enabled` field;
+      pass to `MCPClientManager.Connect(active)`
 - [ ] Construct `MCPClientManager` in `internal/cli/ask/agent.go` on
       session init
 - [ ] Inject `MergedToolList()` into the LLM tool set
@@ -419,6 +449,13 @@ mcp_clients:
     args: ["-y", "@modelcontextprotocol/server-github@0.6.2"]
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    # Expose only the tools needed for investigation workflows.
+    # Omit allowed_tools to expose all tools from this server.
+    allowed_tools:
+      - list_commits
+      - get_pull_request
+      - search_code
+      - get_file_contents
 
   # Sentry — error groups, stack traces, releases
   - alias: sentry
@@ -428,6 +465,10 @@ mcp_clients:
     env:
       SENTRY_AUTH_TOKEN: "${SENTRY_TOKEN}"
       SENTRY_ORGANIZATION: my-org
+    allowed_tools:
+      - list_issues
+      - get_stacktrace
+      - list_releases
 
   # Linear — issues, projects, cycles
   - alias: linear
@@ -467,6 +508,7 @@ mcp_clients:
 | `auth.token`      | string   | no       | —       | Token value or `${VAR}` reference |
 | `enabled`         | bool     | no       | true    | Set false to disable without removing the entry |
 | `timeout_seconds` | int      | no       | 30      | Per-call timeout for tools from this server |
+| `allowed_tools`   | []string | no       | []      | Subset of tool names to expose. Empty means all tools from this server are exposed. Names are matched against the upstream server's tool names before prefixing. |
 
 ### CLI Commands
 
@@ -503,6 +545,11 @@ coral mcp clients add
 
 # Non-interactive add with a known preset
 coral mcp clients add --preset github --token "${GITHUB_TOKEN}"
+
+# Session-level server selection
+coral ask --with github,sentry "why is payments p99 high?"
+coral ask --without pagerduty "general question"
+coral terminal --with github
 ```
 
 ### Tool naming in LLM sessions
@@ -544,6 +591,14 @@ sentry/get_stacktrace        (external: sentry)
 - Connection failure: one server fails to start; other servers and colony
   tools remain available; `MergedToolList()` excludes the failed server's
   tools.
+- `allowed_tools` filtering: server exposes 34 tools; `allowed_tools`
+  lists 4; `MergedToolList()` contains exactly those 4 prefixed tools.
+- `allowed_tools` with unknown name: name not present in server's
+  `tools/list` response emits a warning but does not abort the session.
+- `--with` flag: only the listed servers are connected; others are skipped
+  regardless of `enabled` value in config.
+- `--without` flag: all enabled servers except the listed ones connect.
+- `--with` and `--without` together: CLI exits with a validation error.
 
 ### Integration Tests
 
@@ -684,15 +739,37 @@ very large lists do consume context window tokens and can dilute tool
 selection accuracy.
 
 Mitigations built into v1:
-- `enabled: false` lets users opt out of servers for specific
-  workflows.
-- Future: per-session `--without <alias>` flag to exclude servers for a
-  given invocation.
-- Future: tool filtering per server (analogous to colony's
-  `enabled_tools` in RFD 004).
+- `enabled: false` opts a server out of all sessions without removing it
+  from config.
+- `allowed_tools` per server limits the exposed tool surface permanently.
+  A GitHub server with 34 tools can be scoped to 4 investigation-relevant
+  tools without losing the ability to expand later.
+- `--with <alias,...>` activates only the named servers for a single
+  session, ignoring all others.
+- `--without <alias,...>` suppresses specific servers for a single
+  session.
 
-Users with 5+ external servers configured should review whether all tools
-are needed in every session.
+Users with 5+ external servers configured should use `allowed_tools` to
+keep the merged tool list under ~20 external tools. This preserves tool
+selection accuracy without restricting which servers are available.
+
+**Future: meta-tool dispatch**
+
+For cases where `allowed_tools` is insufficient — unknown internal MCP
+servers whose full tool surface cannot be predicted — a meta-tool pattern
+can replace direct tool exposure for a given server:
+
+```
+<alias>/list_tools()          → returns the server's tool catalog
+<alias>/call(tool, args)      → dispatches an arbitrary call
+```
+
+This collapses N tools from a server into 2, at the cost of an extra LLM
+turn for tool discovery. This is most useful for internal/custom MCP
+servers; well-known servers (GitHub, Sentry) are better served by
+`allowed_tools` since the LLM already knows their tool names from
+training data. Meta-tool dispatch is deferred until a concrete need
+emerges.
 
 ### `mark3labs/mcp-go` client support
 
