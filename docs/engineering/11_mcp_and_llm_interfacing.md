@@ -1,40 +1,43 @@
 # MCP Proxying and LLM Interfacing
 
 Coral integrates AI into the observability workflow using the **Model Context
-Protocol (MCP)**. This allows LLMs to interact directly with the distributed
-system's telemetry and debugging tools in a standardized way.
+Protocol (MCP)**. LLMs interact with the distributed system through a single
+`coral_cli` tool that runs standard coral CLI commands as subprocesses.
 
 ## Architecture Overview
 
-The architecture follows a client-server pattern where the **Colony** acts as
-the Tool Provider (MCP Server) and the **CLI (`coral ask`)** acts as the
-Orchestrator (MCP Client).
+All AI clients — `coral terminal`, `coral ask`, and external clients like
+Claude Desktop — use **CLI dispatch mode**. The agent composes `coral` commands
+and executes them as subprocesses, returning JSON output to the LLM.
 
-### 1. The MCP Server (`internal/colony/mcp`)
+```
+LLM → coral_cli(["query", "summary", "--service", "api"])
+    → subprocess: coral query summary --service api --format json
+    → JSON returned to LLM
+```
 
-The Colony hosts a full MCP server that bridges the LLM to Coral's internal
-capabilities.
+### 1. The MCP Proxy (`internal/cli/colony/mcp.go`)
 
-- **Tool Registry**: Statically registers tools like `coral_query_summary`,
-  `coral_topology`, `coral_shell_exec`, `coral_attach_uprobe`, and `coral_deploy_correlation`.
-- **Schema Generation**: Automatically generates JSON Schemas from Go structs
-  using reflection. This ensures that the LLM always receives accurate type
-  information for tool arguments.
-- **Transports**:
-  - **Stdio**: Used for local proxying where the CLI spawns a Colony
-    subprocess.
-  - **SSE (Server-Sent Events)**: Provided via
-    `internal/colony/httpapi/mcp_sse.go` for web-based or remote LLM
-    integrations.
+The `coral colony mcp proxy` command is the only public-facing MCP interface
+for external clients. It exposes a single `coral_cli` tool and handles all
+calls locally as subprocesses — no colony-side MCP server is involved.
 
-### 2. The MCP Proxy Model
+- **One tool**: `coral_cli` accepts an `args` array of coral subcommand tokens.
+- **Local execution**: The proxy forks `coral <args> --format json` and returns
+  stdout to the LLM.
+- **Auditable**: Every LLM action produces a human-readable, reproducible
+  command in the session log.
 
-When a user runs `coral ask` locally:
+### 2. CLI Dispatch Mode (`internal/cli/ask/agent.go`)
 
-1. The CLI starts a background subprocess: `coral colony mcp proxy`.
-2. This proxy establishes a Stdio-based MCP connection.
-3. The CLI (Client) can now discover and execute tools hosted by the Colony (
-   Server) over this secure pipe.
+When a user runs `coral ask` or `coral terminal`:
+
+1. The agent initializes in CLI dispatch mode (no MCP connection).
+2. It registers a single `coral_cli` tool backed by `executeCLITool`.
+3. It builds a compact CLI reference from the Cobra command tree
+   (`GenerateCLIReference`) and includes it in the system prompt.
+4. The LLM reads the reference and composes `coral_cli` calls using standard
+   coral subcommands.
 
 ## LLM Interfacing (`internal/llm`)
 
@@ -44,67 +47,47 @@ Coral abstracts LLM providers to remain vendor-agnostic.
 
 - **Interface**: The `Provider` interface defines a `Generate` method that
   handles messages, tool definitions, and streaming.
-- **Registry**: Supports multiple backends including **Google (Gemini)**, \*
-  \*OpenAI (GPT-4)**, and **Ollama\*\* for local execution.
-- **Tool Translation**: Translates MCP tool definitions into the specific format
-  required by the provider (e.g., Gemini's `FunctionDeclaration` or OpenAI's
-  `tools`).
+- **Registry**: Supports multiple backends including **Anthropic (Claude)**,
+  **Google (Gemini)**, **OpenAI (GPT-4)**, and **Ollama** for local execution.
+- **Tool Translation**: Translates `coral_cli` tool definitions into the
+  specific format required by the provider.
 
 ### The Agent Loop (`internal/cli/ask/agent.go`)
 
 The `Agent` manages the high-level reasoning loop:
 
-1. **Context Discovery**: Before the first user prompt, the Agent calls
-   `coral_list_services` and `coral_topology` to populate the system prompt with "live" knowledge of
-   the environment.
-2. **System Prompting**: Injects "Parameter Extraction Rules", current
-   healthy/unhealthy snapshots, and a compact "Call Graph" (`api-gateway → user-service`) to guide the LLM's tool selection.
+1. **Context Discovery**: Before the first user prompt, the agent calls
+   `coral service list --format json` (via `coral_cli`) to populate the system
+   prompt with live service knowledge.
+2. **System Prompting**: Injects the CLI reference and current
+   healthy/unhealthy snapshots to guide the LLM's command composition.
 3. **Execution Loop**:
-   - LLM requests one or more tool calls.
-   - Agent executes them via the MCP client.
-   - Results are fed back into the LLM for final synthesis.
+   - LLM requests `coral_cli` calls with an `args` array.
+   - Agent forks the subprocess and captures stdout.
+   - Results are fed back into the LLM for synthesis.
 4. **Persistence**: Conversation history is stored locally in
-   `~/.coral/conversations/` to support multi-turn debugging sessions (
-   `--continue`).
-
-## Security and RBAC
-
-- **Token Scoping**: MCP tool execution over SSE is protected by API tokens.
-- **Permission Mapping**: Every MCP tool is mapped to a specific permission (
-  e.g., `PermissionMCPToolShellExec`). This ensures that an LLM with a "
-  readonly" token cannot execute shell commands on the agents.
+   `~/.coral/conversations/` for multi-turn sessions (`--continue`).
 
 ## Future Engineering Note
 
-### Agentic MCP
-
-As the system evolves, agents might be deployed _inside_ the Colony to perform
-autonomous remediation. This would move the "Agent Loop" from the CLI to a
-background service in the Colony, using the same MCP infrastructure but with
-long-running execution context.
-
 ### Stateful MCP Loops (RFD 091)
 
-With the introduction of the agent-side `CorrelationEngine`, the MCP server
-now supports "watching" tools. The LLM can deploy a correlation and then wait
-for a `TriggerEvent` async notification, rather than polling the `debug`
-service repeatedly.
+With the introduction of the `CorrelationEngine`, agents can deploy a
+correlation and wait for a `TriggerEvent` async notification, rather than
+polling the `debug` service repeatedly.
 
 ### Integrated Investigation Skills (RFD 093)
 
 The Correlation Engine acts as the "sensor" for the high-level **Skills**
 framework. Instead of the LLM writing raw correlations, it can invoke a named
-Skill (e.g., `latency-watch`) which abstracts the descriptor creation and
-result synthesis into a single, automated workflow.
+Skill (e.g., `latency-watch`) which abstracts descriptor creation and result
+synthesis into a single automated workflow.
 
 ## Related Design Documents (RFDs)
 
-- [**RFD 004**: MCP Server](../../RFDs/004-mcp-server.md)
-- [**RFD 005**: CLI Local Proxy](../../RFDs/005-cli-local-proxy.md)
-- [**RFD 014**: Colony LLM Integration](../../RFDs/014-colony-llm-integration.md)
 - [**RFD 030**: Coral Ask Local Agent](../../RFDs/030-coral-ask-local.md)
-- [**RFD 031**: Colony Dual Interface](../../RFDs/031-colony-dual-interface.md)
 - [**RFD 051**: Coral Ask Interactive Terminal](../../RFDs/051-coral-ask-interactive-terminal.md)
 - [**RFD 054**: Smart Parameter Extraction](../../RFDs/054-coral-ask-smart-parameter-extraction.md)
 - [**RFD 055**: Coral Ask Configuration](../../RFDs/055-coral-ask-config.md)
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)
+- [**RFD 100**: CLI-Native Agent Tool Dispatch](../../RFDs/100-cli-native-agent-dispatch.md)

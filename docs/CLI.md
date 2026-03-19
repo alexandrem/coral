@@ -176,8 +176,7 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for all `coral config` commands.
 ## AI-Powered Debugging
 
 Coral integrates with your own LLM (OpenAI, Anthropic, or local Ollama) to
-provide
-natural language debugging queries.
+provide natural language debugging queries.
 
 **Setup:**
 
@@ -191,8 +190,7 @@ coral ask config
 **Privacy & Cost:**
 
 - Uses YOUR LLM API keys (never sent to Coral servers)
-- Runs locally as a Genkit agent on your workstation
-- Connects to Colony as MCP server for observability data
+- Runs locally as an agent on your workstation
 - You control model choice, costs, and data privacy
 
 **Example Workflows:**
@@ -215,7 +213,35 @@ coral ask "Are there any unhealthy services?"
 # → Checks agent status, service health
 ```
 
-See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` syntax.
+### CLI Dispatch Mode (RFD 100)
+
+`coral terminal` and `coral ask` use **CLI dispatch mode** by default. The
+agent runs standard coral CLI commands as subprocesses instead of routing
+through the MCP protocol. This means:
+
+- **One tool: `coral_cli`** — the agent composes coral commands the same way
+  a human operator does.
+- **Auditable session logs** — every agent action is a reproducible CLI
+  command (e.g. `$ coral query traces --service api --since 10m`).
+- **No MCP overhead** — the first-party client bypasses the MCP translation
+  layer.
+- **Auto-complete commands** — any new `coral` subcommand is immediately
+  available to the agent without additional registration.
+
+The agent uses `--format json` automatically (appended to every command).
+The LLM reads a compact `coral://cli/reference` listing before composing
+commands so it knows the available subcommands and flags.
+
+**Configuration:**
+
+```yaml
+# ~/.coral/config.yaml (or colony.yaml)
+ask:
+  dispatch_mode: cli   # default for TUI; "mcp" for external clients
+```
+
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` and
+`coral terminal` syntax.
 
 ---
 

@@ -24,6 +24,8 @@ type Agent struct {
 	conversations map[string]*Conversation
 	mcpClient     *client.Client
 	debug         bool
+	dispatchMode  string // "mcp" (default) or "cli" (RFD 100)
+	cliReference  string // compact CLI reference for CLI dispatch mode (RFD 100)
 }
 
 // Response represents an agent response.
@@ -45,6 +47,7 @@ type AgentEvent struct {
 	Type     string    // "stream", "tool_start", "tool_complete", "error"
 	Content  string    // For stream chunks
 	ToolName string    // For tool events
+	Command  string    // For tool_start in CLI mode: full "coral <args>" string (RFD 100)
 	Duration float64   // For tool_complete (seconds)
 	Error    error     // For error events
 	Response *Response // For complete event
@@ -56,7 +59,10 @@ type AgentEvent struct {
 // - channelEmitter: sends events to a channel (for interactive mode)
 type eventEmitter interface {
 	EmitStream(chunk string) error
-	EmitToolStart(toolName string)
+	// EmitToolStart emits a tool_start event. command is the human-readable CLI
+	// command string in CLI dispatch mode (e.g. "coral query traces --service api"),
+	// or empty in MCP mode.
+	EmitToolStart(toolName, command string)
 	EmitToolComplete(toolName string, duration float64)
 }
 
@@ -73,8 +79,8 @@ func (e *stdoutEmitter) EmitStream(chunk string) error {
 	return nil
 }
 
-func (e *stdoutEmitter) EmitToolStart(toolName string) {
-	// No-op for stdout mode (could add spinner in future)
+func (e *stdoutEmitter) EmitToolStart(toolName, command string) {
+	// No-op for stdout mode (could add spinner in future).
 }
 
 func (e *stdoutEmitter) EmitToolComplete(toolName string, duration float64) {
@@ -92,8 +98,8 @@ func (e *channelEmitter) EmitStream(chunk string) error {
 	return nil
 }
 
-func (e *channelEmitter) EmitToolStart(toolName string) {
-	e.ch <- AgentEvent{Type: "tool_start", ToolName: toolName}
+func (e *channelEmitter) EmitToolStart(toolName, command string) {
+	e.ch <- AgentEvent{Type: "tool_start", ToolName: toolName, Command: command}
 }
 
 func (e *channelEmitter) EmitToolComplete(toolName string, duration float64) {
@@ -102,6 +108,18 @@ func (e *channelEmitter) EmitToolComplete(toolName string, duration float64) {
 
 // NewAgent creates a new LLM agent with the given configuration.
 func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool) (*Agent, error) {
+	return newAgent(askCfg, colonyCfg, debug, "")
+}
+
+// NewAgentWithCLIReference creates an agent in CLI dispatch mode with a pre-generated
+// CLI reference string (RFD 100). Called by coral terminal which generates the
+// reference from the Cobra command tree via GenerateCLIReference.
+func NewAgentWithCLIReference(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool, cliRef string) (*Agent, error) {
+	return newAgent(askCfg, colonyCfg, debug, cliRef)
+}
+
+// newAgent is the internal constructor shared by NewAgent and NewAgentWithCLIReference.
+func newAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool, cliRef string) (*Agent, error) {
 	if debug {
 		fmt.Fprintln(os.Stderr, "[DEBUG] Initializing agent")
 	}
@@ -142,17 +160,30 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 		fmt.Fprintf(os.Stderr, "[DEBUG] Initialized provider=%s with model=%s\n", providerName, modelID)
 	}
 
-	// Connect to Colony's MCP server.
-	mcpClient, err := connectToColonyMCP(ctx, colonyCfg, debug)
-	if err != nil {
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to connect to MCP server: %v\n", err)
-		}
-		return nil, fmt.Errorf("failed to connect to colony MCP server: %w", err)
+	// Determine dispatch mode: CLI mode skips MCP and uses coral subprocess instead.
+	dispatchMode := askCfg.Agent.DispatchMode
+	if dispatchMode == "" {
+		dispatchMode = config.DispatchModeMCP
 	}
 
-	if debug {
-		fmt.Fprintln(os.Stderr, "[DEBUG] Successfully connected to Colony MCP server")
+	var mcpClient *client.Client
+	if dispatchMode == config.DispatchModeCLI {
+		if debug {
+			fmt.Fprintln(os.Stderr, "[DEBUG] CLI dispatch mode: skipping MCP connection")
+		}
+	} else {
+		// Connect to Colony's MCP server.
+		mcpClient, err = connectToColonyMCP(ctx, colonyCfg, debug)
+		if err != nil {
+			if debug {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Failed to connect to MCP server: %v\n", err)
+			}
+			return nil, fmt.Errorf("failed to connect to colony MCP server: %w", err)
+		}
+
+		if debug {
+			fmt.Fprintln(os.Stderr, "[DEBUG] Successfully connected to Colony MCP server")
+		}
 	}
 
 	return &Agent{
@@ -163,6 +194,8 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 		conversations: make(map[string]*Conversation),
 		mcpClient:     mcpClient,
 		debug:         debug,
+		dispatchMode:  dispatchMode,
+		cliReference:  cliRef,
 	}, nil
 }
 
@@ -270,51 +303,65 @@ func (a *Agent) Close() error {
 	return nil
 }
 
-// buildSystemPrompt builds the system prompt with service context (RFD 054, RFD 092).
-// Runs the three context fetches (service list, health alerts, topology) in parallel.
+// buildSystemPrompt builds the system prompt with service context (RFD 054).
 func (a *Agent) buildSystemPrompt(ctx context.Context) string {
-	type result struct {
-		serviceCtx   string
-		healthAlerts string
-		topology     string
+	if a.dispatchMode == config.DispatchModeCLI {
+		return a.buildCLISystemPrompt()
 	}
+	return a.buildMCPSystemPrompt(ctx)
+}
 
-	serviceCtxCh := make(chan string, 1)
-	healthAlertsCh := make(chan string, 1)
-	topologyCh := make(chan string, 1)
-
-	go func() { serviceCtxCh <- a.fetchServiceContext(ctx) }()
-	go func() { healthAlertsCh <- a.fetchHealthAlerts(ctx) }()
-	go func() { topologyCh <- a.fetchTopologyContext(ctx) }()
-
-	res := result{
-		serviceCtx:   <-serviceCtxCh,
-		healthAlerts: <-healthAlertsCh,
-		topology:     <-topologyCh,
-	}
+// buildMCPSystemPrompt builds the system prompt for MCP dispatch mode (RFD 054).
+func (a *Agent) buildMCPSystemPrompt(ctx context.Context) string {
+	serviceCtx := a.fetchServiceContext(ctx)
+	healthAlerts := a.fetchHealthAlerts(ctx)
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
 	prompt := "You are an observability assistant for Coral distributed systems.\n"
 	prompt += "Current time: " + now + "\n"
 
-	if res.healthAlerts != "" {
-		prompt += "\nALERTS (last 5m):\n" + res.healthAlerts + "\n"
-	}
-
-	if res.topology != "" {
-		prompt += "\n" + res.topology + "\n"
+	if healthAlerts != "" {
+		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
 	}
 
 	prompt += `
 PARAMETER EXTRACTION RULES:
 1. Service names: Extract exactly as mentioned (e.g., "coral service" → "coral")
-   Available services: ` + res.serviceCtx + `
+   Available services: ` + serviceCtx + `
 2. Time ranges: Convert natural language (e.g., "last hour" → "1h", "30 min" → "30m")
 3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
 4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
 
 Always extract ALL relevant parameters from the user's query before asking for clarification.`
+
+	return prompt
+}
+
+// buildCLISystemPrompt builds the system prompt for CLI dispatch mode (RFD 100).
+// Agent actions are expressed as coral CLI commands, producing auditable session logs.
+func (a *Agent) buildCLISystemPrompt() string {
+	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+
+	prompt := "You are an observability assistant for Coral distributed systems.\n"
+	prompt += "Current time: " + now + "\n\n"
+
+	prompt += `You operate in CLI dispatch mode. Use the coral_cli tool to run coral commands.
+Each call produces a reproducible CLI command in the session log.
+
+RULES:
+1. Use coral_cli with args like ["query", "traces", "--service", "api", "--since", "10m"].
+2. Do NOT include "coral" in args — it is prepended automatically.
+3. --format json is appended automatically — do not include it.
+4. Call coral_cli ["colony", "service", "list"] first to discover available services.
+5. Time ranges: convert natural language ("last hour" → "1h", "30 min" → "30m").
+
+`
+
+	if a.cliReference != "" {
+		prompt += "AVAILABLE COMMANDS (coral://cli/reference):\n"
+		prompt += a.cliReference
+	}
 
 	return prompt
 }
@@ -387,35 +434,6 @@ func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
 		return ""
 	}
 	return parseHealthAlerts(textContent.Text)
-}
-
-// fetchTopologyContext calls coral_topology and returns a compact call-graph string
-// for injection into the system prompt (RFD 092).
-// Returns empty string if the topology is unavailable or has no connections.
-func (a *Agent) fetchTopologyContext(ctx context.Context) string {
-	req := mcp.CallToolRequest{}
-	req.Params.Name = "coral_topology"
-	req.Params.Arguments = map[string]interface{}{
-		"since": "1h",
-	}
-
-	result, err := a.mcpClient.CallTool(ctx, req)
-	if err != nil {
-		if a.debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch topology: %v\n", err)
-		}
-		return ""
-	}
-
-	if len(result.Content) == 0 {
-		return ""
-	}
-	textContent, ok := mcp.AsTextContent(result.Content[0])
-	if !ok || textContent.Text == "" {
-		return ""
-	}
-
-	return formatCompactCallGraph(textContent.Text)
 }
 
 // formatCompactCallGraph converts coral_topology multi-line output into a compact
@@ -531,45 +549,55 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 		fmt.Fprintf(os.Stderr, "[DEBUG] System prompt: %s\n", systemPrompt)
 	}
 
-	// Get MCP tools from Colony server.
-	if a.debug {
-		fmt.Fprintln(os.Stderr, "[DEBUG] Fetching MCP tools from Colony server")
-	}
-
-	toolsResult, err := a.mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	// Debug: Log the raw ListToolsResult to see what came from the server
-	if a.debug {
-		rawResultJSON, _ := json.Marshal(toolsResult)
-		fmt.Fprintf(os.Stderr, "[DEBUG] Raw ListToolsResult from server: %s\n", string(rawResultJSON))
-	}
-
-	if a.debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Retrieved %d MCP tools\n", len(toolsResult.Tools))
-		for i, tool := range toolsResult.Tools {
-			fmt.Fprintf(os.Stderr, "[DEBUG]   Tool %d: %s\n", i+1, tool.Name)
+	// Get tools: either from Colony MCP server or local CLI tool set.
+	var tools []mcp.Tool
+	if a.dispatchMode == config.DispatchModeCLI {
+		tools = buildCLITools()
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] CLI dispatch mode: using %d local tools\n", len(tools))
+		}
+	} else {
+		if a.debug {
+			fmt.Fprintln(os.Stderr, "[DEBUG] Fetching MCP tools from Colony server")
 		}
 
-		// Debug: Inspect first tool's schema to verify it's correct.
-		if len(toolsResult.Tools) > 0 {
-			firstTool := toolsResult.Tools[0]
+		toolsResult, err := a.mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tools: %w", err)
+		}
 
-			// Show the full tool as received
-			fullToolJSON, _ := json.Marshal(firstTool)
-			fmt.Fprintf(os.Stderr, "[DEBUG] First tool (full): %s\n", string(fullToolJSON))
+		tools = toolsResult.Tools
 
-			// Show just the InputSchema struct field
-			schemaJSON, _ := json.Marshal(firstTool.InputSchema)
-			fmt.Fprintf(os.Stderr, "[DEBUG] First tool InputSchema struct: %s\n", string(schemaJSON))
+		// Debug: Log the raw ListToolsResult to see what came from the server.
+		if a.debug {
+			rawResultJSON, _ := json.Marshal(toolsResult)
+			fmt.Fprintf(os.Stderr, "[DEBUG] Raw ListToolsResult from server: %s\n", string(rawResultJSON))
+		}
 
-			// Show RawInputSchema if set
-			if len(firstTool.RawInputSchema) > 0 {
-				fmt.Fprintf(os.Stderr, "[DEBUG] First tool RawInputSchema: %s\n", string(firstTool.RawInputSchema))
-			} else {
-				fmt.Fprintf(os.Stderr, "[DEBUG] First tool RawInputSchema: <empty>\n")
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Retrieved %d MCP tools\n", len(tools))
+			for i, tool := range tools {
+				fmt.Fprintf(os.Stderr, "[DEBUG]   Tool %d: %s\n", i+1, tool.Name)
+			}
+
+			// Debug: Inspect first tool's schema to verify it's correct.
+			if len(tools) > 0 {
+				firstTool := tools[0]
+
+				// Show the full tool as received.
+				fullToolJSON, _ := json.Marshal(firstTool)
+				fmt.Fprintf(os.Stderr, "[DEBUG] First tool (full): %s\n", string(fullToolJSON))
+
+				// Show just the InputSchema struct field.
+				schemaJSON, _ := json.Marshal(firstTool.InputSchema)
+				fmt.Fprintf(os.Stderr, "[DEBUG] First tool InputSchema struct: %s\n", string(schemaJSON))
+
+				// Show RawInputSchema if set.
+				if len(firstTool.RawInputSchema) > 0 {
+					fmt.Fprintf(os.Stderr, "[DEBUG] First tool RawInputSchema: %s\n", string(firstTool.RawInputSchema))
+				} else {
+					fmt.Fprintf(os.Stderr, "[DEBUG] First tool RawInputSchema: <empty>\n")
+				}
 			}
 		}
 	}
@@ -591,16 +619,16 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 
 	generateReq := llm.GenerateRequest{
 		Messages:     llmMessages,
-		Tools:        toolsResult.Tools,
+		Tools:        tools,
 		Stream:       stream,
 		SystemPrompt: systemPrompt,
 	}
 
 	if a.debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Calling LLM with %d messages and %d tools\n", len(llmMessages), len(toolsResult.Tools))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Calling LLM with %d messages and %d tools\n", len(llmMessages), len(tools))
 
-		// Debug: Show all tool schemas being sent to LLM
-		for i, tool := range toolsResult.Tools {
+		// Debug: Show all tool schemas being sent to LLM.
+		for i, tool := range tools {
 			schemaJSON, _ := json.Marshal(tool.InputSchema)
 			fmt.Fprintf(os.Stderr, "[DEBUG] Tool %d (%s): %s\n", i, tool.Name, string(schemaJSON))
 		}
@@ -666,26 +694,55 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 				fmt.Fprintf(os.Stderr, "[DEBUG] Executing tool: %s\n", tc.Name)
 			}
 
-			// Emit tool start event (RFD 051).
-			emitter.EmitToolStart(tc.Name)
-
 			// Parse arguments.
 			var args map[string]interface{}
 			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
 				return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 			}
 
-			// Call the tool via MCP.
-			req := mcp.CallToolRequest{}
-			req.Params.Name = tc.Name
-			req.Params.Arguments = args
+			// Execute the tool — CLI or MCP path.
+			var toolResult *mcp.CallToolResult
+			var toolDuration float64
 
-			toolStart := time.Now()
-			toolResult, err := a.mcpClient.CallTool(ctx, req)
-			toolDuration := time.Since(toolStart).Seconds()
+			if a.dispatchMode == config.DispatchModeCLI && tc.Name == "coral_cli" {
+				// Extract the args array from the tool input.
+				var cliArgs []string
+				if rawArgs, ok := args["args"]; ok {
+					if argsSlice, ok := rawArgs.([]interface{}); ok {
+						for _, a := range argsSlice {
+							if s, ok := a.(string); ok {
+								cliArgs = append(cliArgs, s)
+							}
+						}
+					}
+				}
 
-			if err != nil {
-				return nil, fmt.Errorf("tool call failed: %w", err)
+				// Build display command string before appending --format json.
+				cmdStr := cliCommandString(cliArgs)
+
+				// Emit tool start with CLI command string (RFD 100).
+				emitter.EmitToolStart(tc.Name, cmdStr)
+
+				toolResult, toolDuration, err = executeCLITool(ctx, cliArgs, a.debug)
+				if err != nil {
+					return nil, fmt.Errorf("coral_cli failed: %w", err)
+				}
+			} else {
+				// Emit tool start event (RFD 051).
+				emitter.EmitToolStart(tc.Name, "")
+
+				// Call the tool via MCP.
+				req := mcp.CallToolRequest{}
+				req.Params.Name = tc.Name
+				req.Params.Arguments = args
+
+				toolStart := time.Now()
+				toolResult, err = a.mcpClient.CallTool(ctx, req)
+				toolDuration = time.Since(toolStart).Seconds()
+
+				if err != nil {
+					return nil, fmt.Errorf("tool call failed: %w", err)
+				}
 			}
 
 			// Emit tool complete event (RFD 051).
@@ -750,7 +807,7 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 		// Call LLM again with tool results.
 		finalReq := llm.GenerateRequest{
 			Messages:     llmMessages,
-			Tools:        toolsResult.Tools,
+			Tools:        tools,
 			Stream:       stream,
 			SystemPrompt: systemPrompt,
 		}

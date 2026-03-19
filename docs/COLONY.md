@@ -234,16 +234,10 @@ The colony exposes observability and debugging tools via the Model Context
 Protocol (MCP) for AI assistant integration.
 
 ```bash
-# List available MCP tools
-coral-colony mcp list-tools
-
-# Test a tool locally
-coral-colony mcp test-tool coral_get_service_health
-
 # Generate Claude Desktop configuration
 coral-colony mcp generate-config
 
-# Start MCP server proxy (used by Claude Desktop)
+# Start MCP proxy (used by Claude Desktop)
 coral-colony mcp proxy
 ```
 

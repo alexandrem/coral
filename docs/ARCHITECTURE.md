@@ -301,69 +301,21 @@ Connect gRPC.
 
 ### Components
 
-#### 1. Colony MCP Server (Internal)
-
-**Location:** `internal/colony/mcp/server.go`
-
-- Registers all MCP tools: health, topology, Beyla metrics, traces, OTLP
-  telemetry
-- Integrated into colony startup (runs automatically with colony)
-- Executes tools by querying DuckDB and agent registry
-- **NOT directly exposed to external clients**
-
-**Tools Implemented:**
-
-- `coral_get_service_health` - Service health monitoring
-- `coral_topology` - Service dependency graph
-- `coral_query_beyla_http_metrics` - HTTP RED metrics
-- `coral_query_beyla_grpc_metrics` - gRPC metrics
-- `coral_query_beyla_sql_metrics` - SQL query metrics
-- `coral_query_beyla_traces` - Distributed tracing
-- `coral_query_telemetry_spans` - OTLP spans
-- `coral_query_events` - Operational events
-
-#### 2. Buf Connect RPC Interface
-
-**Location:** `proto/coral/colony/v1/mcp.proto`,
-`internal/colony/server/mcp_tools.go`
-
-Colony exposes three RPCs for MCP communication:
-
-```protobuf
-service ColonyService {
-    rpc CallTool(CallToolRequest) returns (CallToolResponse);
-    rpc StreamTool(stream StreamToolRequest) returns (stream StreamToolResponse);
-    rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
-}
-```
-
-**Benefits:**
-
-- Type-safe communication with Protocol Buffers
-- Real-time data (no stale snapshots)
-- Clean separation: colony handles all business logic
-- Scalable: multiple proxies can connect to same colony
-
-#### 3. MCP Proxy (Public-facing)
+#### 1. MCP Proxy (Public-facing)
 
 **Location:** `internal/cli/colony/mcp.go`
 
-The `coral colony mcp proxy` command is the **only public-facing MCP server**:
+The `coral colony mcp proxy` command is the **only public-facing MCP server**.
+It exposes a single `coral_cli` tool and handles all calls locally as
+subprocesses — no colony MCP server is involved.
 
 **Responsibilities:**
 
 - Reads MCP JSON-RPC requests from stdin
-- Translates MCP protocol to Buf Connect RPCs
-- Calls colony via gRPC
-- Translates RPC responses back to MCP JSON-RPC format
+- Intercepts `coral_cli` tool calls and executes `coral <args> --format json`
+  as a subprocess
+- Returns subprocess stdout as the MCP tool result
 - Writes MCP responses to stdout
-
-**What it does NOT do:**
-
-- ❌ No database access
-- ❌ No business logic
-- ❌ No tool implementation
-- ✅ Pure protocol translation
 
 **Usage:**
 
@@ -386,60 +338,31 @@ coral colony mcp proxy --colony my-shop-production
      "id": 1,
      "method": "tools/call",
      "params": {
-       "name": "coral_get_service_health",
-       "arguments": {}
+       "name": "coral_cli",
+       "arguments": {"args": ["query", "summary"]}
      }
    }
    ```
 
-3. **Proxy → Colony (gRPC):**
-   ```protobuf
-   CallToolRequest {
-     tool_name: "coral_get_service_health"
-     arguments_json: "{}"
-   }
+3. **Proxy forks subprocess:**
+   ```
+   coral query summary --format json
    ```
 
-4. **Colony executes tool:**
-    - Queries agent registry for service health
-    - Aggregates CPU, memory, uptime data
-    - Formats results
-
-5. **Colony → Proxy (gRPC):**
-   ```protobuf
-   CallToolResponse {
-     result: "System Health Report: ..."
-     success: true
-   }
-   ```
-
-6. **Proxy → Claude Desktop (stdio):**
+4. **Proxy → Claude Desktop (stdio):**
    ```json
    {
      "jsonrpc": "2.0",
      "id": 1,
      "result": {
-       "content": [
-         {"type": "text", "text": "System Health Report: ..."}
-       ]
+       "content": [{"type": "text", "text": "{...json output...}"}]
      }
    }
    ```
 
-7. **Claude synthesizes answer** and presents to user
+5. **Claude synthesizes answer** and presents to user
 
 ### Configuration
-
-**Colony config** (`colony.yaml`):
-
-```yaml
-mcp:
-    disabled: false  # MCP enabled by default
-    enabled_tools: [ ]  # Empty = all tools enabled
-    security:
-        require_rbac_for_actions: true
-        audit_enabled: true
-```
 
 **Claude Desktop config** (`~/.config/claude/claude_desktop_config.json`):
 

@@ -44,7 +44,13 @@ func (m Model) View() string {
 	// Render current state.
 	switch m.currentState {
 	case stateQuerying:
-		if m.currentTool != "" {
+		if m.currentCommand != "" {
+			// CLI dispatch mode: show the full command string (RFD 100).
+			b.WriteString(fmt.Sprintf("\n%s %s $ %s\n",
+				m.spinner.View(),
+				toolStyle.Render("⚙"),
+				m.currentCommand))
+		} else if m.currentTool != "" {
 			b.WriteString(fmt.Sprintf("\n%s %s Executing tool: %s...\n",
 				m.spinner.View(),
 				toolStyle.Render("⚙"),

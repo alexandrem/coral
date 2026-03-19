@@ -57,7 +57,19 @@ type AskAgentConfig struct {
 	Mode         string        `yaml:"mode,omitempty"`          // "embedded", "daemon", "ephemeral"
 	DaemonSocket string        `yaml:"daemon_socket,omitempty"` // Unix socket for daemon mode
 	IdleTimeout  time.Duration `yaml:"idle_timeout,omitempty"`  // Daemon idle timeout
+	DispatchMode string        `yaml:"dispatch_mode,omitempty"` // "mcp" (default) or "cli" (RFD 100)
 }
+
+// Dispatch mode constants for AskAgentConfig.DispatchMode (RFD 100).
+const (
+	// DispatchModeMCP routes agent tool calls through the MCP protocol.
+	// Default for coral ask and external integrations.
+	DispatchModeMCP = "mcp"
+
+	// DispatchModeCLI routes agent tool calls through coral CLI subprocesses.
+	// Used by coral terminal for auditable, reproducible session logs.
+	DispatchModeCLI = "cli"
+)
 
 // Preferences contains user preferences.
 type Preferences struct {

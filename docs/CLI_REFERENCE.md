@@ -239,6 +239,11 @@ The dashboard is served at `http://localhost:<ephemeral-port>` and receives
 
 ## AI Queries
 
+Both `coral ask` and `coral terminal` use **CLI dispatch mode** (RFD 100):
+the agent issues standard coral CLI commands via `coral_cli` rather than MCP
+tool calls. Every agent action is a reproducible `coral <cmd> --format json`
+subprocess visible in the session log.
+
 ```bash
 # Configuration (first time)
 coral ask config
@@ -248,8 +253,8 @@ coral ask "<question>" [--format <format>] [--model <provider:model>] [--debug] 
 
 # Flags:
 #   --format <format>  Output format (table, json)
-#   --model <name>     Use specific model (e.g., anthropic:claude-3-5-sonnet-20241022)
-#   --debug            Show debug information (prompts, tool calls, etc.)
+#   --model <name>     Use specific model (e.g., anthropic:claude-sonnet-4-6)
+#   --debug            Show debug information (prompts, tool calls, CLI commands)
 #   --dry-run          Show what would be queried without executing
 
 # Examples:
@@ -609,15 +614,15 @@ coral debug attach <service> --function <name> [--duration <time>] [--capture-ar
 coral debug trace <service> --path <path> [--duration <time>]
 
 # Update kernel-level filter for an active session (without detaching)
-coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
+coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>] [--format text|json]
 
 # Manage debug sessions
 coral debug session list [--service <name>] [--status <status>] [--format text|json|csv]
 coral debug session get <session-id> [--format text|json|csv]
 coral debug session query <service> --function <name> [--since <duration>] [--format text|json|csv]
 coral debug session query <service> --session-id <id> [--format text|json|csv]
-coral debug session events <session-id> [--max <n>] [--follow] [--since <duration>]
-coral debug session stop <session-id>
+coral debug session events <session-id> [--max <n>] [--follow] [--since <duration>] [--format text|json]
+coral debug session stop <session-id> [--format text|json]
 
 # Examples - Attach with kernel-level filters:
 coral debug attach api --function processOrder              # Attach without filters (all events)

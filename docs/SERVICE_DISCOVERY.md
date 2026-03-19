@@ -366,30 +366,24 @@ coral query services --source verified
 coral query services --format json
 ```
 
-### MCP Tool (`coral_list_services`)
+### AI Integration
 
-AI assistants can query services via MCP:
+AI assistants (Claude Desktop, Cursor, `coral terminal`) query services via
+`coral_cli`:
 
 ```json
-{
-    "services": [
-        {
-            "name": "api-service",
-            "port": 8080,
-            "source": "VERIFIED",
-            "status": "ACTIVE",
-            "instance_count": 2,
-            "agent_id": "agent-1"
-        }
-    ]
-}
+["service", "list"]
 ```
 
-**Example Claude Desktop Query:**
+Returns JSON with each service's `name`, `port`, `source`, `status`, and
+`instance_count`. The AI filters for `source: VERIFIED` and `status: ACTIVE`
+to identify services currently in use.
+
+**Example:**
 > "What services are currently running?"
 
-Claude calls `coral_list_services` → Filters for `source: VERIFIED` and
-`status: ACTIVE` → Presents results.
+Claude calls `coral_cli(["service", "list"])` → Filters for `source: VERIFIED`
+and `status: ACTIVE` → Presents results.
 
 ### TypeScript SDK
 

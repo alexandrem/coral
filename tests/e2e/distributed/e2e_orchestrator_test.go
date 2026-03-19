@@ -26,7 +26,6 @@ type E2EOrchestratorSuite struct {
 	onDemandProbesPassed bool
 	cliCommandsPassed    bool
 	mcpTestsPassed       bool
-	mcpParityPassed      bool
 	publicEndpointPassed bool
 	discoveryPassed      bool
 }
@@ -65,7 +64,6 @@ func (s *E2EOrchestratorSuite) TearDownSuite() {
 	s.T().Logf("  4. On-Demand Probes:         %s", status(s.onDemandProbesPassed))
 	s.T().Logf("  5. CLI Commands:             %s", status(s.cliCommandsPassed))
 	s.T().Logf("  6. MCP Server:               %s", status(s.mcpTestsPassed))
-	s.T().Logf("  7. MCP/CLI Parity:           %s", status(s.mcpParityPassed))
 	s.T().Logf("  8. Public Endpoint:          %s", status(s.publicEndpointPassed))
 	s.T().Logf("  9. Discovery Service:        %s", status(s.discoveryPassed))
 	s.T().Log("==================================================")
@@ -381,6 +379,20 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_RunTimeoutFlag", cliRunSuite.TestRunTimeoutFlag)
 	s.Run("CLI_RunHelpText", cliRunSuite.TestRunHelpText)
 
+	// Run CLIDebugSuite (debug and profiling CLI commands).
+	cliDebugSuite := &CLIDebugSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliDebugSuite.SetT(s.T())
+	cliDebugSuite.SetupSuite()
+	defer cliDebugSuite.TearDownSuite()
+
+	s.Run("CLI_DebugSearchCommand", cliDebugSuite.TestDebugSearchCommand)
+	s.Run("CLI_DebugSessionList", cliDebugSuite.TestDebugSessionListCommand)
+	s.Run("CLI_DebugSessionGetNotFound", cliDebugSuite.TestDebugSessionGetNotFound)
+	s.Run("CLI_QueryCPUProfile", cliDebugSuite.TestQueryCPUProfileCommand)
+	s.Run("CLI_QueryMemoryProfile", cliDebugSuite.TestQueryMemoryProfileCommand)
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")
@@ -415,142 +427,11 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	s.Run("MCP_ProxyCallTool", mcpSuite.TestMCPProxyCallTool)
 	s.Run("MCP_ProxyErrorHandling", mcpSuite.TestMCPProxyErrorHandling)
 
-	// Group C: Tool Execution
-	s.Run("MCP_ToolObservability", mcpSuite.TestMCPToolObservabilityQuery)
-	s.Run("MCP_ToolDiscovery", mcpSuite.TestMCPToolServiceDiscovery)
-	s.Run("MCP_ToolShellExec", mcpSuite.TestMCPToolShellExec)
-
-	// Group D: Debugging Tools
-	s.Run("MCP_ToolDiscoverFunctions", mcpSuite.TestMCPToolDiscoverFunctions)
-	s.Run("MCP_ToolProfileFunctions", mcpSuite.TestMCPToolProfileFunctions)
-	s.Run("MCP_ToolAttachUprobe", mcpSuite.TestMCPToolAttachUprobe)
-	s.Run("MCP_ToolListDebugSessions", mcpSuite.TestMCPToolListDebugSessions)
-	s.Run("MCP_ToolGetDebugResults", mcpSuite.TestMCPToolGetDebugResults)
-	s.Run("MCP_ToolDetachUprobe", mcpSuite.TestMCPToolDetachUprobe)
-
-	// Group E: Container Execution
-	s.Run("MCP_ToolContainerExec", mcpSuite.TestMCPToolContainerExec)
-
-	// Group N: TypeScript SDK Execution (RFD 093)
-	s.Run("MCP_ToolCoralRun", mcpSuite.TestMCPToolCoralRun)
-
-	// Group F: Advanced Observability
-	s.Run("MCP_ToolQueryWithTelemetry", mcpSuite.TestMCPToolQueryWithTelemetryData)
-	s.Run("MCP_ToolQueryMetricsProtocols", mcpSuite.TestMCPToolQueryMetricsProtocols)
-
-	// Group G: Error Handling
-	s.Run("MCP_ToolErrorScenarios", mcpSuite.TestMCPToolErrorScenarios)
-	s.Run("MCP_ToolInputValidation", mcpSuite.TestMCPToolInputValidation)
-
-	// Group J: Error Coverage (Sprint 2, Task 2.1)
-
-	// coral_shell_exec
-	s.Run("MCP_ErrorShellExecEmptyCommand", mcpSuite.TestShellExecErrorEmptyCommand)
-	s.Run("MCP_ErrorShellExecTimeout", mcpSuite.TestShellExecErrorTimeout)
-	s.Run("MCP_ErrorShellExecInvalidCommand", mcpSuite.TestShellExecErrorInvalidCommand)
-	s.Run("MCP_ErrorShellExecNonZeroExitCode", mcpSuite.TestShellExecNonZeroExitCode)
-	s.Run("MCP_ErrorShellExecMissingAgentTarget", mcpSuite.TestMissingRequiredAgentTarget)
-	s.Run("MCP_ErrorMalformedArgumentType", mcpSuite.TestMalformedArgumentType)
-
-	// coral_container_exec
-	s.Run("MCP_ContainerExecSidecarMode", mcpSuite.TestContainerExecSidecarMode)
-	s.Run("MCP_ErrorContainerExecEmptyCommand", mcpSuite.TestContainerExecErrorEmptyCommand)
-
-	// coral_query_summary
-	s.Run("MCP_ErrorQuerySummaryUnknownService", mcpSuite.TestQuerySummaryUnknownService)
-
-	// coral_query_metrics
-	s.Run("MCP_ErrorQueryMetricsInvalidTimeRange", mcpSuite.TestQueryMetricsErrorInvalidTimeRange)
-	s.Run("MCP_ErrorQueryMetricsInvalidProtocol", mcpSuite.TestQueryMetricsErrorInvalidProtocol)
-	s.Run("MCP_ErrorQueryMetricsInvalidHTTPMethod", mcpSuite.TestQueryMetricsInvalidHTTPMethod)
-
-	// coral_query_traces
-	s.Run("MCP_ErrorQueryTracesInvalidTraceID", mcpSuite.TestQueryTracesInvalidTraceID)
-	s.Run("MCP_ErrorQueryTracesExcessiveMinDuration", mcpSuite.TestQueryTracesExcessiveMinDuration)
-
-	// coral_attach_uprobe
-	s.Run("MCP_ErrorAttachUprobeNotFound", mcpSuite.TestAttachUprobeErrorFunctionNotFound)
-	s.Run("MCP_ErrorAttachUprobeInvalidDuration", mcpSuite.TestAttachUprobeInvalidDuration)
-
-	// coral_discover_functions
-	s.Run("MCP_ErrorDiscoverFunctionsEmptyQuery", mcpSuite.TestDiscoverFunctionsErrorEmptyQuery)
-	s.Run("MCP_ErrorDiscoverFunctionsUnknownService", mcpSuite.TestDiscoverFunctionsUnknownService)
-	s.Run("MCP_ErrorDiscoverFunctionsMaxResultsExceedsLimit", mcpSuite.TestDiscoverFunctionsMaxResultsExceedsLimit)
-
-	// coral_profile_functions
-	s.Run("MCP_ErrorProfileFunctionsInvalidStrategy", mcpSuite.TestProfileFunctionsInvalidStrategy)
-	s.Run("MCP_ErrorProfileFunctionsNoMatchingFunctions", mcpSuite.TestProfileFunctionsNoMatchingFunctions)
-
-	// coral_debug_cpu_profile
-	s.Run("MCP_ErrorDebugCPUProfileDurationClamped", mcpSuite.TestDebugCPUProfileDurationClamped)
-	s.Run("MCP_ErrorDebugCPUProfileFrequencyClamped", mcpSuite.TestDebugCPUProfileFrequencyClamped)
-
-	// Group K: Parameter Coverage (Sprint 2, Task 2.2)
-	s.Run("MCP_ParamShellExecWorkingDir", mcpSuite.TestShellExecWithWorkingDir)
-	s.Run("MCP_ParamShellExecEnvVars", mcpSuite.TestShellExecWithEnvVars)
-	s.Run("MCP_ParamShellExecCustomTimeout", mcpSuite.TestShellExecWithCustomTimeout)
-	s.Run("MCP_ParamQueryMetricsHTTPRoute", mcpSuite.TestQueryMetricsWithHTTPRoute)
-	s.Run("MCP_ParamQueryMetricsStatusCodeRange", mcpSuite.TestQueryMetricsWithStatusCodeRange)
-	s.Run("MCP_ParamDiscoverFunctionsPrioritizeSlow", mcpSuite.TestDiscoverFunctionsWithPrioritizeSlow)
-	s.Run("MCP_ParamProfileFunctionsSampleRate", mcpSuite.TestProfileFunctionsWithSampleRate)
-	s.Run("MCP_ParamProfileFunctionsStrategyCriticalPath", mcpSuite.TestProfileFunctionsStrategyCriticalPath)
-	s.Run("MCP_ParamProfileFunctionsStrategyAll", mcpSuite.TestProfileFunctionsStrategyAll)
-	s.Run("MCP_ParamQueryTracesWithTraceID", mcpSuite.TestQueryTracesWithTraceID)
-	s.Run("MCP_ParamQueryTracesMinDuration", mcpSuite.TestQueryTracesWithMinDuration)
-
-	// Group H: Response Validation (Sprint 1)
-	validationSuite := &ResponseValidationSuite{
-		E2EDistributedSuite: s.E2EDistributedSuite,
-	}
-	validationSuite.SetT(s.T())
-	validationSuite.SetupSuite()
-	defer validationSuite.TearDownSuite()
-
-	s.Run("MCP_ResponseValidationListServices", validationSuite.TestResponseValidationListServices)
-	s.Run("MCP_ResponseValidationDiscoverFunctions", validationSuite.TestResponseValidationDiscoverFunctions)
-	s.Run("MCP_ResponseValidationQueryMetrics", validationSuite.TestResponseValidationQueryMetrics)
-	s.Run("MCP_ResponseValidationQueryTraces", validationSuite.TestResponseValidationQueryTraces)
-	s.Run("MCP_ResponseValidationQuerySummary", validationSuite.TestResponseValidationQuerySummary)
-	s.Run("MCP_ResponseValidationErrorFormat", validationSuite.TestResponseValidationErrorFormat)
-
 	if !s.T().Failed() {
 		s.mcpTestsPassed = true
 		s.T().Log("✓ GROUP 6 PASSED - MCP server working")
 	} else {
 		s.T().Log("✗ GROUP 6 FAILED")
-	}
-}
-
-// Test7_MCPParityTests runs MCP/CLI parity validation tests.
-// Requires: MCP tests to have run
-func (s *E2EOrchestratorSuite) Test7_MCPParityTests() {
-	s.T().Log("")
-	s.T().Log("========================================")
-	s.T().Log("GROUP 7: MCP/CLI Parity Validation")
-	s.T().Log("========================================")
-
-	// Run MCPParitySuite (validates MCP and CLI return consistent data)
-	mcpParitySuite := &MCPParitySuite{
-		E2EDistributedSuite: s.E2EDistributedSuite,
-	}
-	mcpParitySuite.SetT(s.T())
-	mcpParitySuite.SetupSuite() // Initialize MCP parity env
-	defer mcpParitySuite.TearDownSuite()
-
-	// Observability Parity Tests
-	s.Run("Parity_QuerySummary", mcpParitySuite.TestParityQuerySummary)
-	s.Run("Parity_ListServices", mcpParitySuite.TestParityListServices)
-	s.Run("Parity_QueryTraces", mcpParitySuite.TestParityQueryTraces)
-	s.Run("Parity_QueryMetrics", mcpParitySuite.TestParityQueryMetrics)
-
-	// Execution Parity Tests
-	s.Run("Parity_ShellExec", mcpParitySuite.TestParityShellExec)
-
-	if !s.T().Failed() {
-		s.mcpParityPassed = true
-		s.T().Log("✓ GROUP 7 PASSED - MCP/CLI parity validated")
-	} else {
-		s.T().Log("✗ GROUP 7 FAILED")
 	}
 }
 

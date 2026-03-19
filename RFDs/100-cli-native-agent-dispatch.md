@@ -1,19 +1,19 @@
 ---
 rfd: "100"
 title: "CLI-Native Agent Tool Dispatch"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: []
 database_migrations: []
-areas: ["ask", "tui", "mcp", "cli"]
+areas: ["ask", "tui", "mcp", "cli", "proxy"]
 ---
 
 # RFD 100 - CLI-Native Agent Tool Dispatch
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -71,9 +71,10 @@ directly into postmortems or incident reports.
 - **`coral_cli` as a meta-tool.** A single tool replaces 21 MCP tools. The LLM
   receives a compact CLI reference resource and composes commands from it, the
   same way a human would read `coral --help`.
-- **Two-track architecture.** External clients (Claude Desktop, Cursor) continue
-  to use the MCP protocol unchanged. This RFD only changes the TUI's first-party
-  path.
+- **Two-track architecture, unified tool vocabulary.** External clients (Claude
+  Desktop, Cursor) continue to use the MCP protocol. Phase 5 extends the same
+  `coral_cli` meta-tool to the proxy layer, so all clients — TUI and external —
+  converge on a single tool and the 21 per-operation tools are removed.
 - **Latency is not a real concern.** Subprocess fork for a compiled Go binary
   adds ~10–50ms. LLM inference and colony network round-trips dominate agent loop
   latency. The round-trip count (number of LLM steps) matters far more than
@@ -97,11 +98,15 @@ directly into postmortems or incident reports.
 Current (TUI via MCP):
   TUI → Agent → MCP Client (stdio) → coral colony mcp proxy → gRPC → Colony → MCP Server → tool handler
 
-Proposed (TUI via CLI):
+Phase 1-3 (TUI via CLI):
   TUI → Agent → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
 
-External clients (unchanged):
-  Claude Desktop → MCP stdio → coral colony mcp proxy → gRPC → Colony → MCP Server → tool handler
+Phase 5 (external clients via CLI, proxy intercepts):
+  Claude Desktop → MCP stdio → coral colony mcp proxy → [intercept coral_cli] → subprocess: coral <cmd> --format json → gRPC → Colony
+
+Final state (both paths, one tool):
+  TUI          → Agent       → coral_cli tool    → subprocess: coral <cmd> --format json → gRPC → Colony
+  Claude Desktop → MCP stdio → proxy coral_cli   → subprocess: coral <cmd> --format json → gRPC → Colony
 ```
 
 ### Component Changes
@@ -146,59 +151,99 @@ External clients (unchanged):
    - Display commands inline in the conversation (e.g., `$ coral query traces
      --service api --since 10m`) so users see exactly what the agent ran.
 
+6. **MCP proxy (`internal/cli/colony/mcp.go`) — Phase 5**:
+
+   - In `mcpProxy.handleListTools`, return the `coral_cli` tool schema instead
+     of delegating to the colony `ListTools` RPC.
+   - In `mcpProxy.handleCallTool`, intercept `coral_cli` calls: parse the `args`
+     array, append `--format json`, exec `os.Executable()` as a subprocess,
+     return stdout as the MCP tool result. All other tool names are rejected
+     (the colony no longer exposes per-operation tools).
+   - Colony MCP server (`internal/colony/mcp/`) and its `CallTool` / `ListTools`
+     gRPC handlers are removed once the proxy no longer calls them.
+
 ## Implementation Plan
 
 ### Phase 1: `coral_cli` tool and CLI dispatch mode
 
-- [ ] Define `DispatchMode` enum (`mcp`, `cli`) in agent config.
-- [ ] Implement `coral_cli` tool in `internal/cli/ask/tools_cli.go`: accept
+- [x] Define `DispatchMode` enum (`mcp`, `cli`) in agent config.
+- [x] Implement `coral_cli` tool in `internal/cli/ask/tools_cli.go`: accept
       args, append `--format json`, exec subprocess, return stdout as JSON.
-- [ ] Update `NewAgent()` in `ask/agent.go` to select tool set based on
-      `DispatchMode`: CLI mode registers `coral_cli`, `coral_run`, `coral_exec`;
-      MCP mode uses existing `connectToColonyMCP()` path.
-- [ ] Wire TUI (`internal/cli/terminal/`) to use `DispatchMode: cli` by default.
-- [ ] Unit tests for `coral_cli` tool: valid command, unknown command, non-zero
+- [x] Update `NewAgent()` in `ask/agent.go` to select tool set based on
+      `DispatchMode`: CLI mode registers `coral_cli`; MCP mode uses existing
+      `connectToColonyMCP()` path.
+- [x] Wire TUI (`internal/cli/terminal/`) to use `DispatchMode: cli` by default.
+- [x] Unit tests for `coral_cli` tool: valid command, unknown command, non-zero
       exit, `--format json` already present.
 
 ### Phase 2: CLI reference resource
 
-- [ ] Implement `coral://cli/reference` resource: walk the Cobra command tree and
-      emit a compact plain-text reference (command, synopsis, key flags, example
-      JSON output shape).
-- [ ] Register the resource in the agent's local resource server (CLI mode only).
-- [ ] Update agent system prompt to instruct the LLM to read
-      `coral://cli/reference` before composing `coral_cli` calls, mirroring the
-      `coral://sdk/reference` pattern.
-- [ ] Unit test: resource lists all expected top-level command groups.
+- [x] Implement `coral://cli/reference` resource: walk the Cobra command tree and
+      emit a compact plain-text reference (command, synopsis, key flags).
+- [x] Register the resource in the agent's local resource server (CLI mode only):
+      included directly in the CLI system prompt via `buildCLISystemPrompt`.
+- [x] Update agent system prompt to instruct the LLM to read
+      `coral://cli/reference` before composing `coral_cli` calls.
+- [x] Unit test: resource lists all expected top-level command groups.
 
 ### Phase 3: JSON output completeness
 
-- [ ] Audit `coral query summary/traces/metrics/logs` — confirm `--format json`
-      output is machine-readable and stable.
-- [ ] Audit `coral debug attach/detach/results` — add `--format json` where
-      missing.
-- [ ] Audit `coral list services`, `coral correlation list/deploy/remove` — add
-      `--format json` where missing.
-- [ ] Emit CLI command string in `tool_start` / `tool_complete` agent events.
-- [ ] Display command string inline in TUI conversation view.
+- [x] Audit `coral query summary/traces/metrics/logs` — `summary` already
+      supported; added `--format json` to `traces`, `metrics`, `logs`.
+- [x] Audit `coral debug attach/detach/results` — already supports `--format json`.
+- [x] Audit `coral service list`, `coral debug correlations list/remove` — already
+      supports `--format json`.
+- [x] Emit CLI command string in `tool_start` agent events (`Command` field in
+      `AgentEvent` and `ui.AgentEvent`).
+- [x] Display command string inline in TUI conversation view (`$ coral <cmd>`).
 
-### Phase 4: Testing and documentation
+### Phase 4: `coral_cli` as MCP tool in the proxy — retire the 21 per-operation tools
 
-- [ ] Integration test: TUI agent in CLI dispatch mode completes a multi-step
-      query using only `coral_cli` calls.
-- [ ] E2E test: verify session log contains parseable CLI commands that produce
-      the same output when run manually.
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `--format json` flag
-      coverage.
-- [ ] Update `docs/AGENT.md` with CLI dispatch mode, `coral_cli` tool contract,
-      and `coral://cli/reference` resource.
+The proxy (`internal/cli/colony/mcp.go`) runs the `coral` binary locally. It
+can intercept `coral_cli` tool calls and handle them as subprocesses, exactly
+as the TUI does, without adding any dependency on the colony MCP server.
+
+- [x] **`--format json` parity audit** — added `--format json` to
+      `coral debug filter`, `coral debug session events`, and
+      `coral debug session stop`. Commands `session list/get/query`,
+      `debug search/info/profile` already had format support.
+- [x] **Implement `coral_cli` in the proxy** — `mcpProxy.handleCallTool`
+      intercepts `coral_cli` and handles it locally: parses the `args` array,
+      appends `--format json`, execs `os.Executable()` as the subprocess,
+      returns stdout as the MCP tool result. All other tool names return an error.
+- [x] **Implement `coral_cli` in `mcpProxy.handleListTools`** — returns the
+      single `coral_cli` tool schema directly without delegating to the colony RPC.
+- [x] **Remove the 21 per-operation MCP tool handlers** — deleted
+      `internal/colony/mcp/` package entirely and `internal/colony/server/mcp_tools.go`.
+      Colony `CallTool`/`ListTools` gRPC handlers now return "not supported".
+- [x] **Update `docs/MCP.md`** — replaced architecture diagram and added
+      `coral_cli` tool contract section; legacy per-operation tools noted as
+      reference-only.
+
+### Phase 5: Testing and documentation
+
+- [x] Unit tests for `coral_cli` tool helpers (`appendFormatJSON`,
+      `cliCommandString`, `buildCLITools`).
+- [x] Unit tests for `GenerateCLIReference`: validates query/debug/service
+      command groups are included and unrelated groups excluded.
+- [x] Integration test: `TestCLIDispatchMode` and `TestCLIDispatchToolsContract`
+      in `internal/cli/ask/cli_dispatch_integration_test.go` — verify agent
+      creates in CLI mode without MCP connection and uses `coral_cli` tool.
+- [ ] E2E test in `tests/e2e/distributed`: verify TUI agent session log contains
+      parseable CLI commands that produce the same output when run manually.
+- [x] Update `docs/CLI.md` with CLI dispatch mode explanation and configuration.
+- [x] Update `docs/CLI_REFERENCE.md` with `--format json` flag coverage for
+      debug commands and CLI dispatch mode note.
+- [x] Update `docs/MCP.md` architecture section to reflect the two-track model
+      (TUI via CLI dispatch, external clients via MCP proxy).
 
 ## API Changes
 
 ### New tool: `coral_cli`
 
-Registered in the agent's local tool set when operating in CLI dispatch mode.
-Not exposed via MCP.
+Registered in the agent's local tool set when operating in CLI dispatch mode
+(TUI). Also exposed via the MCP proxy (Phase 5), replacing the 21
+per-operation MCP tools for external clients.
 
 ```
 Tool name: coral_cli
@@ -285,33 +330,82 @@ ask:
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+🎉 **Implemented**
 
-The TUI agent will gain a CLI dispatch mode that replaces MCP tool calls with
-direct `coral <cmd> --format json` subprocess invocations. A single `coral_cli`
-meta-tool replaces 21 MCP tools in the LLM's context. Agent actions are surfaced
-as CLI commands in the session log.
+**What was built:**
+
+- ✅ `DispatchMode` constant (`"mcp"` / `"cli"`) in `config.AskAgentConfig`
+- ✅ `coral_cli` meta-tool in `internal/cli/ask/tools_cli.go`: accepts args array,
+  appends `--format json` automatically, executes `coral <args>` as a subprocess,
+  returns stdout as JSON to the LLM.
+- ✅ `NewAgentWithCLIReference` in `ask/agent.go`: skips MCP connection in CLI
+  mode and registers only `coral_cli`; system prompt includes `coral://cli/reference`.
+- ✅ `GenerateCLIReference(*cobra.Command)` in `internal/cli/ask/cli_reference.go`:
+  walks the Cobra tree and emits compact per-command flag reference.
+- ✅ `coral terminal` wired to CLI dispatch mode: generates CLI reference from
+  `cmd.Root()` and creates agent via `NewAgentWithCLIReference`.
+- ✅ `AgentEvent.Command` field: carries the full `coral <args>` string for
+  `tool_start` events; TUI displays it as `$ coral <cmd>`.
+- ✅ `--format json` added to `coral query traces`, `coral query metrics`,
+  `coral query logs`, `coral debug filter`, `coral debug session events`,
+  `coral debug session stop` (already present on `summary`, `attach`, `detach`,
+  `results`, `session list/get/query`, `search`, `info`, `profile`,
+  `service list`, `correlations`).
+- ✅ `coral_cli` in MCP proxy (`internal/cli/colony/mcp.go`): proxy intercepts
+  `coral_cli` tool calls and handles them locally as subprocesses.
+- ✅ Colony MCP server per-operation tools removed: `internal/colony/mcp/` and
+  `internal/colony/server/mcp_tools.go` deleted; `CallTool`/`ListTools` handlers
+  return "not supported".
+- ✅ Integration tests: `TestCLIDispatchMode` and `TestCLIDispatchToolsContract`
+  verify CLI dispatch creates correctly without MCP and registers `coral_cli`.
+- ✅ `docs/MCP.md`, `docs/CLI.md`, `docs/CLI_REFERENCE.md` updated.
 
 ## Future Work
 
+**E2E test for CLI dispatch session log** (Future — requires running colony)
+
+Verify end-to-end that a TUI agent session log contains parseable CLI commands
+that produce the same output when run manually. Deferred because this requires
+a live `tests/e2e/distributed` colony environment and should be added alongside
+the broader E2E suite expansion.
+
+**On-demand investigation scripts via `coral script`** (Future — unassigned RFD)
+
+Some investigations require logic that cannot be expressed as a single CLI
+command: parallel multi-service queries, conditional branching based on
+intermediate results, or custom aggregations. The TypeScript SDK (`coral run`)
+already handles this, but the right agent integration is not LLM-generated
+inline code — it is a write-review-execute flow:
+
+1. The LLM composes a TypeScript script and calls
+   `coral_cli(["script", "write", "--name", "<name>", "--content", "..."])`.
+2. The TUI intercepts the write and pauses the agent loop, showing the script
+   content for human review before it is committed to disk.
+3. After approval, the file is written to `~/.coral/scripts/<name>.ts` —
+   following the existing `~/.coral/` convention for configs, conversations,
+   and certs.
+4. The LLM executes it with
+   `coral_cli(["run", "--file", "~/.coral/scripts/<name>.ts"])`.
+
+This keeps everything within `coral_cli` (no second MCP tool), makes LLM
+actions auditable (the script is on disk and reviewable), and puts the human in
+the loop before any code runs. Scripts accumulate in `~/.coral/scripts/` across
+sessions; those worth keeping get committed and promoted to permanent named
+skills callable without writing new code.
+
+The `coral script` subcommand family (`write`, `list`, `remove`) is the only
+new CLI surface needed. The TUI approval gate for `coral script write` is the
+key enabler that makes dynamic code generation safe.
+
 **Composite / higher-level commands** (Future — unassigned RFD)
 
-Common multi-step patterns observed in real sessions should be promoted to
-composite CLI commands that run their sub-commands in parallel and return a
-unified JSON response. Examples:
+If usage data shows that agents repeatedly follow the same multi-step pattern
+across sessions, that pattern is a candidate for a composite CLI command —
+reducing round-trip count while keeping the action auditable. The right
+candidates should be derived from real session logs, not designed speculatively.
 
-- `coral diagnose --service api` → runs `query summary`, `query traces`, `query
-  logs` concurrently and returns a single JSON object.
-- `coral triage --service api` → runs diagnosis + attaches a probe to the top
-  offending function.
-
-These commands reduce agent round-trip count (fewer LLM inference steps) while
-remaining auditable. They should be derived from usage data gathered after this
-RFD is implemented, not designed speculatively.
-
-**MCP tool surface reduction for external clients** (Future — unassigned RFD)
-
-Once the CLI dispatch path is proven for the TUI, the same principle can be
-applied to external MCP clients by exposing `coral_cli` as an MCP tool and
-retiring the per-operation tools. This is a separate change with different
-trade-offs (external clients may not have the `coral` binary available).
+One genuine gap: `coral query summary` tells the agent *what* is wrong but not
+*where in the code*. A `coral triage` command that crosses the
+observability-to-debugging boundary (identify degraded service → find slowest
+function → attach probe) could reduce a 3-step loop to 1, with no duplication
+of existing commands.

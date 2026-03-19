@@ -16,7 +16,7 @@ import (
 // 1. Query summary command (coral query summary)
 // 2. Query traces command (coral query traces)
 // 3. Query metrics command (coral query metrics)
-// 4. Query services command (coral query services)
+// 4. Service list command (coral colony service list)
 // 5. Flag combinations (--service, --time, --limit)
 // 6. Output formatting (table vs JSON)
 //
@@ -43,7 +43,7 @@ func (s *CLIQuerySuite) SetupSuite() {
 
 	// Ensure services are connected for query tests.
 	// This populates the services registry table via ConnectService API,
-	// allowing registry-based queries (like 'coral query services') to work.
+	// allowing registry-based queries (like 'coral colony service list') to work.
 	s.ensureServicesConnected()
 
 	s.T().Logf("CLI environment ready: endpoint=%s", colonyEndpoint)
@@ -99,14 +99,14 @@ func (s *CLIQuerySuite) TestQuerySummaryCommand() {
 	s.T().Logf("Query with service filter exit code: %d", resultWithService.ExitCode)
 }
 
-// TestQueryServicesCommand tests 'coral query services' output.
+// TestQueryServicesCommand tests 'coral colony service list' output.
 //
 // Validates:
 // - Lists discovered services
 // - Table and JSON formats work
 // - Service information is present
 func (s *CLIQuerySuite) TestQueryServicesCommand() {
-	s.T().Log("Testing 'coral query services' command...")
+	s.T().Log("Testing 'coral colony service list' command...")
 
 	// Test table format
 	result := helpers.QueryServices(s.ctx, s.cliEnv)
