@@ -27,6 +27,12 @@ const (
 	AgentStatusUnhealthy AgentStatus = "unhealthy"
 )
 
+// Lifecycle is implemented by any component the agent starts and stops.
+type Lifecycle interface {
+	Start() error
+	Stop() error
+}
+
 // cpuProfiler is the subset of profiler.ContinuousCPUProfiler used by the agent.
 // Defined as an interface to support Linux/non-Linux builds without import cycles.
 type cpuProfiler interface {
@@ -44,6 +50,7 @@ type memProfiler interface {
 type Agent struct {
 	id                       string
 	monitors                 map[string]*ServiceMonitor
+	components               []Lifecycle // Ordered list of managed components; stopped in reverse.
 	ebpfManager              *ebpf.Manager
 	beylaManager             *beyla.Manager
 	debugManager             *debug.SessionManager
@@ -107,9 +114,17 @@ func New(config Config) (*Agent, error) {
 	// Initialize correlation engine (RFD 091).
 	corrEngine := correlation.NewEngine(config.AgentID, config.Logger)
 
+	// Build the ordered component list. ebpfManager starts first so it is
+	// available to collectors before Beyla (RFD 032) begins discovery.
+	components := []Lifecycle{ebpfManager}
+	if beylaManager != nil {
+		components = append(components, beylaManager)
+	}
+
 	agent := &Agent{
 		id:                config.AgentID,
 		monitors:          make(map[string]*ServiceMonitor),
+		components:        components,
 		ebpfManager:       ebpfManager,
 		beylaManager:      beylaManager,
 		correlationEngine: corrEngine,
@@ -143,20 +158,20 @@ func (a *Agent) Start() error {
 		Int("service_count", len(a.monitors)).
 		Msg("Starting agent")
 
-	// Start Beyla manager (RFD 032).
-	if a.beylaManager != nil {
-		if err := a.beylaManager.Start(); err != nil {
-			a.logger.Error().Err(err).Msg("Failed to start Beyla manager")
-			// Continue even if Beyla fails - it's supplementary to core monitoring
-		} else {
-			a.logger.Info().Msg("Beyla manager started successfully")
+	// Start managed components. Failures are logged but non-fatal; components
+	// such as Beyla are supplementary to core monitoring.
+	for _, c := range a.components {
+		if err := c.Start(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to start component")
 		}
 	}
 
 	// Start all service monitors.
 	for name, monitor := range a.monitors {
 		a.logger.Debug().Str("service", name).Msg("Starting service monitor")
-		monitor.Start()
+		if err := monitor.Start(); err != nil {
+			a.logger.Error().Err(err).Str("service", name).Msg("Failed to start service monitor")
+		}
 	}
 
 	return nil
@@ -166,22 +181,17 @@ func (a *Agent) Start() error {
 func (a *Agent) Stop() error {
 	a.logger.Info().Msg("Stopping agent")
 
-	// Stop all service monitors.
+	// Stop all service monitors first.
 	for _, monitor := range a.monitors {
-		monitor.Stop()
-	}
-
-	// Stop Beyla manager (RFD 032).
-	if a.beylaManager != nil {
-		if err := a.beylaManager.Stop(); err != nil {
-			a.logger.Error().Err(err).Msg("Failed to stop Beyla manager")
+		if err := monitor.Stop(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to stop service monitor")
 		}
 	}
 
-	// Stop eBPF manager.
-	if a.ebpfManager != nil {
-		if err := a.ebpfManager.Stop(); err != nil {
-			a.logger.Error().Err(err).Msg("Failed to stop eBPF manager")
+	// Stop managed components in reverse start order (LIFO).
+	for i := len(a.components) - 1; i >= 0; i-- {
+		if err := a.components[i].Stop(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to stop component")
 		}
 	}
 
@@ -338,7 +348,9 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	// Set callbacks for continuous profiling (RFD 072, RFD 077).
 	monitor.onProcessDiscovered = a.onProcessDiscovered
 	monitor.onSDKDiscovered = a.onSDKDiscovered
-	monitor.Start()
+	if err := monitor.Start(); err != nil {
+		return fmt.Errorf("failed to start monitor for service %s: %w", service.Name, err)
+	}
 
 	a.monitors[service.Name] = monitor
 
@@ -372,7 +384,9 @@ func (a *Agent) DisconnectService(serviceName string) error {
 	}
 
 	// Stop monitoring.
-	monitor.Stop()
+	if err := monitor.Stop(); err != nil {
+		a.logger.Error().Err(err).Str("service", serviceName).Msg("Failed to stop service monitor")
+	}
 	delete(a.monitors, serviceName)
 
 	a.logger.Info().

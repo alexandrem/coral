@@ -81,7 +81,7 @@ func NewServiceMonitor(parentCtx context.Context, service *meshv1.ServiceInfo, f
 }
 
 // Start begins monitoring the service.
-func (m *ServiceMonitor) Start() {
+func (m *ServiceMonitor) Start() error {
 	m.logger.Info().
 		Int32("port", m.service.Port).
 		Str("health_endpoint", m.service.HealthEndpoint).
@@ -89,12 +89,14 @@ func (m *ServiceMonitor) Start() {
 		Msg("Starting service monitor")
 
 	go m.monitorLoop()
+	return nil
 }
 
 // Stop stops monitoring the service.
-func (m *ServiceMonitor) Stop() {
+func (m *ServiceMonitor) Stop() error {
 	m.logger.Info().Msg("Stopping service monitor")
 	m.cancel()
+	return nil
 }
 
 // GetStatus returns the current service status.
