@@ -231,22 +231,14 @@ ORDER BY last_seen DESC
 **Default Behavior:**
 
 ```bash
-coral query services  # Uses 1 hour lookback for telemetry
-```
-
-**Custom Time Range:**
-
-```bash
-coral query services --since 5m   # Only very recent telemetry
-coral query services --since 24h  # Extended lookback
-coral query services --since 1w   # Week-long lookback
+coral service list  # Uses 1 hour lookback for telemetry
 ```
 
 **How It Works:**
 
-- Time range only affects telemetry-observed services
+- Time range is fixed at 1 hour and only affects telemetry-observed services
 - Registry services always appear regardless of time range
-- Cutoff: `WHERE timestamp > NOW() - INTERVAL '<time_range>'`
+- Cutoff: `WHERE timestamp > NOW() - INTERVAL '1 hour'`
 
 ## Use Cases & Examples
 
@@ -255,7 +247,7 @@ coral query services --since 1w   # Week-long lookback
 **Goal:** See what's currently running and healthy
 
 ```bash
-coral query services
+coral service list
 ```
 
 **Output:**
@@ -284,7 +276,7 @@ Found 3 service(s):
 
 ```bash
 # Check service status
-coral query services
+coral service list
 
 # Output shows:
 ○ payment-api (default) - 1 instance(s) [UNHEALTHY]
@@ -303,7 +295,7 @@ coral query services
 **Goal:** Discover services sending traffic but not explicitly monitored
 
 ```bash
-coral query services --source observed
+coral service list --source observed
 ```
 
 **Output:**
@@ -331,19 +323,18 @@ coral connect kafka-consumer:9092
 **Goal:** See what services were running during an incident
 
 ```bash
-# Incident was 3 hours ago
-coral query services --since 4h
+coral service list
 ```
 
-This extends the telemetry lookback to include services that may have crashed or
-been disconnected.
+The telemetry lookback is 1 hour. For incidents older than that, query the raw
+telemetry tables directly with `coral query sql`.
 
 ### Case 5: Production vs Development
 
 **Filter by explicitly connected services only:**
 
 ```bash
-coral query services --source registered
+coral service list --source registered
 ```
 
 **Why:** In production, you may want to only see services you've explicitly
@@ -355,15 +346,14 @@ configured, ignoring auto-discovered development services.
 
 ```bash
 # Basic discovery
-coral query services
+coral service list
 
 # With filters
-coral query services --namespace prod
-coral query services --since 24h
-coral query services --source verified
+coral service list --source verified   # Only verified services
+coral service list --source observed   # Only telemetry-observed
 
 # JSON output for automation
-coral query services --format json
+coral service list --format json
 ```
 
 ### AI Integration
@@ -418,7 +408,7 @@ resp, err := client.ListServices(ctx, &colonyv1.ListServicesRequest{
 
 ### Service Not Appearing
 
-**Symptom:** Expected service doesn't show in `coral query services`
+**Symptom:** Expected service doesn't show in `coral service list`
 
 **Possible Causes:**
 
@@ -428,17 +418,13 @@ resp, err := client.ListServices(ctx, &colonyv1.ListServicesRequest{
     - **Solution:** `coral connect <service>` or extend time range
 
 2. **Outside time range:**
-    - Telemetry data is older than lookback window
-    - **Solution:** `coral query services --since 24h`
+    - Telemetry data is older than the 1-hour lookback window
+    - **Solution:** Query raw telemetry with `coral query sql`
 
 3. **No telemetry generation:**
     - Service not making HTTP/gRPC calls
     - No OTLP instrumentation
     - **Solution:** Explicitly connect: `coral agent start --connect <service>`
-
-4. **Wrong namespace:**
-    - Service in different namespace
-    - **Solution:** Check `coral query services --namespace <other>`
 
 ### Service Shows as OBSERVED_ONLY
 
@@ -489,7 +475,7 @@ coral connect <service-name>:<port>
 
 Before dual-source discovery, users experienced:
 
-- `coral query services` → Shows service A
+- `coral service list` → Shows service A
 - `coral query summary` → Shows services A, B, C
 
 **Root Cause:** Separate query paths (registry-only vs telemetry-only)
@@ -498,7 +484,7 @@ Before dual-source discovery, users experienced:
 
 Both commands now use unified discovery:
 
-- `coral query services` → Shows A, B, C with source attribution
+- `coral service list` → Shows A, B, C with source attribution
 - `coral query summary` → Shows A, B, C (consistent)
 
 If you still see inconsistencies, check:

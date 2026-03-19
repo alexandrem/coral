@@ -724,7 +724,7 @@ needing to query different data sources separately.
 
 ```bash
 # Service discovery (dual-source: registry + telemetry)
-coral query services [--namespace <name>] [--since <duration>] [--source <type>]
+coral service list [--source <type>] [--format json]
 
 # Quick health overview (recommended first step)
 coral query summary [service] [--since <duration>]
