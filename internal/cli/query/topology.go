@@ -97,9 +97,9 @@ func printTopologyText(conns []*colonypb.Connection) error {
 	}
 
 	// Print header.
-	fmtStr := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds\n", fromW, toW, protoW)
+	fmtStr := fmt.Sprintf("%%-%ds  →  %%-%ds  %%-%ds\n", fromW, toW, protoW)
 	fmt.Printf(fmtStr, "FROM SERVICE", "TO SERVICE", "PROTOCOL")
-	fmt.Printf("%s  %s  %s\n",
+	fmt.Printf("%s     %s  %s\n",
 		strings.Repeat("-", fromW),
 		strings.Repeat("-", toW),
 		strings.Repeat("-", protoW),

@@ -5,11 +5,11 @@ package beyla
 type beylaConfig struct {
 	LogLevel  string `yaml:"log_level,omitempty"`
 	Discovery struct {
-		Instrument []struct {
-			OpenPorts   string `yaml:"open_ports,omitempty"`
-			ExeName     string `yaml:"exe_name,omitempty"`
-			ServiceName string `yaml:"service_name,omitempty"`
-		} `yaml:"instrument,omitempty"`
+		Services []struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+			Name      string `yaml:"name,omitempty"`
+		} `yaml:"services,omitempty"`
 	} `yaml:"discovery,omitempty"`
 	Attributes struct {
 		Kubernetes struct {

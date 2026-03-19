@@ -216,6 +216,7 @@ func (w *traceServiceWrapper) Export(
 
 	spansReceived := 0
 	spansFiltered := 0
+	spansProcessed := 0
 
 	// Process all resource spans.
 	for _, resourceSpans := range req.ResourceSpans {
@@ -244,6 +245,8 @@ func (w *traceServiceWrapper) Export(
 							Err(err).
 							Str("trace_id", span.TraceID).
 							Msg("SpanHandler failed to process span")
+					} else {
+						spansProcessed++
 					}
 				} else {
 					// Store in local storage (default behavior).
@@ -252,17 +255,22 @@ func (w *traceServiceWrapper) Export(
 							Err(err).
 							Str("trace_id", span.TraceID).
 							Msg("Failed to store span")
+					} else {
+						spansProcessed++
 					}
 				}
 			}
 		}
 	}
 
-	w.receiver.logger.Debug().
-		Int("received", spansReceived).
-		Int("filtered", spansFiltered).
-		Int("stored", spansReceived-spansFiltered).
-		Msg("Processed OTLP trace export")
+	if spansReceived > 0 {
+		w.receiver.logger.Debug().
+			Int("received", spansReceived).
+			Int("filtered", spansFiltered).
+			Int("processed", spansProcessed).
+			Str("service_name", extractServiceName(req.ResourceSpans[0].Resource)).
+			Msg("Processed OTLP spans export")
+	}
 
 	return &otlptracev1.ExportTraceServiceResponse{}, nil
 }

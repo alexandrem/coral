@@ -25,28 +25,37 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 		Time("since", since).
 		Msg("Materializing service connections")
 
-	// Query trace pairs across service boundaries to discover dependency edges.
-	// We join spans sharing the same Trace ID where one's Span ID is another's Parent ID.
-	res, err := d.db.ExecContext(ctx, `
-		INSERT INTO service_connections (from_service, to_service, protocol, first_observed, last_observed, connection_count)
-		SELECT
-			parent.service_name   AS from_service,
-			child.service_name    AS to_service,
-			'http'                AS protocol,
-			MIN(child.start_time) AS first_observed,
-			MAX(child.start_time) AS last_observed,
-			COUNT(*)              AS connection_count
-		FROM beyla_traces child
-		JOIN beyla_traces parent
-			ON  child.trace_id       = parent.trace_id
-			AND child.parent_span_id = parent.span_id
-			AND child.service_name  != parent.service_name
-		WHERE child.start_time >= ?
-		GROUP BY parent.service_name, child.service_name
+	// Check if we have any beyla traces at all.
+	var traceCount int
+	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM beyla_traces").Scan(&traceCount); err != nil {
+		return fmt.Errorf("failed to check trace count: %w", err)
+	}
+
+	query := `
+		WITH joined_traces AS (
+			SELECT  parent.service_name AS from_service,
+					child.service_name  AS to_service,
+					child.span_kind     AS protocol,
+					COUNT(*)            AS connection_count,
+					MIN(child.start_time) AS first_observed,
+					MAX(child.start_time) AS last_observed
+			FROM beyla_traces child
+			JOIN beyla_traces parent
+				ON  child.trace_id       = parent.trace_id
+				AND child.parent_span_id = parent.span_id
+			WHERE   child.service_name  != parent.service_name
+			AND     child.start_time    >= ?
+			GROUP BY 1, 2, 3
+		)
+		INSERT INTO service_connections (from_service, to_service, protocol, connection_count, first_observed, last_observed)
+		SELECT from_service, to_service, protocol, connection_count, first_observed, last_observed
+		FROM joined_traces
 		ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
-			last_observed    = EXCLUDED.last_observed,
-			connection_count = EXCLUDED.connection_count
-	`, since)
+			connection_count = EXCLUDED.connection_count,
+			last_observed    = CASE WHEN EXCLUDED.last_observed > service_connections.last_observed THEN EXCLUDED.last_observed ELSE service_connections.last_observed END
+	`
+
+	res, err := d.db.ExecContext(ctx, query, since)
 	if err != nil {
 		return fmt.Errorf("failed to materialize connections: %w", err)
 	}

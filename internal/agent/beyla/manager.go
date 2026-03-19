@@ -635,7 +635,9 @@ func (m *Manager) startBeyla() error {
 
 	// Force delta temporality to prevent duplicate cumulative metrics (RFD 032).
 	// Beyla defaults to cumulative, but our agent stores events, so we need deltas.
-	cmd.Env = append(os.Environ(), "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta")
+	cmd.Env = append(os.Environ(),
+		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta",
+	)
 
 	// Start Beyla process.
 	if err := cmd.Start(); err != nil {
@@ -681,22 +683,22 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		}
 
 		type instrumentRule struct {
-			OpenPorts   string `yaml:"open_ports,omitempty"`
-			ExeName     string `yaml:"exe_name,omitempty"`
-			ServiceName string `yaml:"service_name,omitempty"`
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}
 
 		// Create rules for named services.
 		for name, ports := range servicePorts {
-			cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, instrumentRule{
-				OpenPorts:   strings.Join(ports, ","),
-				ServiceName: name,
+			cfg.Discovery.Services = append(cfg.Discovery.Services, instrumentRule{
+				OpenPorts: strings.Join(ports, ","),
+				Name:      name,
 			})
 		}
 
 		// Create catch-all rules for unnamed ports.
 		if len(unnamedPorts) > 0 {
-			cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, instrumentRule{
+			cfg.Discovery.Services = append(cfg.Discovery.Services, instrumentRule{
 				OpenPorts: strings.Join(unnamedPorts, ","),
 			})
 		}
@@ -704,35 +706,35 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts   string `yaml:"open_ports,omitempty"`
-			ExeName     string `yaml:"exe_name,omitempty"`
-			ServiceName string `yaml:"service_name,omitempty"`
+		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}{ExeName: name})
 	}
 
 	// Add special rule for container-shared mode if requested (RFD 053/084).
 	if m.config.MonitorAll {
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts   string `yaml:"open_ports,omitempty"`
-			ExeName     string `yaml:"exe_name,omitempty"`
-			ServiceName string `yaml:"service_name,omitempty"`
+		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}{OpenPorts: "1-65535"})
 		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
 	}
 
-	// OTLP export endpoint (gRPC).
-	// Beyla exports to the Beyla-specific OTLP receiver on port 4319 (not the shared 4317).
-	// This avoids conflict with the shared OTLP receiver that handles user application telemetry.
-	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaGRPCPort)
+	// OTLP export endpoint (HTTP Protobuf).
+	// Beyla exports to the Beyla-specific OTLP receiver on port 4320 (HTTP).
+	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaHTTPPort)
 	cfg.OtelTracesExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
-	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "http/protobuf"}
+
 	cfg.OtelMetricsExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
-	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "http/protobuf"}
 
 	// Use wildcard route matching to capture all routes.
 	cfg.Routes = &struct {

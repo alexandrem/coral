@@ -489,10 +489,11 @@ func (s *CLIQuerySuite) ensureTelemetryData() {
 
 // ensureServicesConnected ensures test services are connected to agent for query tests.
 func (s *CLIQuerySuite) ensureServicesConnected() {
-	// CLI query tests need otel-app for testing queries.
-	// This populates the services registry table via ConnectService API.
+	// CLI query tests need otel-app and cpu-app — the topology test requires
+	// both services to be connected so cross-service edges are materialized.
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
 		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
 	})
 }
 
@@ -500,5 +501,6 @@ func (s *CLIQuerySuite) ensureServicesConnected() {
 func (s *CLIQuerySuite) disconnectAllServices() {
 	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{
 		"otel-app",
+		"cpu-app",
 	})
 }
