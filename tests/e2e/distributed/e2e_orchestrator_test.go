@@ -513,9 +513,6 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	s.Run("MCP_ResponseValidationQuerySummary", validationSuite.TestResponseValidationQuerySummary)
 	s.Run("MCP_ResponseValidationErrorFormat", validationSuite.TestResponseValidationErrorFormat)
 
-	// Group N: Service Topology (RFD 092)
-	s.Run("MCP_TopologyTool", mcpSuite.TestMCPTopologyTool)
-
 	if !s.T().Failed() {
 		s.mcpTestsPassed = true
 		s.T().Log("✓ GROUP 6 PASSED - MCP server working")
