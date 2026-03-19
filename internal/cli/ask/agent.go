@@ -306,7 +306,7 @@ func (a *Agent) Close() error {
 // buildSystemPrompt builds the system prompt with service context (RFD 054).
 func (a *Agent) buildSystemPrompt(ctx context.Context) string {
 	if a.dispatchMode == config.DispatchModeCLI {
-		return a.buildCLISystemPrompt()
+		return a.buildCLISystemPrompt(ctx)
 	}
 	return a.buildMCPSystemPrompt(ctx)
 }
@@ -315,6 +315,7 @@ func (a *Agent) buildSystemPrompt(ctx context.Context) string {
 func (a *Agent) buildMCPSystemPrompt(ctx context.Context) string {
 	serviceCtx := a.fetchServiceContext(ctx)
 	healthAlerts := a.fetchHealthAlerts(ctx)
+	topologyCtx := a.fetchTopologyContext(ctx)
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
@@ -323,6 +324,10 @@ func (a *Agent) buildMCPSystemPrompt(ctx context.Context) string {
 
 	if healthAlerts != "" {
 		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
+	}
+
+	if topologyCtx != "" {
+		prompt += "\n" + topologyCtx + "\n"
 	}
 
 	prompt += `
@@ -340,13 +345,20 @@ Always extract ALL relevant parameters from the user's query before asking for c
 
 // buildCLISystemPrompt builds the system prompt for CLI dispatch mode (RFD 100).
 // Agent actions are expressed as coral CLI commands, producing auditable session logs.
-func (a *Agent) buildCLISystemPrompt() string {
+func (a *Agent) buildCLISystemPrompt(ctx context.Context) string {
+	topologyCtx := a.fetchTopologyCLI(ctx)
+
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
 	prompt := "You are an observability assistant for Coral distributed systems.\n"
-	prompt += "Current time: " + now + "\n\n"
+	prompt += "Current time: " + now + "\n"
 
-	prompt += `You operate in CLI dispatch mode. Use the coral_cli tool to run coral commands.
+	if topologyCtx != "" {
+		prompt += "\n" + topologyCtx + "\n"
+	}
+
+	prompt += `
+You operate in CLI dispatch mode. Use the coral_cli tool to run coral commands.
 Each call produces a reproducible CLI command in the session log.
 
 RULES:
@@ -434,6 +446,82 @@ func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
 		return ""
 	}
 	return parseHealthAlerts(textContent.Text)
+}
+
+// fetchTopologyContext calls coral_topology via MCP and returns a compact call graph
+// line for injection into the system prompt. Returns empty string on failure or when
+// no connections are observed.
+func (a *Agent) fetchTopologyContext(ctx context.Context) string {
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "coral_topology"
+	req.Params.Arguments = map[string]interface{}{}
+
+	result, err := a.mcpClient.CallTool(ctx, req)
+	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch topology: %v\n", err)
+		}
+		return ""
+	}
+
+	if len(result.Content) == 0 {
+		return ""
+	}
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		return ""
+	}
+	return formatCompactCallGraph(textContent.Text)
+}
+
+// fetchTopologyCLI runs coral query topology in CLI dispatch mode and returns a compact
+// call graph line for injection into the system prompt. Returns empty string on failure
+// or when no connections are observed.
+func (a *Agent) fetchTopologyCLI(ctx context.Context) string {
+	result, _, err := executeCLITool(ctx, []string{"query", "topology"}, a.debug)
+	if err != nil || result == nil {
+		return ""
+	}
+
+	var text string
+	if len(result.Content) > 0 {
+		if tc, ok := mcp.AsTextContent(result.Content[0]); ok {
+			text = tc.Text
+		}
+	}
+	return formatCompactCallGraphFromJSON(text)
+}
+
+// formatCompactCallGraphFromJSON converts coral query topology --format json output
+// into a compact one-line call graph suitable for injection into the system prompt.
+// Input is the JSON produced by coral query topology --format json:
+//
+//	{"colony_id":"...","connections":[{"from":"api","to":"db","protocol":"HTTP"},...]}
+//
+// Output format:
+//
+//	Call graph: api→db (HTTP), worker→queue (gRPC)
+//
+// Returns empty string when the input is empty, invalid JSON, or has no connections.
+func formatCompactCallGraphFromJSON(jsonText string) string {
+	if jsonText == "" {
+		return ""
+	}
+	var output struct {
+		Connections []struct {
+			From     string `json:"from"`
+			To       string `json:"to"`
+			Protocol string `json:"protocol"`
+		} `json:"connections"`
+	}
+	if err := json.Unmarshal([]byte(jsonText), &output); err != nil || len(output.Connections) == 0 {
+		return ""
+	}
+	edges := make([]string, 0, len(output.Connections))
+	for _, c := range output.Connections {
+		edges = append(edges, fmt.Sprintf("%s→%s (%s)", c.From, c.To, c.Protocol))
+	}
+	return "Call graph: " + strings.Join(edges, ", ")
 }
 
 // formatCompactCallGraph converts coral_topology multi-line output into a compact
