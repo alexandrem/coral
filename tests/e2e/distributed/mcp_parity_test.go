@@ -64,7 +64,7 @@ func (s *MCPParitySuite) TearDownSuite() {
 // Since coral_cli literally runs the CLI command, parity is inherent.
 // This test validates the round-trip from MCP → coral_cli → CLI.
 func (s *MCPParitySuite) TestParityQuerySummary() {
-	s.T().Log("Testing MCP/CLI parity for query summary via coral_cli (post-RFD 100)...")
+	s.T().Log("Testing MCP/CLI parity for query summary via coral_cli...")
 
 	// Start MCP proxy
 	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
@@ -106,7 +106,7 @@ func (s *MCPParitySuite) TestParityQuerySummary() {
 // TestParityListServices validates coral_cli MCP and direct CLI return
 // consistent service lists (post-RFD 100).
 func (s *MCPParitySuite) TestParityListServices() {
-	s.T().Log("Testing MCP/CLI parity for list services via coral_cli (post-RFD 100)...")
+	s.T().Log("Testing MCP/CLI parity for list services via coral_cli...")
 
 	// Start MCP proxy
 	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
@@ -148,7 +148,7 @@ func (s *MCPParitySuite) TestParityListServices() {
 // TestParityQueryTraces validates coral_cli MCP and direct CLI return
 // consistent trace data (post-RFD 100).
 func (s *MCPParitySuite) TestParityQueryTraces() {
-	s.T().Log("Testing MCP/CLI parity for query traces via coral_cli (post-RFD 100)...")
+	s.T().Log("Testing MCP/CLI parity for query traces via coral_cli...")
 
 	// Start MCP proxy
 	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
@@ -196,7 +196,7 @@ func (s *MCPParitySuite) TestParityQueryTraces() {
 // TestParityQueryMetrics validates coral_cli MCP and direct CLI return
 // consistent metrics data (post-RFD 100).
 func (s *MCPParitySuite) TestParityQueryMetrics() {
-	s.T().Log("Testing MCP/CLI parity for query metrics via coral_cli (post-RFD 100)...")
+	s.T().Log("Testing MCP/CLI parity for query metrics via coral_cli...")
 
 	// Start MCP proxy
 	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
@@ -253,7 +253,7 @@ func (s *MCPParitySuite) TestParityQueryMetrics() {
 // coral_cli can be used to check colony status via MCP with the same output
 // as the direct CLI command.
 func (s *MCPParitySuite) TestParityShellExec() {
-	s.T().Log("Testing coral_cli colony status parity (replaces shell exec parity post-RFD 100)...")
+	s.T().Log("Testing coral_cli colony status parity (replaces shell exec parity)...")
 
 	// Start MCP proxy
 	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
@@ -271,8 +271,8 @@ func (s *MCPParitySuite) TestParityShellExec() {
 	s.Require().NoError(err, "Should get error response for coral_shell_exec")
 	s.Require().NotNil(mcpErr, "Should have MCP error")
 	s.Require().Contains(mcpErr.Message, "only coral_cli is supported",
-		"coral_shell_exec should return unknown tool error post-RFD 100")
-	s.T().Logf("✓ coral_shell_exec correctly unavailable post-RFD 100: %s", mcpErr.Message)
+		"coral_shell_exec should return unknown tool error")
+	s.T().Logf("✓ coral_shell_exec correctly unavailable: %s", mcpErr.Message)
 
 	// Test coral_cli with colony service list as a parity check (same data both ways).
 	mcpResp, err := proxy.CallTool("coral_cli", map[string]interface{}{
@@ -294,7 +294,7 @@ func (s *MCPParitySuite) TestParityShellExec() {
 // The include_profiling parameter no longer has a direct CLI equivalent;
 // both calls use the same coral_cli command and should return consistent results.
 func (s *MCPParitySuite) TestParityQuerySummaryProfilingConsistency() {
-	s.T().Log("Testing profiling summary consistency via coral_cli (post-RFD 100)...")
+	s.T().Log("Testing profiling summary consistency via coral_cli...")
 
 	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
 	s.Require().NoError(err, "Should start MCP proxy")
