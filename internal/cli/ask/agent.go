@@ -353,7 +353,7 @@ RULES:
 1. Use coral_cli with args like ["query", "traces", "--service", "api", "--since", "10m"].
 2. Do NOT include "coral" in args — it is prepended automatically.
 3. --format json is appended automatically — do not include it.
-4. Call coral_cli ["service", "list"] first to discover available services.
+4. Call coral_cli ["colony", "service", "list"] first to discover available services.
 5. Time ranges: convert natural language ("last hour" → "1h", "30 min" → "30m").
 
 `

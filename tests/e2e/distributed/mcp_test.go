@@ -222,7 +222,7 @@ func (s *MCPSuite) TestMCPProxyListTools() {
 // TestMCPProxyCallTool tests MCP tools/call method.
 //
 // After RFD 100, tools/call only accepts coral_cli. Calling coral_cli with
-// args ["query", "services"] replaces the old coral_list_services tool.
+// args ["colony", "service", "list"] replaces the old coral_list_services tool.
 //
 // Validates:
 // - tools/call request/response with coral_cli
@@ -245,7 +245,7 @@ func (s *MCPSuite) TestMCPProxyCallTool() {
 
 	// Call coral_cli with args equivalent to old coral_list_services.
 	callResp, err := proxy.CallTool("coral_cli", map[string]interface{}{
-		"args": []interface{}{"query", "services"},
+		"args": []interface{}{"colony", "service", "list"},
 	}, 3)
 	s.Require().NoError(err, "coral_cli call should succeed")
 
