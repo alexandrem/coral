@@ -138,21 +138,3 @@ func (a *debugServiceAdapter) ListCorrelations(
 	}
 	return connect.NewResponse(resp), nil
 }
-
-// runtimeServiceAdapter wraps agent.RuntimeService to satisfy the Connect RPC handler interface.
-// Only used by ServiceHandler.GetRuntimeContext via delegation; registered separately here
-// for symmetry and to keep all transport adaptation in one place.
-type runtimeServiceAdapter struct {
-	service *agent.RuntimeService
-}
-
-func (a *runtimeServiceAdapter) GetRuntimeContext(
-	ctx context.Context,
-	req *connect.Request[agentv1.GetRuntimeContextRequest],
-) (*connect.Response[agentv1.RuntimeContextResponse], error) {
-	resp, err := a.service.GetRuntimeContext(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
