@@ -89,6 +89,8 @@ jobs:
             internal/cli/run/binaries
             internal/agent/ebpf/bpf_bpf*.go
             internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/debug/*_bpf*.go
+            internal/agent/debug/*_bpf*.o
             pkg/api/proto/**/*.pb.go
           key: ${{ steps.generated.outputs.cache-key }}
           restore-keys: |
@@ -144,6 +146,8 @@ jobs:
             internal/cli/run/binaries
             internal/agent/ebpf/bpf_bpf*.go
             internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/debug/*_bpf*.go
+            internal/agent/debug/*_bpf*.o
             pkg/api/proto/**/*.pb.go
           fail-on-cache-miss: true
 
@@ -217,6 +221,8 @@ jobs:
             internal/cli/run/binaries
             internal/agent/ebpf/bpf_bpf*.go
             internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/debug/*_bpf*.go
+            internal/agent/debug/*_bpf*.o
             pkg/api/proto/**/*.pb.go
           fail-on-cache-miss: true
 
@@ -281,6 +287,8 @@ jobs:
             internal/cli/run/binaries
             internal/agent/ebpf/bpf_bpf*.go
             internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/debug/*_bpf*.go
+            internal/agent/debug/*_bpf*.o
             pkg/api/proto/**/*.pb.go
           fail-on-cache-miss: true
 
@@ -325,6 +333,8 @@ jobs:
             internal/cli/run/binaries
             internal/agent/ebpf/bpf_bpf*.go
             internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/debug/*_bpf*.go
+            internal/agent/debug/*_bpf*.o
             pkg/api/proto/**/*.pb.go
           fail-on-cache-miss: true
 
@@ -398,6 +408,8 @@ jobs:
             internal/cli/run/binaries
             internal/agent/ebpf/bpf_bpf*.go
             internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/debug/*_bpf*.go
+            internal/agent/debug/*_bpf*.o
             pkg/api/proto/**/*.pb.go
           fail-on-cache-miss: true
 
