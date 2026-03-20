@@ -426,8 +426,7 @@ func (s *ServiceRegistry) createHTTPServers(
 	// Create debug service handler (RFD 059).
 	debugService := agent.NewDebugService(s.agentInstance, s.logger)
 	debugService.SetSessionID(s.sessionID)
-	debugAdapter := agent.NewDebugServiceAdapter(debugService)
-	debugPath, debugHandler := agentv1connect.NewAgentDebugServiceHandler(debugAdapter)
+	debugPath, debugHandler := agentv1connect.NewAgentDebugServiceHandler(&debugServiceAdapter{service: debugService})
 
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
