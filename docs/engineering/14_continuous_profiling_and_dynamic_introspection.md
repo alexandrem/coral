@@ -83,19 +83,63 @@ every sample). Coral uses a **Frame Dictionary** to compress this data by **>
 
 ## Trace-Driven Profiling
 
-A unique capability of Coral is **Trace-Driven Profiling**. Instead of running
-profilers blindly, the system can be configured to "trap" a profile based on
-distributed tracing triggers:
+Coral correlates distributed trace spans with CPU and memory profile samples to
+answer request-level questions like "what code was running during this specific
+slow request?" This is implemented via a **query-time join** — no changes to the
+eBPF profiler are required.
 
-- **Tail-Latency Trigger**: If a specific request exceeds the P99 latency
-  threshold (e.g., > 500ms), the agent can retroactively "capture" the profile
-  for that exact goroutine while it is still active.
-- **Error Trigger**: Automatically start a high-frequency profile when a service
-  begins emitting 5xx errors to capture the state of the failure.
+### How it works (RFD 078)
+
+Beyla forwards finished spans to Coral's OTLP ingestion endpoint, including
+`process.pid` — the OS-level PID (TGID) of the instrumented process — as a
+standard OTLP resource attribute. The continuous profiler captures `tgid` in
+its BPF stack key at sample time. Both values are persisted to storage, enabling
+a DuckDB join at query time:
+
+```sql
+SELECT p.stack_frame_ids, p.sample_count
+FROM cpu_profile_summaries p
+JOIN beyla_traces t
+  ON p.tgid = t.process_pid
+ AND p.timestamp BETWEEN t.start_time
+                     AND t.start_time + (t.duration_us * INTERVAL '1 microsecond')
+WHERE t.trace_id = '<trace-id>'
+  AND t.service_name = 'payment-svc'
+```
+
+This is a **process-scoped** correlation, not goroutine-scoped: samples are
+attributed to the entire process during the span's time window, not just the
+goroutine serving the request. For anomalously slow requests (e.g., 5 s vs.
+50 ms median), the target request dominates the sample window and the
+bottleneck function rises to the top of the flame graph. For short spans or
+high-concurrency services, results are best-effort.
+
+The system surfaces this via a `QueryTraceProfile` RPC at the Colony and a
+`coral query trace-profile <trace-id>` CLI command, both yielding per-service
+flame graphs for any stored trace.
+
+### Future work: triggered and goroutine-scoped profiling (RFD 080)
+
+The query-time join approach (RFD 078) is the foundation. RFD 080 extends it
+with:
+
+- **Tail-latency trigger**: Automatically activate high-frequency (99Hz)
+  profiling when a request exceeds a P99 latency threshold. Because the span is
+  still active, the profile captures the exact time window of the slow request
+  with higher sample density.
+- **Error trigger**: Start a high-frequency profile when a service begins
+  emitting 5xx errors, capturing the failure state in real time.
+- **Goroutine-level precision**: Eliminate process-scoped noise by tagging each
+  eBPF sample with the goroutine ID serving the request (via a pinned BPF map
+  shared with Beyla, or a Coral SDK injection). This provides exact per-request
+  attribution rather than best-effort process-window attribution.
+- **Comparative analysis**: Differential flame graphs contrasting slow vs. fast
+  request cohorts, with statistical significance testing.
 
 ## Related Design Documents (RFDs)
 
 - [**RFD 070**: CPU Profiling and Flame Graphs](../../RFDs/070-cpu-profiling-flamegraphs.md)
 - [**RFD 072**: Continuous CPU Profiling](../../RFDs/072-continuous-cpu-profiling.md)
 - [**RFD 077**: Memory Profiling and Allocation Flame Graphs](../../RFDs/077-memory-profiling.md)
-- [**RFD 078**: Trace-Driven Profiling](../../RFDs/078-trace-driven-profiling.md)
+- [**RFD 078**: Trace-Driven Profiling — Core Infrastructure](../../RFDs/078-trace-driven-profiling.md)
+- [**RFD 080**: Advanced Trace Analysis & AI-Driven Diagnosis](../../RFDs/080-advanced-trace-analysis.md) _(planned)_
