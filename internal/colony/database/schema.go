@@ -194,6 +194,7 @@ var schemaDDL = []string{
 		start_time TIMESTAMPTZ NOT NULL,
 		duration_us BIGINT NOT NULL,
 		status_code SMALLINT,
+		process_pid INTEGER NOT NULL DEFAULT 0,
 		attributes TEXT,
 		PRIMARY KEY (trace_id, span_id)
 	)`,
@@ -202,6 +203,7 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id ON beyla_traces(trace_id, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration ON beyla_traces(duration_us DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id ON beyla_traces(agent_id, start_time DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_process_pid ON beyla_traces(process_pid, start_time DESC)`,
 
 	// Agent IP allocations - persistent IP allocation for agents (RFD 019).
 	`CREATE TABLE IF NOT EXISTS agent_ip_allocations (
@@ -360,15 +362,17 @@ var schemaDDL = []string{
 		agent_id TEXT NOT NULL,
 		service_name TEXT NOT NULL,
 		build_id TEXT NOT NULL,
+		tgid INTEGER NOT NULL DEFAULT 0,
 		stack_hash VARCHAR(64) NOT NULL,
 		stack_frame_ids BIGINT[] NOT NULL,
 		sample_count INTEGER NOT NULL,
-		PRIMARY KEY (timestamp, agent_id, service_name, build_id, stack_hash)
+		PRIMARY KEY (timestamp, agent_id, service_name, build_id, tgid, stack_hash)
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_service_time ON cpu_profile_summaries(service_name, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_agent ON cpu_profile_summaries(agent_id, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_build_id ON cpu_profile_summaries(build_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_tgid ON cpu_profile_summaries(tgid, timestamp DESC)`,
 
 	// Binary metadata registry - build ID to service mapping (RFD 072).
 	`CREATE TABLE IF NOT EXISTS binary_metadata_registry (

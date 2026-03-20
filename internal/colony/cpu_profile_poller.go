@@ -235,10 +235,11 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 		return nil
 	}
 
-	// Group samples by (bucket_time, build_id, stack_frames).
+	// Group samples by (bucket_time, build_id, tgid, stack_frames).
 	type sampleKey struct {
 		bucketTime time.Time
 		buildID    string
+		tgid       uint32
 		stackHash  string
 	}
 
@@ -270,6 +271,7 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 		key := sampleKey{
 			bucketTime: bucketTime,
 			buildID:    sample.BuildId,
+			tgid:       sample.Tgid,
 			stackHash:  stackHash,
 		}
 
@@ -294,6 +296,7 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 			AgentID:       agentID,
 			ServiceName:   group.serviceName,
 			BuildID:       key.buildID,
+			TGID:          key.tgid,
 			StackHash:     key.stackHash,
 			StackFrameIDs: group.stackFrameIDs,
 			SampleCount:   group.sampleCount,
