@@ -133,15 +133,17 @@ discards the rest. This RFD adds extraction of `process.pid` to close the gap.
 
 ### Core Correlation Approach
 
-The eBPF profiler already records `tgid` (the OS process ID) and `timestamp`
-for every sample. Beyla spans carry `process.pid` (the same TGID) and
-`(start_time, duration_us)`. These two facts enable query-time correlation
-**without any changes to the profiler**:
+The eBPF profiler captures `PID` (the OS process ID, TGID) in its BPF stack key
+at sample time. Beyla spans carry `process.pid` (the same TGID) as an OTLP
+resource attribute. These two facts enable query-time correlation **without any
+changes to the eBPF program** — though `tgid` must be threaded through the
+profile storage pipeline (currently dropped during aggregation), and
+`process_pid` must be extracted from OTLP. Both are within scope of this RFD:
 
 ```sql
 -- "Which profile samples ran during trace abc123 in payment-svc?"
-SELECT p.stack_frames, p.sample_count
-FROM cpu_profile_samples p
+SELECT p.stack_frame_ids, p.sample_count
+FROM cpu_profile_summaries p
 JOIN beyla_traces t
   ON p.tgid = t.process_pid
  AND p.timestamp BETWEEN t.start_time
@@ -180,8 +182,9 @@ which fits Coral's current architecture. This is deferred to future work.
 
 **How it works:**
 
-- Continuous profiling (19Hz, RFD 072) stores samples with `tgid` and
-  `timestamp` (unchanged)
+- Continuous profiling (19Hz, RFD 072) captures `PID` in the BPF stack key but
+  currently drops it during aggregation — this RFD adds `tgid` as a stored
+  field so the join key is available at query time
 - Beyla spans now store `process_pid` (extracted from OTLP resource attributes)
 - Colony joins the two tables at query time for each `trace_id` lookup
 
@@ -226,6 +229,61 @@ coral query memory-profile --trace-id abc123def456
 ```
 
 ## Component Changes
+
+### 0. Profile Storage — `tgid` Addition
+
+The continuous profiling pipeline (RFD 072) does not currently persist the OS
+process ID through to storage. The BPF stack key captures `PID` (TGID) at
+sample time, but it is dropped during aggregation into `cpu_profile_samples_local`.
+This RFD adds `tgid` as a grouping dimension so the colony-side
+`(tgid, time_window)` join is possible.
+
+**Agent: `cpu_profile_samples_local` schema (`internal/agent/profiler/storage.go`):**
+
+```sql
+ALTER TABLE cpu_profile_samples_local ADD COLUMN tgid INTEGER NOT NULL DEFAULT 0;
+-- Update PRIMARY KEY to include tgid:
+-- PRIMARY KEY (timestamp, service_id, build_id, tgid, stack_hash)
+CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_tgid
+    ON cpu_profile_samples_local (tgid, timestamp);
+```
+
+**`ProfileSample` Go struct (`internal/agent/profiler/storage.go`):**
+
+```go
+type ProfileSample struct {
+    // ... existing fields ...
+    TGID uint32  // OS process ID (TGID) of the profiled process.
+}
+```
+
+**`CPUProfileSample` proto (`proto/coral/agent/v1/debug.proto`):**
+
+```protobuf
+message CPUProfileSample {
+  // ... existing fields (1–6) ...
+  uint32 tgid = 7;  // OS process ID (TGID) at time of sample.
+}
+```
+
+**Colony: `cpu_profile_summaries` table (`internal/colony/database/schema.go`):**
+
+```sql
+ALTER TABLE cpu_profile_summaries ADD COLUMN tgid INTEGER NOT NULL DEFAULT 0;
+-- tgid becomes part of the composite key so per-process samples remain
+-- distinct after aggregation.
+CREATE INDEX IF NOT EXISTS idx_cpu_profile_summaries_tgid
+    ON cpu_profile_summaries (tgid, timestamp DESC);
+```
+
+**`CPUProfileSummary` Go struct (`internal/colony/database/cpu_profiles.go`):**
+
+```go
+type CPUProfileSummary struct {
+    // ... existing fields ...
+    TGID uint32 `duckdb:"tgid,pk,immutable"`  // OS process ID (TGID).
+}
+```
 
 ### 1. Beyla Transformer (Agent)
 
@@ -335,9 +393,23 @@ Flags:
 
 ## Implementation Plan
 
-### Phase 1: Extract `process.pid` from OTLP
+### Phase 1: Establish join keys in storage
 
-**Goals:** Capture the missing link between Beyla spans and profiler TGIDs
+**Goals:** Capture both sides of the join: `process_pid` in Beyla spans and
+`tgid` in CPU profile samples.
+
+**Profile storage — add `tgid`:**
+
+- [ ] Add `tgid` column to `cpu_profile_samples_local` schema; update PRIMARY
+      KEY to include `tgid`
+- [ ] Add `tgid` field to `ProfileSample` struct and propagate from BPF stack
+      key through `StoreSample`
+- [ ] Add `tgid` field (`uint32 tgid = 7`) to `CPUProfileSample` proto; expose
+      via `QueryCPUProfileSamples` response
+- [ ] Update colony CPU profile poller (`cpu_profile_poller.go`) to propagate
+      `tgid` into `CPUProfileSummary`; add `tgid` to colony schema and struct
+
+**Beyla span — add `process_pid`:**
 
 - [ ] Add `process_pid` field to `BeylaTraceSpan` proto message
 - [ ] Extract `process.pid` from OTLP resource attributes in
@@ -348,20 +420,22 @@ Flags:
       `beyla/storage.go`
 - [ ] Store `process_pid` in `beyla_traces_local` schema
 
-**Deliverable:** Beyla spans stored with `process_pid`, queryable alongside
-profile samples
+**Deliverable:** Both join keys present in storage — `tgid` in profile samples
+and `process_pid` in Beyla spans.
 
-### Phase 2: Colony Storage & Schema
+### Phase 2: Colony — propagate `process_pid` and wire the join
 
-**Goals:** Propagate `process_pid` to the Colony and enable efficient joins
+**Goals:** Propagate `process_pid` to the Colony's `beyla_traces` table and
+implement the join query. (Colony `tgid` propagation is already done in Phase 1.)
 
 - [ ] Add `process_pid` column to colony `beyla_traces` table
 - [ ] Create index on `(process_pid, start_time DESC)`
-- [ ] Update colony Beyla poller to propagate `process_pid`
-- [ ] Implement `QueryTraceProfile` join query in Colony database layer:
-      `JOIN cpu_profile_summaries ON tgid = process_pid AND timestamp BETWEEN ...`
+- [ ] Update colony Beyla poller to propagate `process_pid` from agent spans
+- [ ] Implement `QueryTraceProfile` join query in Colony database layer joining
+      `beyla_traces` with `cpu_profile_summaries` on `(tgid = process_pid,
+      timestamp BETWEEN start_time AND start_time + duration_us)`
 
-**Deliverable:** Colony can execute trace-to-profile joins efficiently
+**Deliverable:** Colony can execute trace-to-profile joins efficiently.
 
 ### Phase 3: Query API Implementation
 
