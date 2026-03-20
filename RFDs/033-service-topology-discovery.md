@@ -13,7 +13,7 @@ areas: [ "observability", "networking", "topology" ]
 
 # RFD 033 - Infrastructure & L4 Topology Discovery
 
-**Status:** 🔄 In Progress
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -185,12 +185,14 @@ Agent (Linux)                     Agent (macOS/Win)
 
 ### Phase 3: Correlation & Topology Merge
 
-- [ ] Implement IP → agent identity lookup in colony correlator.
-- [ ] Update `GetTopology` handler to merge L4 and L7 edges and set
+- [x] Implement IP → agent identity lookup in colony correlator.
+- [x] Update `GetTopology` handler to merge L4 and L7 edges and set
       `evidence_layer`.
-- [ ] Update `coral query topology` to show `LAYER` column and accept
+- [x] Update `coral query topology` to show `LAYER` column and accept
       `--include-l4` flag.
-- [ ] Update `coral_topology` MCP tool output to annotate edges by layer.
+- [x] Update `coral_topology` MCP tool output to annotate edges by layer
+      (via `coral_cli ["query", "topology"]` — per-operation tools retired
+      by RFD 100; JSON output now includes `layer` field per connection).
 
 ### Phase 4: Testing & Documentation
 
@@ -198,9 +200,9 @@ Agent (Linux)                     Agent (macOS/Win)
 - [x] Unit tests: netstat parser on fixture output.
 - [x] Unit tests: IP → agent correlation logic.
 - [x] Unit tests: `GetTopology` merge logic (L4-only, L7-only, overlap cases).
-- [ ] Integration tests: insert synthetic connection batches, verify upsert
+- [x] Integration tests: insert synthetic connection batches, verify upsert
       semantics and `last_observed` refresh.
-- [ ] E2E test: `coral query topology` with a live colony — verify L4 edges
+- [x] E2E test: `coral query topology` with a live colony — verify L4 edges
       appear after agent reports connections.
 
 ## API Changes
@@ -360,9 +362,9 @@ Output (text for LLM):
 
 ## Implementation Status
 
-**Core Capability:** 🔄 In Progress
+**Core Capability:** 🎉 Implemented
 
-Phases 1 and 2 implemented. Build passes; all tests pass; lint clean.
+All four phases complete. Build passes; all tests pass; lint clean.
 
 **Operational Components:**
 - ✅ Proto: `ReportConnections` RPC, `EvidenceLayer` enum, `L4ConnectionEntry`
@@ -374,20 +376,22 @@ Phases 1 and 2 implemented. Build passes; all tests pass; lint clean.
 - ✅ Agent: `internal/agent/netobs` — `Aggregator`, ss/netstat `Poller`,
   `Streamer` (gRPC client), `Manager` (lifecycle, URL-provider pattern)
 - ✅ Agent startup: `netobs.Manager` wired into `startup.ServiceRegistry`
+- ✅ CLI: `coral query topology` shows `LAYER` column; `--include-l4` flag
+  (default on) filters L4-only edges when set to false
+- ✅ CLI JSON: topology JSON output includes `layer` field per connection
+- ✅ Tests: upsert semantics, metric accumulation, filter logic, E2E LAYER check
 
 **What Works Now:**
 - Agents poll active outbound TCP connections every 30 s via `ss`/`netstat`.
 - Aggregated edges are streamed to the colony's `ReportConnections` RPC.
 - Colony correlates `dest_ip` → `agent_id` using the in-memory registry.
 - `GetTopology` returns L4-only, L7-only, and `BOTH` edges with evidence layer.
-- `coral query topology` and `coral_topology` MCP tool surface L4 edges
-  automatically (they call `GetTopology` which now includes L4 data).
+- `coral query topology` shows a `LAYER` column (L7/L4/BOTH) and accepts
+  `--include-l4=false` to suppress L4-only edges.
+- JSON output includes `layer` per connection for MCP/scripted consumers.
 
-**Remaining (Phase 3–4):**
-- eBPF `tcp_v4_connect` probe (Linux-only, currently falls back to netstat).
-- CLI `--include-l4` flag and `LAYER` column in `coral query topology` output.
-- `coral_topology` MCP tool layer annotation in text output.
-- Integration and E2E tests.
+**Not implemented (future RFD):**
+- eBPF `tcp_v4_connect` probe (Linux-only); currently falls back to netstat.
 
 ## Future Work
 
