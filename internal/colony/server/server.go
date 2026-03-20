@@ -301,13 +301,52 @@ func (s *Server) GetTopology(
 		serviceConns = nil
 	}
 
-	// Map ServiceConnection rows to proto Connection messages.
+	// Build a set of L7 edges keyed by (source, target) for overlap detection.
+	type edgeKey struct{ src, dst string }
+	l7Edges := make(map[edgeKey]bool, len(serviceConns))
+
 	connections := make([]*colonyv1.Connection, 0, len(serviceConns))
 	for _, sc := range serviceConns {
 		connections = append(connections, &colonyv1.Connection{
 			SourceId:       sc.FromService,
 			TargetId:       sc.ToService,
 			ConnectionType: sc.Protocol,
+			EvidenceLayer:  colonyv1.EvidenceLayer_EVIDENCE_LAYER_L7_TRACE,
+		})
+		l7Edges[edgeKey{sc.FromService, sc.ToService}] = true
+	}
+
+	// Fetch L4 network connections and merge (RFD 033).
+	l4Conns, err := s.database.GetL4Connections(ctx, since)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to fetch L4 topology connections")
+		l4Conns = nil
+	}
+
+	for _, lc := range l4Conns {
+		// Determine the target identity: prefer agent ID, fall back to dest_ip:port.
+		target := lc.DestIP
+		if lc.DestAgentID != "" {
+			target = lc.DestAgentID
+		}
+
+		key := edgeKey{lc.SourceAgentID, target}
+		if l7Edges[key] {
+			// Edge already present from L7 data — promote to BOTH.
+			for _, c := range connections {
+				if c.SourceId == lc.SourceAgentID && c.TargetId == target {
+					c.EvidenceLayer = colonyv1.EvidenceLayer_EVIDENCE_LAYER_BOTH
+					break
+				}
+			}
+			continue
+		}
+
+		connections = append(connections, &colonyv1.Connection{
+			SourceId:       lc.SourceAgentID,
+			TargetId:       target,
+			ConnectionType: lc.Protocol,
+			EvidenceLayer:  colonyv1.EvidenceLayer_EVIDENCE_LAYER_L4_NETWORK,
 		})
 	}
 
@@ -323,6 +362,90 @@ func (s *Server) GetTopology(
 		Msg("Get topology response prepared")
 
 	return connect.NewResponse(resp), nil
+}
+
+// ReportConnections receives a stream of L4 connection batches from an agent,
+// correlates destination IPs against the agent registry, and upserts the results
+// into topology_connections (RFD 033).
+func (s *Server) ReportConnections(
+	ctx context.Context,
+	stream *connect.ClientStream[colonyv1.ReportConnectionsRequest],
+) (*connect.Response[colonyv1.ReportConnectionsResponse], error) {
+	var totalBatches, totalEntries int
+
+	for stream.Receive() {
+		msg := stream.Msg()
+
+		if msg.AgentId == "" {
+			s.logger.Warn().Msg("ReportConnections: received batch with empty agent_id, skipping")
+			continue
+		}
+
+		if len(msg.Connections) == 0 {
+			continue
+		}
+
+		entries := make([]database.TopologyConnection, 0, len(msg.Connections))
+		now := time.Now()
+
+		for _, lc := range msg.Connections {
+			if lc.RemoteIp == "" || lc.RemotePort == 0 {
+				continue
+			}
+
+			// Correlate dest IP to an agent ID if possible.
+			destAgentID := ""
+			if peer := s.registry.FindAgentByIP(lc.RemoteIp); peer != nil {
+				destAgentID = peer.AgentID
+			}
+
+			lastObserved := now
+			if lc.LastObserved != nil {
+				lastObserved = lc.LastObserved.AsTime()
+			}
+
+			entries = append(entries, database.TopologyConnection{
+				SourceAgentID: msg.AgentId,
+				DestAgentID:   destAgentID,
+				DestIP:        lc.RemoteIp,
+				DestPort:      int(lc.RemotePort),
+				Protocol:      lc.Protocol,
+				BytesSent:     int64(lc.BytesSent),
+				BytesReceived: int64(lc.BytesReceived),
+				Retransmits:   int(lc.Retransmits),
+				RTTUS:         int(lc.RttUs),
+				FirstObserved: lastObserved,
+				LastObserved:  lastObserved,
+			})
+		}
+
+		if err := s.database.UpsertTopologyConnections(ctx, entries); err != nil {
+			s.logger.Error().
+				Err(err).
+				Str("agent_id", msg.AgentId).
+				Msg("Failed to upsert topology connections")
+			// Continue processing subsequent batches rather than aborting the stream.
+			continue
+		}
+
+		totalBatches++
+		totalEntries += len(entries)
+	}
+
+	if err := stream.Err(); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Int("batches", totalBatches).
+			Msg("ReportConnections stream closed with error")
+		return nil, fmt.Errorf("stream error: %w", err)
+	}
+
+	s.logger.Debug().
+		Int("batches", totalBatches).
+		Int("entries", totalEntries).
+		Msg("ReportConnections stream completed")
+
+	return connect.NewResponse(&colonyv1.ReportConnectionsResponse{}), nil
 }
 
 // determineColonyStatus calculates overall colony status based on agent health.

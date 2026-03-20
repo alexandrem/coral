@@ -394,3 +394,23 @@ func (r *Registry) FindAgentForService(serviceName string) (*Entry, *meshv1.Serv
 
 	return nil, nil, fmt.Errorf("service not found: %s", serviceName)
 }
+
+// FindAgentByIP returns the agent whose mesh IP address matches the given IP.
+// Returns nil if no registered agent has a matching IPv4 or IPv6 address.
+// Used by the L4 topology correlator (RFD 033) to resolve dest_ip → agent_id.
+func (r *Registry) FindAgentByIP(ip string) *Entry {
+	if ip == "" {
+		return nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, entry := range r.entries {
+		if entry.MeshIPv4 == ip || entry.MeshIPv6 == ip {
+			return entry
+		}
+	}
+
+	return nil
+}

@@ -64,6 +64,11 @@ service ColonyService {
   // Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
   // against agent-announced STUN endpoints at registration.
   rpc MeshAudit(MeshAuditRequest) returns (MeshAuditResponse);
+
+  // Stream observed L4 TCP connections from an agent to the colony (RFD 033).
+  // Agents send periodic batches of aggregated outbound connections; the colony
+  // correlates IP addresses against the agent registry and upserts the results.
+  rpc ReportConnections(stream ReportConnectionsRequest) returns (ReportConnectionsResponse);
 }
 
 message GetStatusRequest {}
@@ -182,8 +187,67 @@ message Connection {
   // Target component ID.
   string target_id = 2;
 
-  // Connection type ("http", "grpc", "database", etc.).
+  // Connection type ("http", "grpc", "database", "tcp", etc.).
   string connection_type = 3;
+
+  // Evidence layer indicating how this connection was observed (RFD 033).
+  EvidenceLayer evidence_layer = 4;
+}
+
+// EvidenceLayer indicates how a topology connection was observed (RFD 033).
+enum EvidenceLayer {
+  EVIDENCE_LAYER_UNSPECIFIED = 0;
+
+  // Connection derived from distributed trace parent-span join (RFD 092).
+  EVIDENCE_LAYER_L7_TRACE = 1;
+
+  // Connection observed via eBPF or netstat at the network layer (RFD 033).
+  EVIDENCE_LAYER_L4_NETWORK = 2;
+
+  // Connection confirmed by both trace data and network observation.
+  EVIDENCE_LAYER_BOTH = 3;
+}
+
+// ReportConnectionsRequest carries a batch of aggregated outbound L4 connections
+// from a single agent. Agents stream these periodically (default: every 30s).
+message ReportConnectionsRequest {
+  // Reporting agent identifier.
+  string agent_id = 1;
+
+  // Aggregated connection entries observed since the last batch.
+  repeated L4ConnectionEntry connections = 2;
+}
+
+// ReportConnectionsResponse is the server acknowledgement for ReportConnections.
+// The colony sends this once when the stream closes.
+message ReportConnectionsResponse {}
+
+// L4ConnectionEntry represents a single aggregated outbound TCP connection edge.
+// Metrics are accumulated over the reporting interval.
+message L4ConnectionEntry {
+  // Destination IP address.
+  string remote_ip = 1;
+
+  // Destination port.
+  uint32 remote_port = 2;
+
+  // Transport protocol ("tcp", "udp").
+  string protocol = 3;
+
+  // Total bytes sent over this edge since last report.
+  uint64 bytes_sent = 4;
+
+  // Total bytes received over this edge since last report.
+  uint64 bytes_received = 5;
+
+  // TCP retransmit count since last report (0 on netstat fallback path).
+  uint32 retransmits = 6;
+
+  // Smoothed round-trip time in microseconds (0 on netstat fallback path).
+  uint32 rtt_us = 7;
+
+  // Timestamp of the most recent observation within this batch.
+  google.protobuf.Timestamp last_observed = 8;
 }
 
 // Certificate management messages (RFD 047 - Colony CA Infrastructure)

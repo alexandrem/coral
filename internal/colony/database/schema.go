@@ -455,4 +455,25 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_correlation_triggers_correlation ON correlation_triggers(correlation_id, fired_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_correlation_triggers_service ON correlation_triggers(service_name, fired_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_correlation_triggers_agent ON correlation_triggers(agent_id, fired_at DESC)`,
+
+	// L4 topology connections - outbound TCP edges observed by agents via eBPF or netstat (RFD 033).
+	// One row per directed edge (source_agent_id, dest_ip, dest_port, protocol); upserted on each batch.
+	`CREATE TABLE IF NOT EXISTS topology_connections (
+		source_agent_id VARCHAR     NOT NULL,
+		dest_agent_id   VARCHAR,
+		dest_ip         VARCHAR     NOT NULL,
+		dest_port       INTEGER     NOT NULL,
+		protocol        VARCHAR     NOT NULL,
+		bytes_sent      BIGINT      NOT NULL DEFAULT 0,
+		bytes_received  BIGINT      NOT NULL DEFAULT 0,
+		retransmits     INTEGER     NOT NULL DEFAULT 0,
+		rtt_us          INTEGER,
+		first_observed  TIMESTAMPTZ NOT NULL,
+		last_observed   TIMESTAMPTZ NOT NULL,
+		PRIMARY KEY (source_agent_id, dest_ip, dest_port, protocol)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_topology_connections_source ON topology_connections(source_agent_id)`,
+	// Note: No index on dest_agent_id due to DuckDB limitation with updating indexed columns in ON CONFLICT.
+	`CREATE INDEX IF NOT EXISTS idx_topology_connections_dest_ip ON topology_connections(dest_ip)`,
 }

@@ -1,7 +1,7 @@
 ---
 rfd: "033"
 title: "Infrastructure & L4 Topology Discovery"
-state: "draft"
+state: "in-progress"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "observability", "networking", "topology" ]
 
 # RFD 033 - Infrastructure & L4 Topology Discovery
 
-**Status:** 🚧 Draft
+**Status:** 🔄 In Progress
 
 ## Summary
 
@@ -166,22 +166,22 @@ Agent (Linux)                     Agent (macOS/Win)
 
 ### Phase 1: Protocol & Storage
 
-- [ ] Add `ReportConnectionsRequest`, `ReportConnectionsResponse`,
+- [x] Add `ReportConnectionsRequest`, `ReportConnectionsResponse`,
       `L4ConnectionEntry`, and `ConnectionDirection` to `colony.proto`.
-- [ ] Add `evidence_layer` field to the existing `Connection` message in
+- [x] Add `evidence_layer` field to the existing `Connection` message in
       `colony.proto`.
-- [ ] Regenerate protobuf Go bindings.
-- [ ] Create `topology_connections` table migration in DuckDB.
-- [ ] Implement `ReportConnections` stream handler in the colony (receive,
+- [x] Regenerate protobuf Go bindings.
+- [x] Create `topology_connections` table migration in DuckDB.
+- [x] Implement `ReportConnections` stream handler in the colony (receive,
       correlate IP → agent, upsert rows).
 
 ### Phase 2: Agent Observation
 
 - [ ] Implement eBPF probe for `tcp_v4_connect` in `internal/agent/ebpf/`.
-- [ ] Implement netstat/ss fallback poller for non-Linux in
+- [x] Implement netstat/ss fallback poller for non-Linux in
       `internal/agent/netobs/`.
-- [ ] Implement connection aggregator (deduplication + metric accumulation).
-- [ ] Implement gRPC streaming client sending batches to colony.
+- [x] Implement connection aggregator (deduplication + metric accumulation).
+- [x] Implement gRPC streaming client sending batches to colony.
 
 ### Phase 3: Correlation & Topology Merge
 
@@ -194,10 +194,10 @@ Agent (Linux)                     Agent (macOS/Win)
 
 ### Phase 4: Testing & Documentation
 
-- [ ] Unit tests: eBPF aggregator deduplication and metric accumulation.
-- [ ] Unit tests: netstat parser on fixture output.
-- [ ] Unit tests: IP → agent correlation logic.
-- [ ] Unit tests: `GetTopology` merge logic (L4-only, L7-only, overlap cases).
+- [x] Unit tests: eBPF aggregator deduplication and metric accumulation.
+- [x] Unit tests: netstat parser on fixture output.
+- [x] Unit tests: IP → agent correlation logic.
+- [x] Unit tests: `GetTopology` merge logic (L4-only, L7-only, overlap cases).
 - [ ] Integration tests: insert synthetic connection batches, verify upsert
       semantics and `last_observed` refresh.
 - [ ] E2E test: `coral query topology` with a live colony — verify L4 edges
@@ -360,7 +360,34 @@ Output (text for LLM):
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🔄 In Progress
+
+Phases 1 and 2 implemented. Build passes; all tests pass; lint clean.
+
+**Operational Components:**
+- ✅ Proto: `ReportConnections` RPC, `EvidenceLayer` enum, `L4ConnectionEntry`
+  message, `evidence_layer` field on `Connection`
+- ✅ Database: `topology_connections` table (upsert on edge key, NULL-safe
+  handling of external destinations and fallback RTT)
+- ✅ Colony: `ReportConnections` stream handler (IP → agent correlation, upsert)
+- ✅ Colony: `GetTopology` merges L4 and L7 edges with `EvidenceLayer`
+- ✅ Agent: `internal/agent/netobs` — `Aggregator`, ss/netstat `Poller`,
+  `Streamer` (gRPC client), `Manager` (lifecycle, URL-provider pattern)
+- ✅ Agent startup: `netobs.Manager` wired into `startup.ServiceRegistry`
+
+**What Works Now:**
+- Agents poll active outbound TCP connections every 30 s via `ss`/`netstat`.
+- Aggregated edges are streamed to the colony's `ReportConnections` RPC.
+- Colony correlates `dest_ip` → `agent_id` using the in-memory registry.
+- `GetTopology` returns L4-only, L7-only, and `BOTH` edges with evidence layer.
+- `coral query topology` and `coral_topology` MCP tool surface L4 edges
+  automatically (they call `GetTopology` which now includes L4 data).
+
+**Remaining (Phase 3–4):**
+- eBPF `tcp_v4_connect` probe (Linux-only, currently falls back to netstat).
+- CLI `--include-l4` flag and `LAYER` column in `coral query topology` output.
+- `coral_topology` MCP tool layer annotation in text output.
+- Integration and E2E tests.
 
 ## Future Work
 
