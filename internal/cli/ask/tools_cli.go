@@ -68,6 +68,26 @@ func cliCommandString(args []string) string {
 	return "coral " + strings.Join(parts, " ")
 }
 
+// isScriptWrite returns true when args represent a "coral script write" call.
+// Used to intercept the call for the TUI approval gate.
+func isScriptWrite(args []string) bool {
+	return len(args) >= 2 && args[0] == "script" && args[1] == "write"
+}
+
+// scriptWriteParams extracts the --name and --content values from a
+// "script write" arg list.
+func scriptWriteParams(args []string) (name, content string) {
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--name":
+			name = args[i+1]
+		case "--content":
+			content = args[i+1]
+		}
+	}
+	return
+}
+
 // executeCLITool runs coral <args> --format json as a subprocess (RFD 100).
 // Non-zero exits are returned as MCP tool errors so the LLM can handle them.
 // Go errors are only returned for unexpected failures (e.g., exec.LookPath).

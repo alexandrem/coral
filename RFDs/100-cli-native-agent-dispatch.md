@@ -362,14 +362,12 @@ ask:
 
 ## Future Work
 
-**E2E test for CLI dispatch session log** (Future — requires running colony)
+**E2E test for CLI dispatch session log**
 
 Verify end-to-end that a TUI agent session log contains parseable CLI commands
-that produce the same output when run manually. Deferred because this requires
-a live `tests/e2e/distributed` colony environment and should be added alongside
-the broader E2E suite expansion.
+that produce the same output when run manually.
 
-**On-demand investigation scripts via `coral script`** (Future — unassigned RFD)
+**On-demand investigation scripts via `coral script`** ✅ Implemented
 
 Some investigations require logic that cannot be expressed as a single CLI
 command: parallel multi-service queries, conditional branching based on
