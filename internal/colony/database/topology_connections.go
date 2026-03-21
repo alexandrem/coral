@@ -14,8 +14,8 @@ type TopologyConnection struct {
 	DestIP        string // Destination IP address.
 	DestPort      int    // Destination TCP port.
 	Protocol      string // Transport protocol ("tcp", "udp").
-	BytesSent     int64  // Accumulated bytes sent since first observation.
-	BytesReceived int64  // Accumulated bytes received since first observation.
+	BytesSent     uint64 // Accumulated bytes sent since first observation.
+	BytesReceived uint64 // Accumulated bytes received since first observation.
 	Retransmits   int    // Accumulated TCP retransmit count; 0 on netstat fallback path.
 	RTTUS         int    // Smoothed RTT in microseconds; 0 on netstat fallback path.
 	FirstObserved time.Time
