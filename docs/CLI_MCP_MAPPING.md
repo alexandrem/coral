@@ -43,7 +43,13 @@ LLM → coral_cli(["query", "traces", "--service", "api", "--since", "10m"])
 ["query", "traces",   "--service", "api", "--since", "1h"]
 ["query", "metrics",  "--service", "api", "--protocol", "http"]
 ["query", "logs",     "--service", "api", "--level", "error", "--since", "30m"]
+["query", "topology"]
+["query", "topology", "--include-l4=false"]
 ```
+
+The topology response includes a `layer` field per connection (`L7`, `L4`, or
+`BOTH`) — use `--include-l4=false` to suppress raw TCP edges and show only
+trace-derived dependencies.
 
 ### Live debugging
 

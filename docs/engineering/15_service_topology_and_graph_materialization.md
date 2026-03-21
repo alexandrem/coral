@@ -1,11 +1,25 @@
 # Service Topology and Graph Materialization
 
-Coral derives a live service dependency graph from distributed trace data with
-zero agent-side instrumentation. The graph is materialized on demand at the
-Colony, exposed through the gRPC API, and injected into every LLM context
-window automatically.
+Coral derives a live service dependency graph from two complementary observation
+layers and exposes it through the gRPC API, CLI, and every LLM context window.
 
-## The Core Problem: Topology Without Instrumentation
+- **L7 layer** (RFD 092) — derived from distributed trace spans captured by
+  Beyla's eBPF interceptor. High-fidelity edges with call counts and protocol
+  attribution; limited to services that produce spans.
+- **L4 layer** (RFD 033) — derived from raw TCP connections observed at the
+  agent via `ss`/`netstat` (with an eBPF `tcp_v4_connect` probe planned). Covers
+  every outbound TCP connection, including databases, external APIs, and legacy
+  services that emit no traces at all.
+
+The two layers are merged in `GetTopology`: where the same logical edge exists in
+both, it is promoted to `EVIDENCE_LAYER_BOTH` and the L7 edge is returned (richer
+metadata). L4-only edges are returned with `EVIDENCE_LAYER_L4_NETWORK`.
+
+---
+
+## L7 Layer: Trace-Derived Topology (RFD 092)
+
+### The Core Problem: Topology Without Instrumentation
 
 Traditional service maps require explicit dependency declarations, service-mesh
 sidecars, or manual configuration. Coral takes a different approach: because
@@ -23,7 +37,7 @@ Both spans share the same `trace_id`, and the server span's `parent_span_id`
 equals the client span's `span_id`. This parent-child linkage is the only input
 `MaterializeConnections` needs to reconstruct the dependency edge.
 
-### Why Beyla Owns the Traceparent
+#### Why Beyla Owns the Traceparent
 
 Beyla operates at the socket level via eBPF uprobes on `net/http` internals. It
 injects and extracts `traceparent` headers **before** any application code runs.
@@ -31,11 +45,9 @@ This is critical: it means the topology derivation works even when applications
 do **not** use an OTel SDK. The full propagation chain lives inside
 `beyla_traces`; `otel_summaries` is irrelevant to topology.
 
-## Schema Design
+### Schema: L7 Tables
 
-Two tables in the Colony DuckDB database are involved:
-
-### `beyla_traces` — Source of Truth
+#### `beyla_traces` — Source of Truth
 
 ```sql
 CREATE TABLE IF NOT EXISTS beyla_traces (
@@ -58,7 +70,7 @@ Indexes on `(service_name, start_time DESC)`, `(trace_id, start_time DESC)`,
 `(agent_id, start_time DESC)`, and `(duration_us DESC)` support the
 materialization join and time-range filtering.
 
-### `service_connections` — Materialized Topology Cache
+#### `service_connections` — Materialized Topology Cache
 
 ```sql
 CREATE TABLE IF NOT EXISTS service_connections (
@@ -74,10 +86,8 @@ CREATE TABLE IF NOT EXISTS service_connections (
 
 This table is a **derived, cached view** of `beyla_traces`. It is never written
 by agents; the Colony derives it entirely through `MaterializeConnections`.
-Indexes on `from_service` and `to_service` make `GetTopology` efficient at read
-time.
 
-## The Materialization Join
+### The Materialization Join
 
 `MaterializeConnections` in `internal/colony/database/connections.go` performs a
 self-join on `beyla_traces`:
@@ -111,232 +121,295 @@ ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
   pairs that represent an RPC hop.
 - **Cross-service filter.** `child.service_name != parent.service_name`
   eliminates intra-service calls (e.g., an internal goroutine calling a helper).
-  Same-service parent-child spans are invisible to the topology graph.
 - **Time window.** `child.start_time >= ?` limits the join to the requested
-  window (default: last hour). This prevents stale services from permanently
-  cluttering the topology.
-- **Aggregation.** `GROUP BY (parent.service_name, child.service_name)`
-  collapses thousands of individual calls into a single edge with a
-  `connection_count`. `MIN/MAX(child.start_time)` tracks when the edge was first
-  and last active.
-- **Upsert semantics.** `ON CONFLICT DO UPDATE` means repeated materializations
-  are idempotent. `connection_count` is **replaced** (not incremented) on each
-  upsert because the query re-counts from scratch against the full window. This
-  avoids double-counting on cache refreshes.
+  window (default: last hour).
+- **Aggregation.** `GROUP BY (parent.service_name, child.service_name)` collapses
+  thousands of calls into a single edge. `connection_count` is replaced (not
+  incremented) on each upsert to avoid double-counting on cache refreshes.
 
-### What the Join Does NOT Capture
+#### What the L7 Join Does NOT Capture
 
 - **Async calls** (message queues, pubsub) where no synchronous HTTP/gRPC hop
-  produces a traceparent propagation. Kafka, SQS, and similar async patterns
-  produce no parent-child span link in `beyla_traces`.
-- **Calls from un-monitored services.** If an external client or a service on a
-  non-Beyla agent initiates a call, only the server-side span is captured; no
-  parent span exists, so no edge is derived.
-- **Protocol attribution beyond HTTP.** The current query hard-codes `'http'` as
-  the protocol. gRPC and SQL edges require additional protocol detection from
-  span attributes (see Future Engineering Notes).
+  produces a traceparent propagation.
+- **Calls from un-monitored services.** If an external client initiates a call,
+  only the server-side span is captured.
+- **Non-instrumented TCP connections** — raw database clients, Redis, Memcached,
+  or any service that does not emit HTTP/gRPC spans. These are covered by the L4
+  layer.
 
-## Cache-Aware Fetch (`GetServiceConnections`)
+### Cache-Aware Fetch (`GetServiceConnections`)
 
 Running the self-join on every `GetTopology` call would be expensive on large
 trace volumes. `GetServiceConnections` wraps `MaterializeConnections` with a
-TTL-based in-process cache using a mutex-guarded timestamp field on the
-`Database` struct:
+TTL-based in-process cache (mutex-guarded `connectionsLastMaterialized` field,
+default TTL 30 s). A failed re-materialization is non-fatal: the handler returns
+stale data from `service_connections` and logs a warning.
+
+---
+
+## L4 Layer: Network-Observed Topology (RFD 033)
+
+### The Core Problem: Trace Blindness
+
+`MaterializeConnections` is blind to connections that produce no OTel span: raw
+TCP to a Postgres or Redis instance, calls from a legacy service without Beyla,
+outbound connections to external SaaS APIs. The L4 layer addresses this by
+passively observing every outbound TCP connection at the agent.
+
+### Agent-Side Observation
+
+Each agent runs `internal/agent/netobs`, which contains four components:
+
+| Component | Role |
+|---|---|
+| `Poller` | Polls active connections via `ss -tnp` or `netstat -n` every 30 s (non-Linux fallback; an eBPF `tcp_v4_connect` probe is planned for Linux) |
+| `Aggregator` | Deduplicates events by `(dest_ip, dest_port, protocol)` within the flush window; accumulates `bytes_sent`, `bytes_received`, `retransmits`, `rtt_us` |
+| `Streamer` | Opens a `ReportConnections` client-streaming RPC per batch, sends one `ReportConnectionsRequest`, then calls `CloseAndReceive` |
+| `Manager` | Lifecycle orchestration; wired into `startup.ServiceRegistry` |
+
+Only **outbound** connections are reported. Inbound connections are implicit: if
+agent B has an inbound from agent A, agent A will report an outbound to agent B.
+This eliminates the duplicate-edge problem that would arise from reporting both
+directions.
+
+### Schema: `topology_connections`
+
+```sql
+CREATE TABLE topology_connections (
+    source_agent_id VARCHAR     NOT NULL,
+    dest_agent_id   VARCHAR,              -- NULL for external destinations
+    dest_ip         VARCHAR     NOT NULL,
+    dest_port       INTEGER     NOT NULL,
+    protocol        VARCHAR     NOT NULL,
+
+    bytes_sent      BIGINT      NOT NULL DEFAULT 0,
+    bytes_received  BIGINT      NOT NULL DEFAULT 0,
+    retransmits     INTEGER     NOT NULL DEFAULT 0,
+    rtt_us          INTEGER,              -- NULL on netstat fallback path
+
+    first_observed  TIMESTAMPTZ NOT NULL,
+    last_observed   TIMESTAMPTZ NOT NULL,
+
+    PRIMARY KEY (source_agent_id, dest_ip, dest_port, protocol)
+);
+```
+
+**Upsert semantics.** The table holds one row per unique directed edge
+`(source_agent_id, dest_ip, dest_port, protocol)`. Each incoming batch performs
+an upsert: `bytes_sent`, `bytes_received`, and `retransmits` are **accumulated**
+(not replaced); `last_observed` advances to the newer timestamp;
+`rtt_us` uses `COALESCE(EXCLUDED.rtt_us, existing.rtt_us)` to preserve the last
+non-NULL RTT measurement.
+
+### Colony: `ReportConnections` Handler
+
+`ReportConnections` in `internal/colony/server/server.go`:
+
+1. Receives a client-streaming RPC from each agent.
+2. For each `L4ConnectionEntry` in the batch, calls
+   `registry.FindAgentByIP(lc.RemoteIp)` to resolve the destination IP to a
+   registered agent ID (internal edge) or leave `dest_agent_id` NULL (external
+   edge).
+3. Calls `database.UpsertTopologyConnections` to persist the batch inside a
+   transaction.
+4. Continues reading batches until the stream closes.
+
+No authentication is required beyond the transport (the internal gRPC port is
+not exposed publicly). Empty `agent_id` fields are silently skipped.
+
+### Merge in `GetTopology`
+
+`GetTopology` queries both tables and merges:
 
 ```
-Database.connectionsMu               sync.Mutex
-Database.connectionsLastMaterialized time.Time
-Database.connectionsCacheTTL         time.Duration  (default: 30s)
+L7 edges  (service_connections via GetServiceConnections)
+     +
+L4 edges  (topology_connections via GetL4Connections, last 1h)
+     ↓
+Build L7 edge set: map[(source, target)] → Connection
+For each L4 edge:
+  - target = dest_agent_id if set, else dest_ip
+  - If (source, target) in L7 set → promote to EVIDENCE_LAYER_BOTH
+  - Else → append new Connection with EVIDENCE_LAYER_L4_NETWORK
 ```
 
-On every call to `GetServiceConnections`:
+The resulting `Connection` list is returned in `GetTopologyResponse.Connections`.
+The `EvidenceLayer` enum on each connection lets consumers distinguish origin:
 
-1. Lock `connectionsMu`, read `connectionsLastMaterialized`.
-2. If `time.Since(connectionsLastMaterialized) >= connectionsCacheTTL`:
-   - Call `MaterializeConnections` with the requested `since` window.
-   - On success, update `connectionsLastMaterialized = time.Now()`.
-   - On failure, log a warning and serve stale data from `service_connections`.
-3. Query `service_connections` and return all rows ordered by
-   `connection_count DESC`.
-
-**Failure-tolerant:** a failed re-materialization does not surface as an error
-to the caller. The handler returns whatever is already in `service_connections`.
-This ensures `GetTopology` degrades gracefully if the trace table is temporarily
-unavailable.
-
-**TTL granularity:** 30 seconds is a deliberate balance. Topology graphs are
-stable over minutes; sub-second freshness would be wasteful. 30 seconds ensures
-the LLM context window is never more than one cache cycle stale.
-
-## Colony API Handler (`GetTopology`)
-
-`GetTopology` in `internal/colony/server/server.go` composes the topology
-response from two sources:
-
-1. **Registry agents** — `registry.ListAll()` returns all agents that have
-   checked in recently, converted to `colonyv1.Agent` proto messages with live
-   status (ACTIVE / UNHEALTHY / DISCONNECTED via `registry.DetermineStatus`).
-2. **Materialized connections** — `database.GetServiceConnections(ctx, since)`
-   with a default 1-hour window.
-
-The `Connection` proto fields map directly to the `service_connections` columns:
-
-```
-ServiceConnection.FromService → Connection.SourceId
-ServiceConnection.ToService   → Connection.TargetId
-ServiceConnection.Protocol    → Connection.ConnectionType
+```protobuf
+enum EvidenceLayer {
+  EVIDENCE_LAYER_UNSPECIFIED = 0;
+  EVIDENCE_LAYER_L7_TRACE    = 1;  // Derived from beyla_traces (RFD 092)
+  EVIDENCE_LAYER_L4_NETWORK  = 2;  // Observed via ss/netstat (RFD 033)
+  EVIDENCE_LAYER_BOTH        = 3;  // Edge present in both layers
+}
 ```
 
-Connection failure is non-fatal: if `GetServiceConnections` returns an error,
-the handler logs a warning and returns agents with an empty connections list.
-This prevents a DuckDB issue from blocking the operator's view of mesh health.
+---
 
 ## Exposure Surfaces
 
-The topology graph reaches operators and LLMs through four surfaces:
-
 ### 1. CLI: `coral query topology`
 
-`internal/cli/query/topology.go` calls `GetTopology` via Connect RPC and
-renders connections as either an ASCII table (default) or JSON.
+`internal/cli/query/topology.go` calls `GetTopology` via Connect RPC and renders
+connections as either an ASCII table (default) or JSON.
 
 Text output example:
 ```
-Service Topology (last 1h, 2 connection(s)):
+Service Topology (last 1h, 4 connection(s)):
 
-FROM SERVICE    TO SERVICE   PROTOCOL
-------------    ----------   --------
-otel-app        cpu-app      HTTP
-api-gateway     user-service HTTP
+FROM SERVICE    →  TO SERVICE       PROTOCOL  LAYER
+------------       ----------       --------  -----
+otel-app        →  cpu-app          HTTP      L7
+user-service    →  postgres         SQL       L7
+api-gateway     →  redis            TCP       L4
+api-gateway     →  user-service     HTTP      BOTH
 ```
 
-Column widths are computed dynamically from service name lengths to ensure
-alignment regardless of name length.
+The `LAYER` column shows `L7`, `L4`, or `BOTH`. Column widths are computed
+dynamically from the longest values in each column.
 
-### 2. MCP Tool: `coral_topology`
+**`--include-l4` flag** (default `true`): pass `--include-l4=false` to suppress
+L4-only edges and show only trace-derived edges.
 
-`handleTopology` in `internal/colony/mcp/tools_discovery.go` wraps
-`GetServiceConnections` directly (bypassing the gRPC hop used by the CLI) and
-formats the result as a prose call graph for LLM consumption:
-
-```
-Service call graph (last 1h):
-otel-app → cpu-app (HTTP, 42 calls, last: 3s ago)
-```
-
-The tool accepts an optional `since` parameter (any Go duration string, e.g.
-`"30m"`, `"2h"`). Age labels (`3s ago`, `5m ago`) are computed by
-`formatConnectionAge`.
-
-The tool description explicitly instructs the LLM to call this **before**
-investigating cross-service issues.
-
-### 3. Ask System Prompt: Compact Call Graph
-
-`fetchTopologyContext` in `internal/cli/ask/agent.go` calls `coral_topology`
-via the MCP server and passes the result through `formatCompactCallGraph`, which
-collapses the multi-line output into a single comma-separated line:
-
-```
-Call graph: otel-app→cpu-app (HTTP), api-gateway→user-service (HTTP)
+JSON output includes a `layer` field per connection:
+```json
+{
+  "colony_id": "my-colony",
+  "connections": [
+    {"from": "api-gateway", "to": "redis", "protocol": "TCP", "layer": "L4"},
+    {"from": "otel-app",    "to": "cpu-app", "protocol": "HTTP", "layer": "L7"}
+  ]
+}
 ```
 
-This is injected after the ALERTS section in `buildSystemPrompt`. All three
-context fetches (service list, health alerts, topology) run concurrently via
-goroutines writing into buffered channels, so the topology fetch adds no serial
-latency to prompt construction. An empty string is injected (no line added) when
-there are no observed connections.
+### 2. MCP / `coral ask`
 
-### 4. gRPC API (`GetTopologyResponse`)
+Per RFD 100, individual per-operation MCP tools have been retired in favour of
+the single `coral_cli` meta-tool. MCP clients call:
 
-Exposes both agents and connections for programmatic consumers. The proto was
-already generated prior to RFD 092; the handler simply implemented the
-previously-stub endpoint.
+```json
+{"name": "coral_cli", "arguments": {"args": ["query", "topology"]}}
+```
+
+The JSON output (auto-appended `--format json`) includes the `layer` field on
+every connection, so the LLM can distinguish L4-only edges from trace-derived
+ones.
+
+`coral ask` (MCP dispatch mode) calls `coral_query_summary` and
+`coral_list_services` for system-prompt context. Topology is available on-demand
+via `coral_cli`.
+
+### 3. gRPC API (`GetTopologyResponse`)
+
+Exposes agents and merged L4+L7 connections for programmatic consumers. The
+`Connection.evidence_layer` field (added by RFD 033) carries the `EvidenceLayer`
+enum value for each edge.
+
+---
 
 ## Data Flow Diagram
 
 ```
-Beyla eBPF (agent)
-  │  injects traceparent headers, captures both sides of each RPC hop
-  ▼
-beyla_traces (agent DuckDB, 1h retention)
-  │  sequence-based polling (RFD 089)
-  ▼
-beyla_traces (colony DuckDB)
-  │  parent-span self-join (MaterializeConnections, TTL 30s)
-  ▼
-service_connections (colony DuckDB)
-  │  GetServiceConnections
-  ▼
-GetTopology RPC handler
-  │
-  ├─► coral query topology   (CLI, ASCII table or JSON)
-  ├─► coral_topology MCP     (LLM on-demand, prose call graph)
-  └─► coral ask system prompt (compact one-liner, parallel fetch)
+Beyla eBPF (agent)                    ss/netstat Poller (agent)
+  │  captures HTTP/gRPC spans           │  polls active TCP connections
+  ▼                                     ▼
+beyla_traces (agent DuckDB)          netobs.Aggregator
+  │  sequence-based polling (RFD 089)   │  dedup + accumulate metrics
+  ▼                                     ▼
+beyla_traces (colony DuckDB)         ReportConnections RPC stream
+  │  parent-span self-join               │  IP → agent correlation
+  │  MaterializeConnections (TTL 30s)    ▼
+  ▼                                  topology_connections (colony DuckDB)
+service_connections (colony DuckDB)    │
+  │                                     │
+  └──────────────┬──────────────────────┘
+                 ▼
+         GetTopology handler
+         (merges L4 + L7 edges, sets EvidenceLayer)
+                 │
+     ┌───────────┼──────────────┐
+     ▼           ▼              ▼
+coral query  coral_cli MCP   gRPC API
+topology     tool           consumers
+(LAYER col)  (layer field)
 ```
+
+---
 
 ## Testing Strategy
 
-### Unit Tests (`internal/colony/database/connections_test.go`)
+### Unit Tests
 
-- **`TestMaterializeConnections_DetectsEdge`**: single cross-service span pair →
-  one edge in `service_connections`.
-- **`TestMaterializeConnections_SameServiceSpansExcluded`**: intra-service
-  parent-child spans produce zero edges.
-- **`TestMaterializeConnections_AggregatesMultipleCalls`**: three separate traces
-  between the same pair collapse into one edge with `connection_count = 3`.
-- **`TestMaterializeConnections_MultipleDistinctEdges`**: two distinct service
-  pairs produce two independent edges.
-- **`TestMaterializeConnections_SinceFiltersOldData`**: spans older than the
-  window are excluded from edge derivation.
-- **`TestGetServiceConnections_CacheHitSkipsMaterialization`**: a second call
-  within the TTL window returns the same result even after new spans are inserted.
-- **`TestGetServiceConnections_StaleCache`**: manually expiring
-  `connectionsLastMaterialized` forces re-materialization and picks up new edges.
+- **`internal/colony/database/connections_test.go`** — L7 materialization: edge
+  detection, same-service exclusion, aggregation, multi-edge, time-window filter,
+  cache hit/miss.
+- **`internal/colony/database/topology_connections_test.go`** — L4 upsert
+  semantics: insert, metric accumulation across batches, `last_observed`
+  filtering, external-edge (NULL `dest_agent_id`), empty-batch no-op.
+- **`internal/colony/server/topology_merge_test.go`** — merge logic: L4-only
+  edge, external edge (raw IP target), empty result when no data.
+- **`internal/cli/query/topology_test.go`** — `evidenceLayerLabel` mapping,
+  `filterConnections` with `includeL4=true/false`.
+- **`internal/agent/netobs/`** — aggregator deduplication, netstat/ss parser on
+  fixture output.
 
-### E2E Tests (`tests/e2e/distributed/cli_query_test.go`)
+### Integration Tests
 
-`TestCLIQueryTopology` drives real cross-service traffic through `otel-app`'s
-`/chain` endpoint, which calls `cpu-app` over plain HTTP with no SDK
-instrumentation. Beyla captures both spans and links them via `traceparent`.
-The test polls `coral query topology` until the `otel-app → cpu-app` edge
-appears or a 320-second deadline is reached, continuously generating `/chain`
-requests to ensure Beyla's eBPF uprobes have live traffic to intercept if the
-target process restarted during the suite.
+- **`tests/integration/topology_test.go`** — L7 OTel leak fix: validates that
+  broken `parent_span_id` references (from OTel SDK context leaking into the HTTP
+  request) are correctly excluded from materialization while clean Beyla-owned
+  traces produce edges.
 
-Both `otel-app` (port 8090) and `cpu-app` (port 8080) must be connected to the
-agent via `ConnectService` before the test runs — this is handled in
-`ensureServicesConnected`. Without this, Beyla does not attach uprobes to the
-target processes and no spans appear in `beyla_traces`.
+### E2E Tests (`tests/e2e/distributed/`)
+
+- **`cli_query_test.go::TestCLIQueryTopology`** — drives real `otel-app →
+  cpu-app` traffic, polls until the L7 edge appears, asserts `LAYER` column
+  header and JSON `layer` field.
+- **`topology_l4_test.go::L4TopologySuite`** — injects synthetic L4 edges via
+  `ReportConnections` RPC and validates:
+  - `TestL4EdgesAppearInTopology`: L4 edge appears in text output with `LAYER=L4`.
+  - `TestIncludeL4FalseFiltersL4Edges`: `--include-l4=false` suppresses L4-only
+    edges.
+  - `TestL4JSONLayerField`: JSON output contains `layer: "L4"` per connection.
+  - `TestL4InternalEdgeResolution`: dest IP matching a registered agent's mesh IP
+    resolves to agent ID instead of raw IP.
+
+---
 
 ## Future Engineering Notes
 
-**Protocol detection from span attributes.** The join currently hard-codes
-`'http'` as the protocol. `beyla_traces.attributes` (stored as JSON) carries
-span kind and protocol hints from Beyla. Parsing `span_kind = 'CLIENT'` plus
-`db.system` attributes would allow the materialization to distinguish HTTP,
-gRPC, and SQL edges automatically.
+**eBPF `tcp_v4_connect` probe.** The current Linux path still falls back to
+`ss`/`netstat`. A `tcp_v4_connect` kprobe would give sub-second latency and
+accurate per-connection byte counts without polling overhead.
+
+**Protocol detection from span attributes.** The L7 join currently hard-codes
+`'http'` as the protocol. `beyla_traces.attributes` carries span kind and
+protocol hints; parsing `db.system` attributes would allow automatic distinction
+of HTTP, gRPC, and SQL edges.
+
+**Traffic-type inference.** Infer application protocol from L4 connection
+patterns (payload-size distributions) without inspecting content — e.g.,
+identify Redis-like traffic on a non-standard port.
+
+**Anomaly detection.** Alert when a service suddenly connects to a new
+unrecognised external IP or port not seen in its recent history.
 
 **Async topology.** Pub/sub and message-queue calls produce no synchronous
-parent-child link. A future approach could use baggage-propagated correlation
-IDs or a Beyla map-probe plugin to link producer and consumer spans.
-
-**Historical topology diffing.** Storing topology snapshots by timestamp would
-enable alerting when the call graph changes between deployments — a strong signal
-for accidental dependency introductions.
-
-**Cycle detection.** A recursive CTE over `service_connections` could detect
-circular call chains (A→B→C→A) and surface them as a separate diagnostic
-category.
+parent-child link in `beyla_traces`. A future approach could use
+baggage-propagated correlation IDs to link producer and consumer spans.
 
 **Incremental materialization.** The current full-window re-join is O(N) in the
-trace table size. For large deployments, an incremental approach — joining only
-spans inserted since the last materialization checkpoint — would keep the
-operation O(new-spans) instead.
+trace table size. An incremental approach — joining only spans inserted since the
+last materialization checkpoint — would keep the operation O(new-spans).
 
-## Related Design Documents (RFDs)
+---
 
+## Related Design Documents
+
+- [**RFD 033**: Infrastructure & L4 Topology Discovery](../../RFDs/033-service-topology-discovery.md)
 - [**RFD 092**: Service Topology](../../RFDs/092-service-topology.md)
 - [**RFD 089**: Sequence-Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)
 - [**RFD 084**: Dual-Source Service Discovery](../../RFDs/084-dual-source-service-discovery.md)
-- [**RFD 036**: Beyla Distributed Tracing](../../RFDs/036-beyla-distributed-traces.md)
+- [**RFD 036**: Beyla Distributed Tracing](../../RFDs/036-beyla-distributed-tracing.md)
+- [**RFD 100**: CLI Dispatch Mode](../../RFDs/100-cli-dispatch-mode.md)
