@@ -35,6 +35,15 @@ func (s *DebugService) SetSessionID(sessionID string) {
 	s.sessionID = sessionID
 }
 
+// resolveSdkAddr returns provided if non-empty, otherwise resolves it via the
+// agent's service registry using serviceName.
+func (s *DebugService) resolveSdkAddr(serviceName, provided string) (string, error) {
+	if provided != "" {
+		return provided, nil
+	}
+	return s.agent.ResolveSDK(serviceName)
+}
+
 // StartUprobeCollector handles requests to start uprobe collectors.
 func (s *DebugService) StartUprobeCollector(
 	ctx context.Context,
@@ -45,19 +54,12 @@ func (s *DebugService) StartUprobeCollector(
 		Str("function", req.FunctionName).
 		Msg("Starting uprobe collector")
 
-	// Get SDK address from service registry or config
-	// For now, we'll require it in the request config
-	sdkAddr := req.SdkAddr
-	if sdkAddr == "" {
-		// Attempt to resolve using agent discovery
-		resolved, err := s.agent.ResolveSDK(req.ServiceName)
-		if err != nil {
-			return &agentv1.StartUprobeCollectorResponse{
-				Supported: false,
-				Error:     fmt.Sprintf("failed to resolve sdk_addr: %v", err),
-			}, nil
-		}
-		sdkAddr = resolved
+	sdkAddr, err := s.resolveSdkAddr(req.ServiceName, req.SdkAddr)
+	if err != nil {
+		return &agentv1.StartUprobeCollectorResponse{
+			Supported: false,
+			Error:     fmt.Sprintf("failed to resolve sdk_addr: %v", err),
+		}, nil
 	}
 
 	// Build config map for eBPF manager
@@ -347,16 +349,12 @@ func (s *DebugService) ProfileMemory(
 		Int32("duration_seconds", req.DurationSeconds).
 		Msg("Starting memory profiling")
 
-	sdkAddr := req.SdkAddr
-	if sdkAddr == "" {
-		resolved, err := s.agent.ResolveSDK(req.ServiceName)
-		if err != nil {
-			return &agentv1.ProfileMemoryAgentResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to resolve sdk_addr: %v", err),
-			}, nil
-		}
-		sdkAddr = resolved
+	sdkAddr, err := s.resolveSdkAddr(req.ServiceName, req.SdkAddr)
+	if err != nil {
+		return &agentv1.ProfileMemoryAgentResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to resolve sdk_addr: %v", err),
+		}, nil
 	}
 
 	duration := int(req.DurationSeconds)
