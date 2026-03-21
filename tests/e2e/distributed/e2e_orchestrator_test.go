@@ -393,6 +393,17 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryCPUProfile", cliDebugSuite.TestQueryCPUProfileCommand)
 	s.Run("CLI_QueryMemoryProfile", cliDebugSuite.TestQueryMemoryProfileCommand)
 
+	// Run CLIExecSuite (container exec — RFD 056 / RFD 093).
+	cliExecSuite := &CLIExecSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliExecSuite.SetT(s.T())
+	cliExecSuite.SetupSuite()
+	defer cliExecSuite.TearDownSuite()
+
+	s.Run("CLI_ExecSidecarMode", cliExecSuite.TestContainerExecSidecarMode)
+	s.Run("CLI_ExecNotFound", cliExecSuite.TestContainerExecNotFound)
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")

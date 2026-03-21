@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestReadCgroup_MissingPID(t *testing.T) {
+	_, err := ReadCgroup(999999999)
+	if err == nil {
+		t.Error("ReadCgroup should return an error for a non-existent PID")
+	}
+}
+
 func TestGetKernelVersion(t *testing.T) {
 	version := GetKernelVersion()
 	if version == "" {
