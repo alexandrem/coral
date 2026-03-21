@@ -23,6 +23,7 @@ type Span struct {
 	Attributes   map[string]string
 	ParentSpanID string
 	SeqID        uint64 // Sequence ID for checkpoint-based polling (RFD 089).
+	ProcessPID   uint32 // OS process ID for trace-profile correlation (RFD 078).
 }
 
 // Bucket represents a 1-minute aggregated telemetry bucket.

@@ -75,6 +75,8 @@ func (t *Transformer) TransformTraces(otlpTraces ptrace.Traces) ([]*ebpfpb.EbpfE
 	for i := 0; i < otlpTraces.ResourceSpans().Len(); i++ {
 		rs := otlpTraces.ResourceSpans().At(i)
 		serviceName := getStringAttribute(rs.Resource().Attributes(), "service.name", "unknown")
+		// Extract process.pid from resource attributes for trace-profile correlation (RFD 078).
+		processPID := uint32(getIntAttribute(rs.Resource().Attributes(), "process.pid", 0))
 
 		// Iterate through scope spans.
 		for j := 0; j < rs.ScopeSpans().Len(); j++ {
@@ -95,6 +97,7 @@ func (t *Transformer) TransformTraces(otlpTraces ptrace.Traces) ([]*ebpfpb.EbpfE
 					StartTime:    timestamppb.New(span.StartTimestamp().AsTime()),
 					Duration:     durationpb.New(span.EndTimestamp().AsTime().Sub(span.StartTimestamp().AsTime())),
 					StatusCode:   extractStatusCode(span.Attributes()),
+					ProcessPid:   processPID,
 					Attributes:   attributesToMap(span.Attributes()),
 				}
 

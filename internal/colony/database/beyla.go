@@ -58,6 +58,7 @@ type beylaTraceDB struct {
 	StartTime    time.Time `duckdb:"start_time,immutable"`  // Indexed, cannot be updated
 	DurationUs   int64     `duckdb:"duration_us,immutable"` // Indexed, cannot be updated
 	StatusCode   int       `duckdb:"status_code"`
+	ProcessPID   int32     `duckdb:"process_pid,immutable"` // OS process ID for trace-profile join (RFD 078). Zero if not available.
 	Attributes   string    `duckdb:"attributes"`
 }
 
@@ -294,6 +295,7 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 			StartTime:    startTime,
 			DurationUs:   span.DurationUs,
 			StatusCode:   int(span.StatusCode),
+			ProcessPID:   int32(span.ProcessPid), // #nosec G115 - PIDs are always positive.
 			Attributes:   string(attributesJSON),
 		}
 	}
@@ -512,6 +514,7 @@ func (d *Database) QueryBeylaTraces(ctx context.Context, traceID, serviceName st
 			"start_time",
 			"duration_us",
 			"status_code",
+			"process_pid",
 		).
 		TimeColumn("start_time").
 		TimeRange(startTime, endTime).
@@ -553,6 +556,7 @@ func (d *Database) QueryBeylaTraces(ctx context.Context, traceID, serviceName st
 			&r.StartTime,
 			&r.DurationUs,
 			&r.StatusCode,
+			&r.ProcessPID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -615,6 +619,7 @@ type BeylaTraceResult struct {
 	StartTime    time.Time
 	DurationUs   int64
 	StatusCode   int
+	ProcessPID   int32 // OS process ID for trace-profile join (RFD 078). Zero if not available.
 }
 
 // CleanupOldBeylaMetrics removes Beyla metrics older than the specified retention periods.

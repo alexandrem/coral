@@ -522,6 +522,7 @@ func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) erro
 		span.Timestamp,
 		durationUs,
 		statusCode,
+		span.ProcessPID,
 		span.Attributes,
 	)
 }

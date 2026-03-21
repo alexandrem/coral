@@ -912,17 +912,21 @@ func (x *BeylaSqlMetrics) GetAttributes() map[string]string {
 
 // Distributed trace span (OpenTelemetry-compatible).
 type BeylaTraceSpan struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TraceId       string                 `protobuf:"bytes,1,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`                  // 32-char hex string
-	SpanId        string                 `protobuf:"bytes,2,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`                     // 16-char hex string
-	ParentSpanId  string                 `protobuf:"bytes,3,opt,name=parent_span_id,json=parentSpanId,proto3" json:"parent_span_id,omitempty"` // Empty if root span
-	ServiceName   string                 `protobuf:"bytes,4,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
-	SpanName      string                 `protobuf:"bytes,5,opt,name=span_name,json=spanName,proto3" json:"span_name,omitempty"` // e.g., "GET /api/v1/users/:id"
-	SpanKind      string                 `protobuf:"bytes,6,opt,name=span_kind,json=spanKind,proto3" json:"span_kind,omitempty"` // "server", "client", "producer", "consumer"
-	StartTime     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
-	Duration      *durationpb.Duration   `protobuf:"bytes,8,opt,name=duration,proto3" json:"duration,omitempty"`
-	StatusCode    uint32                 `protobuf:"varint,9,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"` // HTTP/gRPC status
-	Attributes    map[string]string      `protobuf:"bytes,10,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	TraceId      string                 `protobuf:"bytes,1,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`                  // 32-char hex string
+	SpanId       string                 `protobuf:"bytes,2,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`                     // 16-char hex string
+	ParentSpanId string                 `protobuf:"bytes,3,opt,name=parent_span_id,json=parentSpanId,proto3" json:"parent_span_id,omitempty"` // Empty if root span
+	ServiceName  string                 `protobuf:"bytes,4,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	SpanName     string                 `protobuf:"bytes,5,opt,name=span_name,json=spanName,proto3" json:"span_name,omitempty"` // e.g., "GET /api/v1/users/:id"
+	SpanKind     string                 `protobuf:"bytes,6,opt,name=span_kind,json=spanKind,proto3" json:"span_kind,omitempty"` // "server", "client", "producer", "consumer"
+	StartTime    *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	Duration     *durationpb.Duration   `protobuf:"bytes,8,opt,name=duration,proto3" json:"duration,omitempty"`
+	StatusCode   uint32                 `protobuf:"varint,9,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"` // HTTP/gRPC status
+	Attributes   map[string]string      `protobuf:"bytes,10,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// OS process ID (TGID) of the instrumented process (RFD 078).
+	// Extracted from OTLP resource attribute process.pid.
+	// Zero if not available.
+	ProcessPid    uint32 `protobuf:"varint,11,opt,name=process_pid,json=processPid,proto3" json:"process_pid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1025,6 +1029,13 @@ func (x *BeylaTraceSpan) GetAttributes() map[string]string {
 		return x.Attributes
 	}
 	return nil
+}
+
+func (x *BeylaTraceSpan) GetProcessPid() uint32 {
+	if x != nil {
+		return x.ProcessPid
+	}
+	return 0
 }
 
 // EbpfEvent represents a single eBPF event or aggregated summary.
@@ -1346,7 +1357,7 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe8\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x04\n" +
 	"\x0eBeylaTraceSpan\x12\x19\n" +
 	"\btrace_id\x18\x01 \x01(\tR\atraceId\x12\x17\n" +
 	"\aspan_id\x18\x02 \x01(\tR\x06spanId\x12$\n" +
@@ -1362,7 +1373,9 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\n" +
 	" \x03(\v2-.coral.mesh.v1.BeylaTraceSpan.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x1f\n" +
+	"\vprocess_pid\x18\v \x01(\rR\n" +
+	"processPid\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xca\x05\n" +

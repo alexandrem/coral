@@ -220,8 +220,9 @@ func (w *traceServiceWrapper) Export(
 
 	// Process all resource spans.
 	for _, resourceSpans := range req.ResourceSpans {
-		// Extract service name from resource attributes.
+		// Extract service name and process PID from resource attributes.
 		serviceName := extractServiceName(resourceSpans.Resource)
+		processPID := extractProcessPID(resourceSpans.Resource)
 
 		// Process all scope spans.
 		for _, scopeSpans := range resourceSpans.ScopeSpans {
@@ -229,7 +230,7 @@ func (w *traceServiceWrapper) Export(
 				spansReceived++
 
 				// Convert OTLP span to internal format.
-				span := w.receiver.convertOTLPSpan(otlpSpan, serviceName)
+				span := w.receiver.convertOTLPSpan(otlpSpan, serviceName, processPID)
 
 				// Apply filtering.
 				if !w.receiver.filter.ShouldCapture(span) {
@@ -319,7 +320,7 @@ func (r *OTLPReceiver) handleHTTPTraces(w http.ResponseWriter, req *http.Request
 }
 
 // convertOTLPSpan converts an OTLP span to internal Span format.
-func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName string) Span {
+func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName string, processPID uint32) Span {
 	// Convert trace ID and span ID from bytes to hex strings.
 	traceID := hex.EncodeToString(otlpSpan.TraceId)
 	spanID := hex.EncodeToString(otlpSpan.SpanId)
@@ -383,6 +384,7 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 		HTTPMethod:   httpMethod,
 		HTTPRoute:    httpRoute,
 		Attributes:   attributes,
+		ProcessPID:   processPID,
 	}
 }
 
@@ -399,6 +401,26 @@ func extractServiceName(resource *otlpresource.Resource) string {
 	}
 
 	return "unknown"
+}
+
+// extractProcessPID extracts the process.pid resource attribute (RFD 078).
+// Returns 0 if not present.
+func extractProcessPID(resource *otlpresource.Resource) uint32 {
+	if resource == nil {
+		return 0
+	}
+
+	for _, attr := range resource.Attributes {
+		if attr.Key == "process.pid" {
+			if v := getAttributeValue(attr.Value); v != "" {
+				if pid, err := strconv.ParseUint(v, 10, 32); err == nil {
+					return uint32(pid) // #nosec G115
+				}
+			}
+		}
+	}
+
+	return 0
 }
 
 // getAttributeValue extracts the string value from an OTLP attribute.
