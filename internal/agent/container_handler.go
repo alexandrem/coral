@@ -210,8 +210,11 @@ func cgroupMatchesName(cgroupContent, name string) bool {
 }
 
 // findPidByCgroupName finds the main process PID of the container whose cgroup
-// path contains name as a substring. All processes within the same container
-// share an identical cgroup file, so they are counted as one match.
+// path contains name as a substring. When the cgroup path does not contain the
+// name (standard Docker uses an opaque container ID), it falls back to matching
+// against the process comm (/proc/<pid>/comm). All processes within the same
+// container share an identical cgroup file, so the cgroup content is used as a
+// stable container identity key regardless of which criterion matched.
 //
 // Returns CodeNotFound when no container matches and CodeFailedPrecondition
 // when the name is ambiguous across multiple containers.
@@ -234,7 +237,12 @@ func (h *ContainerHandler) findPidByCgroupName(name string) (int, error) {
 		if err != nil {
 			continue // process may have exited or be inaccessible.
 		}
-		if !cgroupMatchesName(content, name) {
+		// Primary: match by cgroup path substring (works on Kubernetes and
+		// Docker setups where the container name appears in the cgroup path).
+		// Fallback: match by process comm (works on standard Docker where the
+		// cgroup path contains only an opaque container ID).
+		comm, _ := proc.ReadComm(pid)
+		if !cgroupMatchesName(content, name) && !strings.Contains(comm, name) {
 			continue
 		}
 		key := strings.TrimSpace(content)

@@ -12,6 +12,27 @@ func TestReadCgroup_MissingPID(t *testing.T) {
 	}
 }
 
+func TestReadComm_CurrentProcess(t *testing.T) {
+	comm, err := ReadComm(os.Getpid())
+	if err != nil {
+		// On non-Linux (macOS) /proc doesn't exist.
+		if os.Getenv("GOOS") == "linux" {
+			t.Errorf("ReadComm returned error on Linux: %v", err)
+		}
+		return
+	}
+	if comm == "" {
+		t.Error("ReadComm returned empty string for current process")
+	}
+}
+
+func TestReadComm_MissingPID(t *testing.T) {
+	_, err := ReadComm(999999999)
+	if err == nil {
+		t.Error("ReadComm should return an error for a non-existent PID")
+	}
+}
+
 func TestGetKernelVersion(t *testing.T) {
 	version := GetKernelVersion()
 	if version == "" {
