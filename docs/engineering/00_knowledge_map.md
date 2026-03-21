@@ -40,9 +40,11 @@ distributed systems principles that power the platform.
 - **[09_reliable_telemetry_polling](09_reliable_telemetry_polling.md)**:
   Detailed exploration of sequence-based checkpoints and gap recovery logic.
 - **[15_service_topology_and_graph_materialization](15_service_topology_and_graph_materialization.md)**:
-  Zero-instrumentation service dependency graph: parent-span self-join on
-  `beyla_traces`, TTL-cached materialization into `service_connections`, and
-  exposure through CLI, MCP tool, and LLM system prompt.
+  Two-layer service dependency graph: L7 edges from parent-span self-join on
+  `beyla_traces` (RFD 092) merged with L4 edges from agent-reported TCP
+  connections via `ReportConnections` RPC (RFD 033). Covers `topology_connections`
+  upsert semantics, `EvidenceLayer` enum, `LAYER` column in CLI output, and
+  the `--include-l4` filter flag.
 
 ## 5. Intelligence & Analysis
 

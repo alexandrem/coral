@@ -284,8 +284,8 @@ coral query metrics [service] [--since <duration>] [--source ebpf|telemetry|all]
 # Application logs
 coral query logs [service] [--since <duration>] [--level debug|info|warn|error] [--search <text>] [--max-logs <n>]
 
-# Service topology (call graph)
-coral query topology [--since <duration>] [--format table|json]
+# Service topology (dependency graph — L7 traces + L4 TCP connections)
+coral query topology [--since <duration>] [--format table|json] [--include-l4]
 
 # Historical CPU profiles
 coral query cpu-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--format folded|json]
@@ -324,9 +324,10 @@ coral query logs --search "timeout"                  # Search for specific text
 coral query logs api --since 30m --max-logs 50       # Last 30 minutes, limit 50
 
 # Examples - Topology:
-coral query topology                         # Call graph for the last hour (default)
+coral query topology                         # Dependency graph for the last hour (default)
 coral query topology --since 30m             # Last 30 minutes
-coral query topology --format json           # Machine-readable JSON output
+coral query topology --format json           # Machine-readable JSON output (includes layer field)
+coral query topology --include-l4=false      # Suppress L4-only edges, show trace-derived only
 
 # Examples - CPU Profiles:
 coral query cpu-profile --service api --since 1h                    # Last hour of CPU profiles
@@ -349,8 +350,7 @@ coral query memory-profile --service api --since 1h --format folded | flamegraph
 - **Traces**: Distributed trace spans with parent-child relationships, source
   annotations (eBPF/OTLP)
 - **Logs**: Application logs from OTLP with filtering and search
-- **Topology**: Live service call graph derived from trace data — which services
-  call which, over which protocol, and how often
+- **Topology**: Live service dependency graph from two layers — L7 trace-derived edges (HTTP/gRPC spans via Beyla) merged with L4 network-observed edges (raw TCP connections); each connection carries a `LAYER` column (`L7`, `L4`, or `BOTH`)
 - **CPU Profiles**: Historical CPU profile data from continuous profiling
 - **Memory Profiles**: Historical memory allocation data with top allocators and type breakdown
 - **Automatic merging**: eBPF and OTLP data combined by default with source
@@ -384,8 +384,8 @@ coral query summary [service] [--since <duration>]
 # Percentile queries (precise DuckDB quantile calculations)
 coral query metrics <service> --metric <name> --percentile <0-100>
 
-# Service topology (call graph)
-coral query topology [--since <duration>] [--format json]
+# Service topology (dependency graph — L7 traces + L4 TCP connections)
+coral query topology [--since <duration>] [--format json] [--include-l4]
 
 # Raw SQL queries with safety guardrails
 coral query sql "<sql-query>" [--max-rows <n>]

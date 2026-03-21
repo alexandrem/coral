@@ -383,6 +383,8 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	s.Require().Contains(result.Output, "otel-app", "Output should name the caller service")
 	s.Require().Contains(result.Output, "cpu-app", "Output should name the callee service")
 	s.Require().Contains(result.Output, "→", "Output should show a directed call edge")
+	// RFD 033: LAYER column must be present in topology output.
+	s.Require().Contains(result.Output, "LAYER", "Output should include LAYER column header (RFD 033)")
 
 	// JSON output format.
 	jsonResult := s.cliEnv.Run(s.ctx, "query", "topology", "--format", "json")
@@ -395,6 +397,13 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	}
 	s.Require().Contains(parsed, "colony_id", "JSON output must include colony_id field")
 	s.Require().Contains(parsed, "connections", "JSON output must include connections field")
+
+	// RFD 033: JSON connections must include the layer field.
+	if conns, ok := parsed["connections"].([]interface{}); ok && len(conns) > 0 {
+		firstConn, ok := conns[0].(map[string]interface{})
+		s.Require().True(ok, "connection entry must be an object")
+		s.Require().Contains(firstConn, "layer", "JSON connection must include layer field (RFD 033)")
+	}
 
 	s.T().Log("✓ coral query topology CLI validated with real cross-service connections")
 }

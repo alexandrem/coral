@@ -89,6 +89,9 @@ const (
 	ColonyServiceMeshPingProcedure = "/coral.colony.v1.ColonyService/MeshPing"
 	// ColonyServiceMeshAuditProcedure is the fully-qualified name of the ColonyService's MeshAudit RPC.
 	ColonyServiceMeshAuditProcedure = "/coral.colony.v1.ColonyService/MeshAudit"
+	// ColonyServiceReportConnectionsProcedure is the fully-qualified name of the ColonyService's
+	// ReportConnections RPC.
+	ColonyServiceReportConnectionsProcedure = "/coral.colony.v1.ColonyService/ReportConnections"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -128,6 +131,10 @@ type ColonyServiceClient interface {
 	// Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
 	// against agent-announced STUN endpoints at registration.
 	MeshAudit(context.Context, *connect.Request[v1.MeshAuditRequest]) (*connect.Response[v1.MeshAuditResponse], error)
+	// Stream observed L4 TCP connections from an agent to the colony (RFD 033).
+	// Agents send periodic batches of aggregated outbound connections; the colony
+	// correlates IP addresses against the agent registry and upserts the results.
+	ReportConnections(context.Context) *connect.ClientStreamForClient[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse]
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -261,6 +268,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("MeshAudit")),
 			connect.WithClientOptions(opts...),
 		),
+		reportConnections: connect.NewClient[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse](
+			httpClient,
+			baseURL+ColonyServiceReportConnectionsProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("ReportConnections")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -286,6 +299,7 @@ type colonyServiceClient struct {
 	getCAStatus         *connect.Client[v1.GetCAStatusRequest, v1.GetCAStatusResponse]
 	meshPing            *connect.Client[v1.MeshPingRequest, v1.MeshPingResponse]
 	meshAudit           *connect.Client[v1.MeshAuditRequest, v1.MeshAuditResponse]
+	reportConnections   *connect.Client[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -388,6 +402,11 @@ func (c *colonyServiceClient) MeshAudit(ctx context.Context, req *connect.Reques
 	return c.meshAudit.CallUnary(ctx, req)
 }
 
+// ReportConnections calls coral.colony.v1.ColonyService.ReportConnections.
+func (c *colonyServiceClient) ReportConnections(ctx context.Context) *connect.ClientStreamForClient[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse] {
+	return c.reportConnections.CallClientStream(ctx)
+}
+
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
 type ColonyServiceHandler interface {
 	// Get colony status and health.
@@ -425,6 +444,10 @@ type ColonyServiceHandler interface {
 	// Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
 	// against agent-announced STUN endpoints at registration.
 	MeshAudit(context.Context, *connect.Request[v1.MeshAuditRequest]) (*connect.Response[v1.MeshAuditResponse], error)
+	// Stream observed L4 TCP connections from an agent to the colony (RFD 033).
+	// Agents send periodic batches of aggregated outbound connections; the colony
+	// correlates IP addresses against the agent registry and upserts the results.
+	ReportConnections(context.Context, *connect.ClientStream[v1.ReportConnectionsRequest]) (*connect.Response[v1.ReportConnectionsResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -554,6 +577,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("MeshAudit")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceReportConnectionsHandler := connect.NewClientStreamHandler(
+		ColonyServiceReportConnectionsProcedure,
+		svc.ReportConnections,
+		connect.WithSchema(colonyServiceMethods.ByName("ReportConnections")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyServiceGetStatusProcedure:
@@ -596,6 +625,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceMeshPingHandler.ServeHTTP(w, r)
 		case ColonyServiceMeshAuditProcedure:
 			colonyServiceMeshAuditHandler.ServeHTTP(w, r)
+		case ColonyServiceReportConnectionsProcedure:
+			colonyServiceReportConnectionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -683,4 +714,8 @@ func (UnimplementedColonyServiceHandler) MeshPing(context.Context, *connect.Requ
 
 func (UnimplementedColonyServiceHandler) MeshAudit(context.Context, *connect.Request[v1.MeshAuditRequest]) (*connect.Response[v1.MeshAuditResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.MeshAudit is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) ReportConnections(context.Context, *connect.ClientStream[v1.ReportConnectionsRequest]) (*connect.Response[v1.ReportConnectionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ReportConnections is not implemented"))
 }
