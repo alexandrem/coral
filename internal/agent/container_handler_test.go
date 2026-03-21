@@ -60,6 +60,15 @@ func TestCgroupMatchesName(t *testing.T) {
 			target:  "",
 			want:    true,
 		},
+		// Standard Docker uses an opaque container ID in the cgroup path.
+		// These cases confirm the cgroup match returns false so the caller
+		// can fall back to comm matching instead.
+		{
+			name:    "opaque docker container ID does not match service name",
+			content: "0::/docker/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6\n",
+			target:  "otel-app",
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
