@@ -29,6 +29,15 @@ func (s *CLIExecSuite) SetupSuite() {
 	s.Require().NoError(err, "Failed to setup CLI environment")
 }
 
+// agent0Addr returns the locally mapped gRPC address for agent-0.
+// coral exec talks directly to the agent over gRPC, so we bypass mesh IP
+// resolution and use the host-exposed port instead.
+func (s *CLIExecSuite) agent0Addr() string {
+	addr, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent-0 endpoint")
+	return addr
+}
+
 // TearDownSuite cleans up after all tests.
 func (s *CLIExecSuite) TearDownSuite() {
 	if s.cliEnv != nil {
@@ -53,6 +62,7 @@ func (s *CLIExecSuite) TestContainerExecSidecarMode() {
 
 	result := s.cliEnv.Run(s.ctx,
 		"exec", "otel-app",
+		"--agent-addr", s.agent0Addr(),
 		"--container", "otel-app",
 		"cat", "/etc/hostname",
 	)
@@ -74,6 +84,7 @@ func (s *CLIExecSuite) TestContainerExecNotFound() {
 
 	result := s.cliEnv.Run(s.ctx,
 		"exec", "otel-app",
+		"--agent-addr", s.agent0Addr(),
 		"--container", "definitely-not-a-real-container-xyzzy",
 		"cat", "/etc/hostname",
 	)
