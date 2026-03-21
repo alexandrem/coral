@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func newTestDB(t *testing.T) *Database {
@@ -53,8 +54,8 @@ func TestUpsertTopologyConnections_Insert(t *testing.T) {
 	assert.Equal(t, "10.0.0.2", r.DestIP)
 	assert.Equal(t, 5432, r.DestPort)
 	assert.Equal(t, "tcp", r.Protocol)
-	assert.Equal(t, int64(100), r.BytesSent)
-	assert.Equal(t, int64(200), r.BytesReceived)
+	assert.Equal(t, uint64(100), r.BytesSent)
+	assert.Equal(t, uint64(200), r.BytesReceived)
 	assert.Equal(t, 1, r.Retransmits)
 	assert.Equal(t, 500, r.RTTUS)
 }
@@ -99,8 +100,8 @@ func TestUpsertTopologyConnections_MetricAccumulation(t *testing.T) {
 
 	r := rows[0]
 	// Metrics are accumulated across batches.
-	assert.Equal(t, int64(150), r.BytesSent, "bytes_sent should be accumulated")
-	assert.Equal(t, int64(280), r.BytesReceived, "bytes_received should be accumulated")
+	assert.Equal(t, uint64(150), r.BytesSent, "bytes_sent should be accumulated")
+	assert.Equal(t, uint64(280), r.BytesReceived, "bytes_received should be accumulated")
 	assert.Equal(t, 3, r.Retransmits, "retransmits should be accumulated")
 	// last_observed advances to the most recent batch timestamp.
 	assert.True(t, !r.LastObserved.Before(t2), "last_observed should be refreshed to the later timestamp")
