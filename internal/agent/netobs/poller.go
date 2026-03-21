@@ -70,7 +70,7 @@ func (p *poller) pollNetstat(ctx context.Context) ([]ConnectionEntry, error) {
 
 // runCommand executes a command and returns its stdout.
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) // #nolint G204 - limited tool calls in context of the agent runtime
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("command %q failed: %w", name, err)
