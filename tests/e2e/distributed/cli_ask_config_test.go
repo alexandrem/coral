@@ -80,11 +80,11 @@ func (s *CLIAskConfigSuite) TestAskConfigDryRun() {
 	envVars := s.cliEnv.EnvVars()
 	envVars["GOOGLE_API_KEY"] = "fake-key-dry-run"
 
-	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "GOOGLE_API_KEY", true)
+	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "GOOGLE_API_KEY", true)
 	result.MustSucceed(s.T())
 
 	// Should show preview.
-	s.Require().Contains(result.Output, "gemini-2.0-flash")
+	s.Require().Contains(result.Output, "gemini-3.1-flash-lite-preview")
 	s.Require().Contains(result.Output, "dry-run")
 
 	// Config file should be unchanged.
@@ -105,11 +105,11 @@ func (s *CLIAskConfigSuite) TestAskConfigNonInteractiveGoogle() {
 	envVars := env.EnvVars()
 	envVars["GOOGLE_API_KEY"] = "fake-key-for-e2e-test"
 
-	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "GOOGLE_API_KEY", false)
+	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "GOOGLE_API_KEY", false)
 	result.MustSucceed(s.T())
 
 	// Output should show the wizard completed.
-	s.Require().Contains(result.Output, "gemini-2.0-flash")
+	s.Require().Contains(result.Output, "gemini-3.1-flash-lite-preview")
 	s.Require().Contains(result.Output, "GOOGLE_API_KEY")
 
 	// Config file should have the expected ask section.
@@ -125,8 +125,8 @@ func (s *CLIAskConfigSuite) TestAskConfigNonInteractiveGoogle() {
 	ask, ok := ai["ask"].(map[string]interface{})
 	s.Require().True(ok, "Config should have 'ai.ask' section")
 
-	s.Require().Equal("google:gemini-2.0-flash", ask["default_model"],
-		"Config should set google:gemini-2.0-flash as default model")
+	s.Require().Equal("google:gemini-3.1-flash-lite-preview", ask["default_model"],
+		"Config should set google:gemini-3.1-flash-lite-preview as default model")
 
 	apiKeys, ok := ask["api_keys"].(map[string]interface{})
 	s.Require().True(ok, "Config should have 'ai.ask.api_keys' section")
@@ -174,7 +174,7 @@ func (s *CLIAskConfigSuite) TestAskConfigDoesNotWriteAIProvider() {
 	envVars := env.EnvVars()
 	envVars["GOOGLE_API_KEY"] = "fake-key-for-e2e-test"
 
-	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "GOOGLE_API_KEY", false)
+	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "GOOGLE_API_KEY", false)
 	result.MustSucceed(s.T())
 
 	data, err := env.ReadConfigFile("config.yaml")
@@ -196,7 +196,7 @@ func (s *CLIAskConfigSuite) TestAskConfigCreatesBackup() {
 	envVars["GOOGLE_API_KEY"] = "fake-key-for-e2e-backup-test"
 
 	// First run — creates config.
-	result1 := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "GOOGLE_API_KEY", false)
+	result1 := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "GOOGLE_API_KEY", false)
 	result1.MustSucceed(s.T())
 
 	// Second run — should create a backup.
@@ -233,14 +233,14 @@ func (s *CLIAskConfigSuite) TestAskConfigShow() {
 	envVars["GOOGLE_API_KEY"] = "fake-key-for-show-test"
 
 	// Write a config first.
-	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "GOOGLE_API_KEY", false)
+	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "GOOGLE_API_KEY", false)
 	result.MustSucceed(s.T())
 
 	// Now show it — env var is set so it should show ✓.
 	showResult := helpers.RunAskConfigShow(s.ctx, envVars)
 	showResult.MustSucceed(s.T())
 
-	s.Require().Contains(showResult.Output, "google:gemini-2.0-flash", "Show should display configured model")
+	s.Require().Contains(showResult.Output, "google:gemini-3.1-flash-lite-preview", "Show should display configured model")
 	s.Require().Contains(showResult.Output, "GOOGLE_API_KEY", "Show should display the API key env var")
 }
 
@@ -270,7 +270,7 @@ func (s *CLIAskConfigSuite) TestAskConfigValidateWithEnvVar() {
 	envVars["GOOGLE_API_KEY"] = "fake-key-for-validate-test"
 
 	// Write config.
-	writeResult := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "GOOGLE_API_KEY", false)
+	writeResult := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "GOOGLE_API_KEY", false)
 	writeResult.MustSucceed(s.T())
 
 	// Validate.
@@ -324,7 +324,7 @@ func (s *CLIAskConfigSuite) TestAskConfigListProvidersShowsModels() {
 	s.Require().Contains(result.Output, "coral", "coral provider should be listed")
 
 	// Registered models should appear.
-	s.Require().Contains(result.Output, "gemini-2.0-flash", "gemini-2.0-flash should appear")
+	s.Require().Contains(result.Output, "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview should appear")
 	s.Require().Contains(result.Output, "gpt-4o-mini", "gpt-4o-mini should appear")
 }
 
@@ -337,7 +337,7 @@ func (s *CLIAskConfigSuite) TestAskConfigMissingAPIKeyEnvVar() {
 	envVars := s.cliEnv.EnvVars()
 	delete(envVars, "MISSING_KEY_VAR")
 
-	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-2.0-flash", "MISSING_KEY_VAR", false)
+	result := helpers.RunAskConfig(s.ctx, envVars, "google", "gemini-3.1-flash-lite-preview", "MISSING_KEY_VAR", false)
 
 	s.Require().True(result.HasError(), "Should fail when API key env var is not set")
 	s.Require().True(
