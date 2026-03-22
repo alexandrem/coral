@@ -664,28 +664,58 @@ func (m *Manager) startBeyla() error {
 func (m *Manager) generateBeylaConfig() (string, error) {
 	cfg := beylaConfig{
 		LogLevel: "INFO",
+		// Enable W3C Trace Context injection and extraction so Beyla propagates
+		// traceparent headers across service boundaries. Without this, server
+		// spans have no parent_span_id and topology materialisation produces no
+		// edges.
+		ContextPropagation: "all",
 	}
-	// Discovery: open ports.
-	if len(m.config.Discovery.OpenPorts) > 0 {
-		// Group ports by service name to create separate instrument rules.
-		// This ensures Beyla attributes spans to the correct service even in
-		// shared network/PID namespaces (RFD 110).
+
+	// Ports to exclude from Beyla instrumentation to prevent feedback loops (RFD 032).
+	// Excluding OTLP receiver and gRPC ports ensures Beyla doesn't trace its
+	// own exporter traffic.
+	excludePorts := fmt.Sprintf("%d,%d,%d,%d,%d",
+		constants.DefaultOTLPGRPCPort,
+		constants.DefaultOTLPHTTPPort,
+		constants.DefaultBeylaHTTPPort,
+		constants.DefaultColonyPort,
+		constants.DefaultAgentPort,
+	)
+	cfg.Discovery.ExcludePorts = excludePorts
+
+	// Discovery: open ports and service maps.
+	if len(m.config.Discovery.OpenPorts) > 0 || len(m.config.Discovery.ServiceMap) > 0 {
 		servicePorts := make(map[string][]string)
 		var unnamedPorts []string
 
+		// Process explicit OpenPorts list.
 		for _, port := range m.config.Discovery.OpenPorts {
 			portStr := strconv.Itoa(port)
-			if name, ok := m.config.Discovery.ServiceMap[port]; ok && name != "" {
+			if name, ok := m.config.Discovery.ServiceMap[port]; ok && name != "" && name != "-" {
 				servicePorts[name] = append(servicePorts[name], portStr)
 			} else {
 				unnamedPorts = append(unnamedPorts, portStr)
 			}
 		}
 
+		// Process any remaining ports in ServiceMap not in OpenPorts.
+		for port, name := range m.config.Discovery.ServiceMap {
+			var found bool
+			for _, p := range m.config.Discovery.OpenPorts {
+				if p == port {
+					found = true
+					break
+				}
+			}
+			if !found && name != "" && name != "-" {
+				servicePorts[name] = append(servicePorts[name], strconv.Itoa(port))
+			}
+		}
+
 		type instrumentRule struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-			Name      string `yaml:"name,omitempty"`
+			OpenPorts      string `yaml:"open_ports,omitempty"`
+			ExecutableName string `yaml:"executable_name,omitempty"`
+			Name           string `yaml:"name,omitempty"`
 		}
 
 		// Create rules for named services.
@@ -707,19 +737,27 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
 		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-			Name      string `yaml:"name,omitempty"`
-		}{ExeName: name})
+			OpenPorts      string `yaml:"open_ports,omitempty"`
+			ExecutableName string `yaml:"executable_name,omitempty"`
+			Name           string `yaml:"name,omitempty"`
+		}{
+			ExecutableName: name,
+		})
 	}
 
-	// Add special rule for container-shared mode if requested (RFD 053/084).
-	if m.config.MonitorAll {
+	// Add catch-all rule for container-shared mode if requested (RFD 053/084).
+	// Only add the catch-all when there are no named per-service rules. When
+	// named rules and the catch-all coexist, Beyla tries to attach eBPF probes
+	// to the same processes twice (once per matching rule), causing probe
+	// conflicts that result in zero spans captured.
+	if m.config.MonitorAll && len(cfg.Discovery.Services) == 0 {
 		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-			Name      string `yaml:"name,omitempty"`
-		}{OpenPorts: "1-65535"})
+			OpenPorts      string `yaml:"open_ports,omitempty"`
+			ExecutableName string `yaml:"executable_name,omitempty"`
+			Name           string `yaml:"name,omitempty"`
+		}{
+			OpenPorts: "1-65535",
+		})
 		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
 	}
 

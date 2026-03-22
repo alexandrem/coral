@@ -3,12 +3,17 @@ package beyla
 
 // beylaConfig represents Beyla's YAML configuration structure.
 type beylaConfig struct {
-	LogLevel  string `yaml:"log_level,omitempty"`
-	Discovery struct {
+	LogLevel           string `yaml:"log_level,omitempty"`
+	ContextPropagation string `yaml:"context_propagation,omitempty"`
+	Discovery          struct {
+		ExcludePorts    string `yaml:"exclude_ports,omitempty"`
+		ExcludeServices []struct {
+			Exe string `yaml:"exe,omitempty"`
+		} `yaml:"exclude_services,omitempty"`
 		Services []struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-			Name      string `yaml:"name,omitempty"`
+			OpenPorts      string `yaml:"open_ports,omitempty"`
+			ExecutableName string `yaml:"executable_name,omitempty"`
+			Name           string `yaml:"name,omitempty"`
 		} `yaml:"services,omitempty"`
 	} `yaml:"discovery,omitempty"`
 	Attributes struct {

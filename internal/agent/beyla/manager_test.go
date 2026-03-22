@@ -3,6 +3,8 @@ package beyla
 import (
 	"context"
 	"database/sql"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -472,5 +474,131 @@ func TestPortsEqual(t *testing.T) {
 				t.Errorf("portsEqual(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGenerateBeylaConfigNoCatchAllWithNamedRules(t *testing.T) {
+	// Regression test: when named per-service rules exist, the MonitorAll
+	// catch-all (open_ports: "1-65535") must NOT be added. When both named
+	// rules and the catch-all are present, Beyla attaches eBPF probes to the
+	// same processes twice, causing conflicts that result in zero spans captured.
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{
+		Enabled:    true,
+		DB:         db,
+		MonitorAll: true,
+		Discovery: DiscoveryConfig{
+			OpenPorts:  []int{8080, 8090},
+			ServiceMap: map[int]string{8080: "cpu-app", 8090: "otel-app"},
+		},
+	}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	configPath, err := mgr.generateBeylaConfig()
+	if err != nil {
+		t.Fatalf("generateBeylaConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read generated config: %v", err)
+	}
+	_ = os.Remove(configPath)
+
+	content := string(data)
+	if strings.Contains(content, "1-65535") {
+		t.Errorf("generated Beyla config contains catch-all rule (1-65535) alongside named rules; "+
+			"this causes eBPF probe conflicts and zero spans.\nConfig:\n%s", content)
+	}
+	if !strings.Contains(content, "cpu-app") || !strings.Contains(content, "otel-app") {
+		t.Errorf("generated Beyla config missing named service rules.\nConfig:\n%s", content)
+	}
+}
+
+func TestGenerateBeylaConfigMonitorAllFallback(t *testing.T) {
+	// When MonitorAll is set but no named rules exist, the catch-all must still
+	// be added so all processes are instrumented.
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{
+		Enabled:    true,
+		DB:         db,
+		MonitorAll: true,
+	}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	configPath, err := mgr.generateBeylaConfig()
+	if err != nil {
+		t.Fatalf("generateBeylaConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read generated config: %v", err)
+	}
+	_ = os.Remove(configPath)
+
+	if !strings.Contains(string(data), "1-65535") {
+		t.Errorf("generated Beyla config missing catch-all rule (1-65535) for MonitorAll mode.\nConfig:\n%s", string(data))
+	}
+}
+
+func TestGenerateBeylaConfigContextPropagation(t *testing.T) {
+	// Regression test: generated Beyla config must always include
+	// context_propagation: all so that Beyla injects and extracts W3C
+	// traceparent headers. Without this, parent_span_id is always empty and
+	// topology materialisation produces no edges.
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{
+		Enabled: true,
+		DB:      db,
+		Discovery: DiscoveryConfig{
+			OpenPorts: []int{8080},
+		},
+	}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	configPath, err := mgr.generateBeylaConfig()
+	if err != nil {
+		t.Fatalf("generateBeylaConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read generated config: %v", err)
+	}
+	_ = os.Remove(configPath)
+
+	if !strings.Contains(string(data), "context_propagation: all") {
+		t.Errorf("generated Beyla config missing context_propagation: all; topology will not work.\nConfig:\n%s", data)
 	}
 }

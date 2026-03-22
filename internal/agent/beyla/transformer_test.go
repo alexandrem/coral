@@ -311,15 +311,21 @@ func TestBeylaConfig(t *testing.T) {
 		LogLevel: "info",
 	}
 
+	config.Discovery.ExcludePorts = "4317,4318"
+	config.Discovery.ExcludeServices = []struct {
+		Exe string `yaml:"exe,omitempty"`
+	}{
+		{Exe: "coral-agent"},
+	}
 	config.Discovery.Services = []struct {
-		OpenPorts string `yaml:"open_ports,omitempty"`
-		ExeName   string `yaml:"exe_name,omitempty"`
-		Name      string `yaml:"name,omitempty"`
+		OpenPorts      string `yaml:"open_ports,omitempty"`
+		ExecutableName string `yaml:"executable_name,omitempty"`
+		Name           string `yaml:"name,omitempty"`
 	}{
 		{
-			OpenPorts: "8080-9090",
-			ExeName:   "my-app",
-			Name:      "test-service",
+			OpenPorts:      "8080-9090",
+			ExecutableName: "my-app",
+			Name:           "test-service",
 		},
 	}
 

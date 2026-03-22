@@ -1,0 +1,5 @@
+services:
+  - name: cpu-app
+    port: 8080
+  - name: otel-app
+    port: 8090

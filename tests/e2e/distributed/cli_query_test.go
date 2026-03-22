@@ -342,6 +342,10 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	// fresh Beyla spans are always available — this handles cases where the
 	// otel-app container restarted mid-suite and Beyla's eBPF uprobes needed
 	// time to re-attach to the new process.
+	//
+	// The loop requires BOTH "otel-app" AND "cpu-app" to avoid false positives:
+	// previously it broke on "otel-app" alone, which matched "coral-agent → otel-app"
+	// (agent health-check edge) instead of the real "otel-app → cpu-app" topology edge.
 	const (
 		topologyTimeout  = 320 * time.Second
 		topologyInterval = 5 * time.Second
@@ -360,15 +364,15 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 		}
 
 		result = s.cliEnv.Run(s.ctx, "query", "topology")
-		if result.Err == nil && strings.Contains(result.Output, "otel-app") {
+		if result.Err == nil && strings.Contains(result.Output, "otel-app") && strings.Contains(result.Output, "cpu-app") {
 			break
 		}
 		if time.Now().After(deadline) {
 			s.T().Logf("coral query topology last output:\n%s", result.Output)
-			s.Require().Fail("timed out waiting for otel-app to appear in coral query topology output")
+			s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 			return
 		}
-		s.T().Logf("otel-app not yet in topology output, retrying in %s...", topologyInterval)
+		s.T().Logf("otel-app → cpu-app edge not yet in topology output, retrying in %s...", topologyInterval)
 		time.Sleep(topologyInterval)
 	}
 
