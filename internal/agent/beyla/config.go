@@ -1,19 +1,19 @@
 // Package beyla provides integration with Beyla for eBPF-based observability.
 package beyla
 
-// beylaConfig represents Beyla's YAML configuration structure.
-type beylaConfig struct {
+// BeylaConfig represents Beyla's YAML configuration structure.
+type BeylaConfig struct {
 	LogLevel           string `yaml:"log_level,omitempty"`
 	ContextPropagation string `yaml:"context_propagation,omitempty"`
 	Discovery          struct {
 		ExcludePorts    string `yaml:"exclude_ports,omitempty"`
 		ExcludeServices []struct {
-			Exe string `yaml:"exe,omitempty"`
+			ExePath string `yaml:"exe_path,omitempty"`
 		} `yaml:"exclude_services,omitempty"`
 		Services []struct {
-			OpenPorts      string `yaml:"open_ports,omitempty"`
-			ExecutableName string `yaml:"executable_name,omitempty"`
-			Name           string `yaml:"name,omitempty"`
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExePath   string `yaml:"exe_path,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		} `yaml:"services,omitempty"`
 	} `yaml:"discovery,omitempty"`
 	Attributes struct {

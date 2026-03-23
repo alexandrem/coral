@@ -54,6 +54,7 @@ type Manager struct {
 	configuredPorts  []int       // Currently configured discovery ports
 	debounceTimer    *time.Timer // Timer for debounced restarts
 	debounceInterval time.Duration
+	staticServiceMap map[int]string // Preservation of initial config file mappings (RFD 110).
 }
 
 // BeylaTrace represents a processed Beyla trace ready for Colony.
@@ -157,6 +158,14 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		metricsCh:        make(chan *ebpfpb.EbpfEvent, 100),
 		configuredPorts:  append([]int{}, config.Discovery.OpenPorts...), // Copy initial ports (RFD 053)
 		debounceInterval: constants.DefaultBeylaDebounceInterval,         // Default debounce window (RFD 053)
+		staticServiceMap: make(map[int]string),
+	}
+
+	// Capture static mappings (RFD 110).
+	if config.Discovery.ServiceMap != nil {
+		for k, v := range config.Discovery.ServiceMap {
+			m.staticServiceMap[k] = v
+		}
 	}
 
 	// Initialize OTLP receiver storage (RFD 025).
@@ -662,7 +671,7 @@ func (m *Manager) startBeyla() error {
 
 // generateBeylaConfig creates a Beyla YAML config file and returns the path.
 func (m *Manager) generateBeylaConfig() (string, error) {
-	cfg := beylaConfig{
+	cfg := BeylaConfig{
 		LogLevel: "INFO",
 		// Enable W3C Trace Context injection and extraction so Beyla propagates
 		// traceparent headers across service boundaries. Without this, server
@@ -682,6 +691,13 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		constants.DefaultAgentPort,
 	)
 	cfg.Discovery.ExcludePorts = excludePorts
+	cfg.Discovery.ExcludeServices = []struct {
+		ExePath string `yaml:"exe_path,omitempty"`
+	}{
+		{ExePath: ".*coral-agent.*"},
+		{ExePath: ".*coral-colony.*"},
+		{ExePath: ".*beyla.*"},
+	}
 
 	// Discovery: open ports and service maps.
 	if len(m.config.Discovery.OpenPorts) > 0 || len(m.config.Discovery.ServiceMap) > 0 {
@@ -713,9 +729,9 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		}
 
 		type instrumentRule struct {
-			OpenPorts      string `yaml:"open_ports,omitempty"`
-			ExecutableName string `yaml:"executable_name,omitempty"`
-			Name           string `yaml:"name,omitempty"`
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExePath   string `yaml:"exe_path,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}
 
 		// Create rules for named services.
@@ -737,28 +753,28 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
 		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
-			OpenPorts      string `yaml:"open_ports,omitempty"`
-			ExecutableName string `yaml:"executable_name,omitempty"`
-			Name           string `yaml:"name,omitempty"`
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExePath   string `yaml:"exe_path,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}{
-			ExecutableName: name,
+			ExePath: name,
 		})
 	}
 
 	// Add catch-all rule for container-shared mode if requested (RFD 053/084).
-	// Only add the catch-all when there are no named per-service rules. When
-	// named rules and the catch-all coexist, Beyla tries to attach eBPF probes
-	// to the same processes twice (once per matching rule), causing probe
-	// conflicts that result in zero spans captured.
+	// IMPORTANT: We ONLY add this catch-all if NO other specific rules (ports or names)
+	// were added. If we mix named rules with the 1-65535 catch-all, Beyla attempts
+	// to attach probes to the same processes multiple times, leading to conflicts
+	// and failing to capture any spans.
 	if m.config.MonitorAll && len(cfg.Discovery.Services) == 0 {
 		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
-			OpenPorts      string `yaml:"open_ports,omitempty"`
-			ExecutableName string `yaml:"executable_name,omitempty"`
-			Name           string `yaml:"name,omitempty"`
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExePath   string `yaml:"exe_path,omitempty"`
+			Name      string `yaml:"name,omitempty"`
 		}{
 			OpenPorts: "1-65535",
 		})
-		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
+		m.logger.Info().Msg("MonitorAll enabled and no specific rules provided - using catch-all discovery (ports 1-65535)")
 	}
 
 	// OTLP export endpoint (HTTP Protobuf).
@@ -893,13 +909,22 @@ func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 		return nil
 	}
 
+	// Combine dynamic map with static mappings from config file (RFD 110).
+	mergedMap := make(map[int]string)
+	for k, v := range m.staticServiceMap {
+		mergedMap[k] = v
+	}
+	for k, v := range serviceMap {
+		mergedMap[k] = v
+	}
+
 	// Extract ports and check for changes.
-	ports := make([]int, 0, len(serviceMap))
-	for port := range serviceMap {
+	ports := make([]int, 0, len(mergedMap))
+	for port := range mergedMap {
 		ports = append(ports, port)
 	}
 
-	mappingChanged := !mapsEqual(m.config.Discovery.ServiceMap, serviceMap)
+	mappingChanged := !mapsEqual(m.config.Discovery.ServiceMap, mergedMap)
 
 	if portsEqual(m.configuredPorts, ports) && !mappingChanged {
 		return nil // No changes needed
@@ -908,12 +933,12 @@ func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 	m.logger.Info().
 		Ints("old_ports", m.configuredPorts).
 		Ints("new_ports", ports).
-		Int("mapping_size", len(serviceMap)).
+		Int("mapping_size", len(mergedMap)).
 		Msg("Discovery configuration changed")
 
 	m.configuredPorts = ports
 	m.config.Discovery.OpenPorts = ports
-	m.config.Discovery.ServiceMap = serviceMap
+	m.config.Discovery.ServiceMap = mergedMap
 
 	// Cancel existing debounce timer if any.
 	if m.debounceTimer != nil {

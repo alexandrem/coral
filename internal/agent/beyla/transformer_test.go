@@ -307,25 +307,20 @@ func TestExtractStatusCode(t *testing.T) {
 
 func TestBeylaConfig(t *testing.T) {
 	// Test that beylaConfig struct can be created and fields are accessible
-	config := beylaConfig{
+	config := BeylaConfig{
 		LogLevel: "info",
 	}
 
 	config.Discovery.ExcludePorts = "4317,4318"
-	config.Discovery.ExcludeServices = []struct {
-		Exe string `yaml:"exe,omitempty"`
-	}{
-		{Exe: "coral-agent"},
-	}
 	config.Discovery.Services = []struct {
-		OpenPorts      string `yaml:"open_ports,omitempty"`
-		ExecutableName string `yaml:"executable_name,omitempty"`
-		Name           string `yaml:"name,omitempty"`
+		OpenPorts string `yaml:"open_ports,omitempty"`
+		ExePath   string `yaml:"exe_path,omitempty"`
+		Name      string `yaml:"name,omitempty"`
 	}{
 		{
-			OpenPorts:      "8080-9090",
-			ExecutableName: "my-app",
-			Name:           "test-service",
+			OpenPorts: "8080-9090",
+			ExePath:   "my-app",
+			Name:      "test-service",
 		},
 	}
 
@@ -349,7 +344,7 @@ func TestBeylaConfig(t *testing.T) {
 }
 
 func TestBeylaConfigWithExports(t *testing.T) {
-	config := beylaConfig{}
+	config := BeylaConfig{}
 
 	// Test OTEL traces export
 	config.OtelTracesExport = &struct {

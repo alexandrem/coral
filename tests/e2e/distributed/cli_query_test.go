@@ -372,6 +372,12 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 			s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 			return
 		}
+		// Debug: print current Beyla config if it's taking too long
+		if time.Since(deadline.Add(-topologyTimeout)) > 50*time.Second {
+			if cfg, err := s.fixture.GetBeylaConfig(s.ctx, "agent-0"); err == nil {
+				s.T().Logf("Current Beyla config on agent-0:\n%s", cfg)
+			}
+		}
 		s.T().Logf("otel-app → cpu-app edge not yet in topology output, retrying in %s...", topologyInterval)
 		time.Sleep(topologyInterval)
 	}
