@@ -353,6 +353,13 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	otelAppURL := "http://localhost:8082"
 	chainClient := &http.Client{Timeout: 3 * time.Second}
 	deadline := time.Now().Add(topologyTimeout)
+
+	// Log Beyla config once up front so it appears in CI output regardless of
+	// whether the test times out.
+	if cfg, err := s.fixture.GetBeylaConfig(s.ctx, "agent-0"); err == nil {
+		s.T().Logf("Beyla config on agent-0:\n%s", cfg)
+	}
+
 	var result *helpers.CLIResult
 	for {
 		// Keep generating cross-service calls so there is always fresh traffic
@@ -372,12 +379,6 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 			s.debugBeylaTracesLocal()
 			s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 			return
-		}
-		// Debug: print current Beyla config if it's taking too long
-		if time.Since(deadline.Add(-topologyTimeout)) > 50*time.Second {
-			if cfg, err := s.fixture.GetBeylaConfig(s.ctx, "agent-0"); err == nil {
-				s.T().Logf("Current Beyla config on agent-0:\n%s", cfg)
-			}
 		}
 		s.T().Logf("otel-app → cpu-app edge not yet in topology output, retrying in %s...", topologyInterval)
 		time.Sleep(topologyInterval)
@@ -419,14 +420,13 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	s.T().Log("✓ coral query topology CLI validated with real cross-service connections")
 }
 
-// debugBeylaTracesLocal queries beyla_traces_local on agent-0 and logs the
-// results so CI failures can be diagnosed by inspecting what Beyla actually
-// captured at span-ingestion time.
+// debugBeylaTracesLocal queries beyla_traces_local on the agent that runs
+// otel-app and cpu-app, and also queries the colony's beyla_traces table.
+// Both dumps are logged so CI failures can be diagnosed without local repro.
 func (s *CLIQuerySuite) debugBeylaTracesLocal() {
-	s.T().Log("=== DEBUG: querying beyla_traces_local on agent-0 ===")
+	s.T().Log("=== DEBUG: beyla span ingestion state ===")
 
-	// Build a DuckDB-capable CLI env: the duckdb proxy requires admin auth on
-	// the public HTTPS endpoint rather than the internal colony gRPC port.
+	// The duckdb proxy requires admin auth on the public HTTPS endpoint.
 	token, err := s.fixture.CreateToken(s.ctx, "debug-beyla-traces", "admin")
 	if err != nil {
 		s.T().Logf("DEBUG: could not create admin token: %v", err)
@@ -442,35 +442,67 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	duckdbEnv.ExtraVars["CORAL_INSECURE"] = "true"
 	duckdbEnv.ExtraVars["CORAL_API_TOKEN"] = token
 
-	agentID := "agent-0"
+	// --- Colony-level view (beyla_traces) ---
+	// This works without an agent ID and shows what was successfully polled
+	// from the agent to the colony — a reliable baseline even if agent proxy fails.
+	s.T().Log("--- colony beyla_traces (polled data) ---")
 
-	// 1. Row count — did anything land in the table?
-	countResult := helpers.DuckDBQuery(s.ctx, duckdbEnv, agentID,
-		"SELECT COUNT(*) AS total_spans FROM beyla_traces_local")
-	s.T().Logf("beyla_traces_local row count:\n%s", countResult.Output)
-	if countResult.Err != nil {
-		s.T().Logf("DEBUG: count query error: %v", countResult.Err)
+	colonyCount := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT COUNT(*) AS total FROM beyla_traces")
+	s.T().Logf("colony beyla_traces count:\n%s", colonyCount.Output)
+
+	colonyServices := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
+			"FROM beyla_traces GROUP BY service_name ORDER BY spans DESC")
+	s.T().Logf("colony beyla_traces by service:\n%s", colonyServices.Output)
+
+	// --- Agent-level view (beyla_traces_local) ---
+	// Resolve the real agent ID from the registry rather than assuming "agent-0",
+	// since CI agents may have different IDs (e.g. container hostname).
+	agents, agentErr := helpers.ColonyAgentsJSON(s.ctx, duckdbEnv)
+	if agentErr != nil {
+		s.T().Logf("DEBUG: could not list agents: %v", agentErr)
+	} else {
+		s.T().Logf("DEBUG: registered agents: %v", agents)
 	}
 
-	// 2. Distinct service names and per-service counts.
-	servicesResult := helpers.DuckDBQuery(s.ctx, duckdbEnv, agentID,
-		"SELECT service_name, COUNT(*) AS spans, MIN(start_time) AS first_seen, MAX(start_time) AS last_seen "+
-			"FROM beyla_traces_local GROUP BY service_name ORDER BY spans DESC")
-	s.T().Logf("beyla_traces_local by service:\n%s", servicesResult.Output)
-	if servicesResult.Err != nil {
-		s.T().Logf("DEBUG: services query error: %v", servicesResult.Err)
+	agentID := helpers.GetHealthyAgentID(agents)
+	if agentID == "" {
+		s.T().Log("DEBUG: no healthy agent found; skipping agent-level beyla_traces_local query")
+	} else {
+		s.T().Logf("--- agent %s beyla_traces_local (raw local data) ---", agentID)
+
+		// Pass --database explicitly: the agent only exposes metrics.duckdb (which
+		// contains beyla_traces_local) and the auto-detect step would otherwise
+		// require the colony-proxy /agent/{id}/duckdb/ route to return the list.
+		agentCount := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT COUNT(*) AS total_spans FROM beyla_traces_local",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent beyla_traces_local count:\n%s", agentCount.Output)
+		if agentCount.Err != nil {
+			s.T().Logf("DEBUG: agent count error: %v", agentCount.Err)
+		}
+
+		agentServices := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, COUNT(*) AS spans, MIN(start_time) AS first_seen, MAX(start_time) AS last_seen "+
+				"FROM beyla_traces_local GROUP BY service_name ORDER BY spans DESC",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent beyla_traces_local by service:\n%s", agentServices.Output)
+		if agentServices.Err != nil {
+			s.T().Logf("DEBUG: agent services error: %v", agentServices.Err)
+		}
+
+		agentSample := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, span_name, span_kind, trace_id, span_id, parent_span_id, start_time "+
+				"FROM beyla_traces_local ORDER BY start_time DESC LIMIT 20",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent beyla_traces_local recent spans (up to 20):\n%s", agentSample.Output)
+		if agentSample.Err != nil {
+			s.T().Logf("DEBUG: agent sample error: %v", agentSample.Err)
+		}
 	}
 
-	// 3. Sample of recent rows — enough to see trace/span/parent IDs.
-	sampleResult := helpers.DuckDBQuery(s.ctx, duckdbEnv, agentID,
-		"SELECT service_name, span_name, span_kind, trace_id, span_id, parent_span_id, start_time "+
-			"FROM beyla_traces_local ORDER BY start_time DESC LIMIT 20")
-	s.T().Logf("beyla_traces_local recent spans (up to 20):\n%s", sampleResult.Output)
-	if sampleResult.Err != nil {
-		s.T().Logf("DEBUG: sample query error: %v", sampleResult.Err)
-	}
-
-	s.T().Log("=== END DEBUG beyla_traces_local ===")
+	s.T().Log("=== END DEBUG beyla span ingestion state ===")
 }
 
 // ensureCrossServiceData drives traffic through otel-app's /chain endpoint.
