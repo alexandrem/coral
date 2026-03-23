@@ -445,15 +445,16 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	// --- Colony-level view (beyla_traces) ---
 	// This works without an agent ID and shows what was successfully polled
 	// from the agent to the colony — a reliable baseline even if agent proxy fails.
+	// The colony database is attached as "colony", so tables must be qualified.
 	s.T().Log("--- colony beyla_traces (polled data) ---")
 
 	colonyCount := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
-		"SELECT COUNT(*) AS total FROM beyla_traces")
+		"SELECT COUNT(*) AS total FROM colony.beyla_traces")
 	s.T().Logf("colony beyla_traces count:\n%s", colonyCount.Output)
 
 	colonyServices := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
 		"SELECT service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
-			"FROM beyla_traces GROUP BY service_name ORDER BY spans DESC")
+			"FROM colony.beyla_traces GROUP BY service_name ORDER BY spans DESC")
 	s.T().Logf("colony beyla_traces by service:\n%s", colonyServices.Output)
 
 	// --- Agent-level view (beyla_traces_local) ---
@@ -472,11 +473,16 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	} else {
 		s.T().Logf("--- agent %s beyla_traces_local (raw local data) ---", agentID)
 
+		// The agent database is attached as "agent_<sanitized_id>" where the
+		// sanitized form replaces every non-alphanumeric character with "_".
+		// Tables must be qualified with this alias (DuckDB requirement).
+		dbAlias := "agent_" + sanitizeAgentIDForSQL(agentID)
+
 		// Pass --database explicitly: the agent only exposes metrics.duckdb (which
 		// contains beyla_traces_local) and the auto-detect step would otherwise
 		// require the colony-proxy /agent/{id}/duckdb/ route to return the list.
 		agentCount := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
-			"SELECT COUNT(*) AS total_spans FROM beyla_traces_local",
+			"SELECT COUNT(*) AS total_spans FROM "+dbAlias+".beyla_traces_local",
 			"--database", "metrics.duckdb")
 		s.T().Logf("agent beyla_traces_local count:\n%s", agentCount.Output)
 		if agentCount.Err != nil {
@@ -485,7 +491,7 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 
 		agentServices := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT service_name, COUNT(*) AS spans, MIN(start_time) AS first_seen, MAX(start_time) AS last_seen "+
-				"FROM beyla_traces_local GROUP BY service_name ORDER BY spans DESC",
+				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name ORDER BY spans DESC",
 			"--database", "metrics.duckdb")
 		s.T().Logf("agent beyla_traces_local by service:\n%s", agentServices.Output)
 		if agentServices.Err != nil {
@@ -494,7 +500,7 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 
 		agentSample := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT service_name, span_name, span_kind, trace_id, span_id, parent_span_id, start_time "+
-				"FROM beyla_traces_local ORDER BY start_time DESC LIMIT 20",
+				"FROM "+dbAlias+".beyla_traces_local ORDER BY start_time DESC LIMIT 20",
 			"--database", "metrics.duckdb")
 		s.T().Logf("agent beyla_traces_local recent spans (up to 20):\n%s", agentSample.Output)
 		if agentSample.Err != nil {
@@ -609,4 +615,20 @@ func (s *CLIQuerySuite) disconnectAllServices() {
 		"otel-app",
 		"cpu-app",
 	})
+}
+
+// sanitizeAgentIDForSQL converts an agent ID to the DuckDB alias used when the
+// database is attached, matching the logic in internal/cli/duckdb/helpers.go.
+// Every character that is not a-z, A-Z, or 0-9 is replaced with an underscore.
+func sanitizeAgentIDForSQL(agentID string) string {
+	result := make([]byte, len(agentID))
+	for i := range agentID {
+		ch := agentID[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+			result[i] = ch
+		} else {
+			result[i] = '_'
+		}
+	}
+	return string(result)
 }
