@@ -506,6 +506,28 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 		if agentSample.Err != nil {
 			s.T().Logf("DEBUG: agent sample error: %v", agentSample.Err)
 		}
+
+		// seq_id range per service — critical for diagnosing checkpoint skip bugs.
+		// If otel-app seq_ids are entirely below the traces checkpoint, those spans
+		// were already polled (or skipped due to a stale checkpoint from a prior run).
+		agentSeqIDs := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, MIN(seq_id) AS min_seq, MAX(seq_id) AS max_seq, COUNT(*) AS spans "+
+				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name ORDER BY min_seq",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent beyla_traces_local seq_id ranges by service:\n%s", agentSeqIDs.Output)
+		if agentSeqIDs.Err != nil {
+			s.T().Logf("DEBUG: agent seq_id query error: %v", agentSeqIDs.Err)
+		}
+
+		// Colony traces checkpoint for this agent — shows where polling left off.
+		// If this value is beyond otel-app's max seq_id, those spans were skipped.
+		colonyCheckpoint := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+			"SELECT agent_id, data_type, last_seq_id, session_id, updated_at "+
+				"FROM colony.polling_checkpoints WHERE agent_id = '"+agentID+"' ORDER BY data_type")
+		s.T().Logf("colony polling_checkpoints for agent %s:\n%s", agentID, colonyCheckpoint.Output)
+		if colonyCheckpoint.Err != nil {
+			s.T().Logf("DEBUG: checkpoint query error: %v", colonyCheckpoint.Err)
+		}
 	}
 
 	s.T().Log("=== END DEBUG beyla span ingestion state ===")
