@@ -673,11 +673,11 @@ func (m *Manager) startBeyla() error {
 func (m *Manager) generateBeylaConfig() (string, error) {
 	cfg := BeylaConfig{
 		LogLevel: "INFO",
-		// Enable W3C Trace Context injection and extraction so Beyla propagates
-		// traceparent headers across service boundaries. Without this, server
-		// spans have no parent_span_id and topology materialisation produces no
-		// edges.
-		ContextPropagation: "all",
+		Ebpf: struct {
+			ContextPropagation string `yaml:"context_propagation,omitempty"`
+		}{
+			ContextPropagation: "all",
+		},
 	}
 
 	// Ports to exclude from Beyla instrumentation to prevent feedback loops (RFD 032).
@@ -691,9 +691,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		constants.DefaultAgentPort,
 	)
 	cfg.Discovery.ExcludePorts = excludePorts
-	cfg.Discovery.ExcludeServices = []struct {
-		ExePath string `yaml:"exe_path,omitempty"`
-	}{
+	cfg.Discovery.ExcludeServices = []ExcludeService{
 		{ExePath: ".*coral-agent.*"},
 		{ExePath: ".*coral-colony.*"},
 		{ExePath: ".*beyla.*"},
@@ -728,15 +726,9 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 			}
 		}
 
-		type instrumentRule struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExePath   string `yaml:"exe_path,omitempty"`
-			Name      string `yaml:"name,omitempty"`
-		}
-
 		// Create rules for named services.
 		for name, ports := range servicePorts {
-			cfg.Discovery.Services = append(cfg.Discovery.Services, instrumentRule{
+			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
 				OpenPorts: strings.Join(ports, ","),
 				Name:      name,
 			})
@@ -744,7 +736,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 
 		// Create catch-all rules for unnamed ports.
 		if len(unnamedPorts) > 0 {
-			cfg.Discovery.Services = append(cfg.Discovery.Services, instrumentRule{
+			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
 				OpenPorts: strings.Join(unnamedPorts, ","),
 			})
 		}
@@ -752,11 +744,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
-		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExePath   string `yaml:"exe_path,omitempty"`
-			Name      string `yaml:"name,omitempty"`
-		}{
+		cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
 			ExePath: name,
 		})
 	}
@@ -767,11 +755,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	// to attach probes to the same processes multiple times, leading to conflicts
 	// and failing to capture any spans.
 	if m.config.MonitorAll && len(cfg.Discovery.Services) == 0 {
-		cfg.Discovery.Services = append(cfg.Discovery.Services, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExePath   string `yaml:"exe_path,omitempty"`
-			Name      string `yaml:"name,omitempty"`
-		}{
+		cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
 			OpenPorts: "1-65535",
 		})
 		m.logger.Info().Msg("MonitorAll enabled and no specific rules provided - using catch-all discovery (ports 1-65535)")

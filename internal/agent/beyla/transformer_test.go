@@ -310,13 +310,10 @@ func TestBeylaConfig(t *testing.T) {
 	config := BeylaConfig{
 		LogLevel: "info",
 	}
+	config.Ebpf.ContextPropagation = "all"
 
 	config.Discovery.ExcludePorts = "4317,4318"
-	config.Discovery.Services = []struct {
-		OpenPorts string `yaml:"open_ports,omitempty"`
-		ExePath   string `yaml:"exe_path,omitempty"`
-		Name      string `yaml:"name,omitempty"`
-	}{
+	config.Discovery.Services = []InstrumentRule{
 		{
 			OpenPorts: "8080-9090",
 			ExePath:   "my-app",
@@ -328,6 +325,10 @@ func TestBeylaConfig(t *testing.T) {
 
 	if config.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want %q", config.LogLevel, "info")
+	}
+
+	if config.Ebpf.ContextPropagation != "all" {
+		t.Errorf("ContextPropagation = %q, want %q", config.Ebpf.ContextPropagation, "all")
 	}
 
 	if len(config.Discovery.Services) != 1 {

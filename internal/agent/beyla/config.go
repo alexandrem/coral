@@ -1,20 +1,28 @@
 // Package beyla provides integration with Beyla for eBPF-based observability.
 package beyla
 
+// ExcludeService defines a process exclusion rule.
+type ExcludeService struct {
+	ExePath string `yaml:"exe_path,omitempty"`
+}
+
+// InstrumentRule defines a process discovery/instrumentation rule.
+type InstrumentRule struct {
+	OpenPorts string `yaml:"open_ports,omitempty"`
+	ExePath   string `yaml:"exe_path,omitempty"`
+	Name      string `yaml:"name,omitempty"`
+}
+
 // BeylaConfig represents Beyla's YAML configuration structure.
 type BeylaConfig struct {
-	LogLevel           string `yaml:"log_level,omitempty"`
-	ContextPropagation string `yaml:"context_propagation,omitempty"`
-	Discovery          struct {
-		ExcludePorts    string `yaml:"exclude_ports,omitempty"`
-		ExcludeServices []struct {
-			ExePath string `yaml:"exe_path,omitempty"`
-		} `yaml:"exclude_services,omitempty"`
-		Services []struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExePath   string `yaml:"exe_path,omitempty"`
-			Name      string `yaml:"name,omitempty"`
-		} `yaml:"services,omitempty"`
+	LogLevel string `yaml:"log_level,omitempty"`
+	Ebpf     struct {
+		ContextPropagation string `yaml:"context_propagation,omitempty"`
+	} `yaml:"ebpf,omitempty"`
+	Discovery struct {
+		ExcludePorts    string           `yaml:"exclude_ports,omitempty"`
+		ExcludeServices []ExcludeService `yaml:"exclude_services,omitempty"`
+		Services        []InstrumentRule `yaml:"services,omitempty"`
 	} `yaml:"discovery,omitempty"`
 	Attributes struct {
 		Kubernetes struct {

@@ -25,21 +25,15 @@ func TestBeylaConfigValidation(t *testing.T) {
 
 	// 1. Create a representative BeylaConfig following the pattern in manager.go.
 	cfg := beyla.BeylaConfig{
-		LogLevel:           "INFO",
-		ContextPropagation: "all",
+		LogLevel: "INFO",
 	}
+	cfg.Ebpf.ContextPropagation = "all"
 	cfg.Discovery.ExcludePorts = "4317,4318,4320,9000,9001"
-	cfg.Discovery.ExcludeServices = []struct {
-		ExePath string `yaml:"exe_path,omitempty"`
-	}{
+	cfg.Discovery.ExcludeServices = []beyla.ExcludeService{
 		{ExePath: ".*coral-agent.*"},
 	}
 
-	cfg.Discovery.Services = []struct {
-		OpenPorts string `yaml:"open_ports,omitempty"`
-		ExePath   string `yaml:"exe_path,omitempty"`
-		Name      string `yaml:"name,omitempty"`
-	}{
+	cfg.Discovery.Services = []beyla.InstrumentRule{
 		{OpenPorts: "8080", Name: "cpu-app"},
 		{OpenPorts: "8090", Name: "otel-app"},
 		{OpenPorts: "1-65535"}, // Catch-all rule
