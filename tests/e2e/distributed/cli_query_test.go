@@ -452,10 +452,29 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 		"SELECT COUNT(*) AS total FROM colony.beyla_traces")
 	s.T().Logf("colony beyla_traces count:\n%s", colonyCount.Output)
 
+	// Group by (agent_id, service_name) — confirms which agent's spans reached the
+	// colony and whether cpu-app + otel-app are stored under the same agent_id.
 	colonyServices := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT agent_id, service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
+			"FROM colony.beyla_traces GROUP BY agent_id, service_name ORDER BY agent_id, spans DESC")
+	s.T().Logf("colony beyla_traces by agent+service:\n%s", colonyServices.Output)
+
+	// service_connections shows what MaterializeConnections last derived.
+	colonyConns := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT from_service, to_service, protocol, connection_count, last_observed "+
+			"FROM colony.service_connections ORDER BY last_observed DESC")
+	s.T().Logf("colony service_connections:\n%s", colonyConns.Output)
+
+	// otel_spans holds spans from the OTLP SDK path (not Beyla eBPF).
+	// If otel-app spans went here instead of beyla_traces, the JOIN in
+	// MaterializeConnections would never find them.
+	colonyOtelSpans := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
 		"SELECT service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
-			"FROM colony.beyla_traces GROUP BY service_name ORDER BY spans DESC")
-	s.T().Logf("colony beyla_traces by service:\n%s", colonyServices.Output)
+			"FROM colony.otel_spans GROUP BY service_name ORDER BY spans DESC")
+	s.T().Logf("colony otel_spans by service (OTLP path):\n%s", colonyOtelSpans.Output)
+	if colonyOtelSpans.Err != nil {
+		s.T().Logf("DEBUG: otel_spans query error (table may not exist): %v", colonyOtelSpans.Err)
+	}
 
 	// --- Agent-level view (beyla_traces_local) ---
 	// Resolve the real agent ID from the registry rather than assuming "agent-0",
