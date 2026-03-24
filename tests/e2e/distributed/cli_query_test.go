@@ -538,6 +538,45 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 			s.T().Logf("DEBUG: agent seq_id query error: %v", agentSeqIDs.Err)
 		}
 
+		// otel-app span_kind breakdown — reveals whether Beyla captures CLIENT spans
+		// (outgoing calls to cpu-app) or only SERVER/INTERNAL spans.
+		// CLIENT spans are required for MaterializeConnections: it self-joins on
+		// child.parent_span_id = parent.span_id, where parent is the CLIENT span.
+		otelSpanKinds := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT span_kind, COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local "+
+				"WHERE service_name='otel-app' GROUP BY span_kind ORDER BY cnt DESC",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent otel-app spans by span_kind:\n%s", otelSpanKinds.Output)
+		if otelSpanKinds.Err != nil {
+			s.T().Logf("DEBUG: otel span_kind query error: %v", otelSpanKinds.Err)
+		}
+
+		// Sample of the oldest otel-app spans — shows what was first captured and
+		// whether CLIENT spans are linked to cpu-app SERVER spans via trace_id.
+		otelSample := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, span_name, span_kind, trace_id, span_id, parent_span_id, start_time, seq_id "+
+				"FROM "+dbAlias+".beyla_traces_local WHERE service_name='otel-app' ORDER BY seq_id ASC LIMIT 10",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent otel-app oldest spans (seq order):\n%s", otelSample.Output)
+		if otelSample.Err != nil {
+			s.T().Logf("DEBUG: otel sample query error: %v", otelSample.Err)
+		}
+
+		// Cross-service span linkage — counts how many otel-app CLIENT spans have
+		// matching cpu-app SERVER spans in the agent's local DB.
+		// If this is 0, the topology JOIN can never succeed regardless of
+		// how many spans reach the colony.
+		crossServiceJoin := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT COUNT(*) AS linked_pairs FROM "+dbAlias+".beyla_traces_local otel "+
+				"JOIN "+dbAlias+".beyla_traces_local cpu "+
+				"ON otel.span_id = cpu.parent_span_id AND otel.trace_id = cpu.trace_id "+
+				"WHERE otel.service_name='otel-app' AND cpu.service_name='cpu-app'",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent otel-app→cpu-app linked span pairs:\n%s", crossServiceJoin.Output)
+		if crossServiceJoin.Err != nil {
+			s.T().Logf("DEBUG: cross-service join query error: %v", crossServiceJoin.Err)
+		}
+
 		// Colony traces checkpoint for this agent — shows where polling left off.
 		// If this value is beyond otel-app's max seq_id, those spans were skipped.
 		colonyCheckpoint := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
