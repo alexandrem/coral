@@ -50,7 +50,11 @@ var (
 
 func main() {
 	// Setup OpenTelemetry.
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log.Printf("otel-app starting (waiting 5s for Beyla uprobes)...")
+	time.Sleep(5 * time.Second)
 
 	// Get OTLP endpoint from environment or use default.
 	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -419,10 +423,13 @@ func handleChain(w http.ResponseWriter, r *http.Request) {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
+			log.Printf("[chain] TraceID=%s, error=%v", sc.TraceID(), err)
 			http.Error(w, "upstream call failed", http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
+
+		log.Printf("[chain] TraceID=%s, upstream_status=%d", sc.TraceID(), resp.StatusCode)
 
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","upstream_status":%d}`, resp.StatusCode)
