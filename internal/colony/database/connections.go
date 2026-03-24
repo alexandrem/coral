@@ -33,8 +33,8 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 
 	query := `
 		WITH joined_traces AS (
-			SELECT  parent.service_name AS from_service,
-					child.service_name  AS to_service,
+			SELECT  LOWER(parent.service_name) AS from_service,
+					LOWER(child.service_name)  AS to_service,
 					'http'              AS protocol,
 					COUNT(*)            AS connection_count,
 					MIN(child.start_time) AS first_observed,
@@ -43,7 +43,7 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			JOIN beyla_traces parent
 				ON  child.trace_id       = parent.trace_id
 				AND child.parent_span_id = parent.span_id
-			WHERE   child.service_name  != parent.service_name
+			WHERE   LOWER(child.service_name) != LOWER(parent.service_name)
 			AND     child.start_time    >= ?
 			GROUP BY 1, 2, 3
 		)

@@ -477,116 +477,49 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	}
 
 	// --- Agent-level view (beyla_traces_local) ---
-	// Resolve the real agent ID from the registry rather than assuming "agent-0",
-	// since CI agents may have different IDs (e.g. container hostname).
+	// Resolve all agents from the registry and dump their local traces.
 	agents, agentErr := helpers.ColonyAgentsJSON(s.ctx, duckdbEnv)
 	if agentErr != nil {
 		s.T().Logf("DEBUG: could not list agents: %v", agentErr)
-	} else {
-		s.T().Logf("DEBUG: registered agents: %v", agents)
+		return
 	}
 
-	agentID := helpers.GetHealthyAgentID(agents)
-	if agentID == "" {
-		s.T().Log("DEBUG: no healthy agent found; skipping agent-level beyla_traces_local query")
-	} else {
+	for _, agent := range agents {
+		agentID := agent["agent_id"].(string)
 		s.T().Logf("--- agent %s beyla_traces_local (raw local data) ---", agentID)
 
-		// The agent database is attached as "agent_<sanitized_id>" where the
-		// sanitized form replaces every non-alphanumeric character with "_".
-		// Tables must be qualified with this alias (DuckDB requirement).
 		dbAlias := "agent_" + sanitizeAgentIDForSQL(agentID)
 
-		// Pass --database explicitly: the agent only exposes metrics.duckdb (which
-		// contains beyla_traces_local) and the auto-detect step would otherwise
-		// require the colony-proxy /agent/{id}/duckdb/ route to return the list.
 		agentCount := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT COUNT(*) AS total_spans FROM "+dbAlias+".beyla_traces_local",
 			"--database", "metrics.duckdb")
-		s.T().Logf("agent beyla_traces_local count:\n%s", agentCount.Output)
-		if agentCount.Err != nil {
-			s.T().Logf("DEBUG: agent count error: %v", agentCount.Err)
-		}
+		s.T().Logf("agent %s beyla_traces_local count:\n%s", agentID, agentCount.Output)
 
 		agentServices := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT service_name, COUNT(*) AS spans, MIN(start_time) AS first_seen, MAX(start_time) AS last_seen "+
 				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name ORDER BY spans DESC",
 			"--database", "metrics.duckdb")
-		s.T().Logf("agent beyla_traces_local by service:\n%s", agentServices.Output)
-		if agentServices.Err != nil {
-			s.T().Logf("DEBUG: agent services error: %v", agentServices.Err)
-		}
+		s.T().Logf("agent %s beyla_traces_local by service:\n%s", agentID, agentServices.Output)
 
-		agentSample := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
-			"SELECT service_name, span_name, span_kind, trace_id, span_id, parent_span_id, start_time "+
-				"FROM "+dbAlias+".beyla_traces_local ORDER BY start_time DESC LIMIT 20",
-			"--database", "metrics.duckdb")
-		s.T().Logf("agent beyla_traces_local recent spans (up to 20):\n%s", agentSample.Output)
-		if agentSample.Err != nil {
-			s.T().Logf("DEBUG: agent sample error: %v", agentSample.Err)
-		}
-
-		// seq_id range per service — critical for diagnosing checkpoint skip bugs.
-		// If otel-app seq_ids are entirely below the traces checkpoint, those spans
-		// were already polled (or skipped due to a stale checkpoint from a prior run).
-		agentSeqIDs := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
-			"SELECT service_name, MIN(seq_id) AS min_seq, MAX(seq_id) AS max_seq, COUNT(*) AS spans "+
-				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name ORDER BY min_seq",
-			"--database", "metrics.duckdb")
-		s.T().Logf("agent beyla_traces_local seq_id ranges by service:\n%s", agentSeqIDs.Output)
-		if agentSeqIDs.Err != nil {
-			s.T().Logf("DEBUG: agent seq_id query error: %v", agentSeqIDs.Err)
-		}
-
-		// otel-app span_kind breakdown — reveals whether Beyla captures CLIENT spans
-		// (outgoing calls to cpu-app) or only SERVER/INTERNAL spans.
-		// CLIENT spans are required for MaterializeConnections: it self-joins on
-		// child.parent_span_id = parent.span_id, where parent is the CLIENT span.
-		otelSpanKinds := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+		// otel-app client-side span check (the missing link for topology).
+		otelClientSpans := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT span_kind, COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local "+
-				"WHERE service_name='otel-app' GROUP BY span_kind ORDER BY cnt DESC",
+				"WHERE (service_name='otel-app' OR service_name='main') AND span_kind='CLIENT' GROUP BY span_kind",
 			"--database", "metrics.duckdb")
-		s.T().Logf("agent otel-app spans by span_kind:\n%s", otelSpanKinds.Output)
-		if otelSpanKinds.Err != nil {
-			s.T().Logf("DEBUG: otel span_kind query error: %v", otelSpanKinds.Err)
-		}
+		s.T().Logf("agent %s otel-app CLIENT spans:\n%s", agentID, otelClientSpans.Output)
 
-		// Sample of the oldest otel-app spans — shows what was first captured and
-		// whether CLIENT spans are linked to cpu-app SERVER spans via trace_id.
-		otelSample := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
-			"SELECT service_name, span_name, span_kind, trace_id, span_id, parent_span_id, start_time, seq_id "+
-				"FROM "+dbAlias+".beyla_traces_local WHERE service_name='otel-app' ORDER BY seq_id ASC LIMIT 10",
+		// beyla_http metrics check (confirms if Beyla is even seeing HTTP traffic).
+		beylaMetrics := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, http_method, http_route, COUNT(*) AS cnt FROM "+dbAlias+".beyla_http_metrics_local "+
+				"GROUP BY 1, 2, 3",
 			"--database", "metrics.duckdb")
-		s.T().Logf("agent otel-app oldest spans (seq order):\n%s", otelSample.Output)
-		if otelSample.Err != nil {
-			s.T().Logf("DEBUG: otel sample query error: %v", otelSample.Err)
-		}
-
-		// Cross-service span linkage — counts how many otel-app CLIENT spans have
-		// matching cpu-app SERVER spans in the agent's local DB.
-		// If this is 0, the topology JOIN can never succeed regardless of
-		// how many spans reach the colony.
-		crossServiceJoin := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
-			"SELECT COUNT(*) AS linked_pairs FROM "+dbAlias+".beyla_traces_local otel "+
-				"JOIN "+dbAlias+".beyla_traces_local cpu "+
-				"ON otel.span_id = cpu.parent_span_id AND otel.trace_id = cpu.trace_id "+
-				"WHERE otel.service_name='otel-app' AND cpu.service_name='cpu-app'",
-			"--database", "metrics.duckdb")
-		s.T().Logf("agent otel-app→cpu-app linked span pairs:\n%s", crossServiceJoin.Output)
-		if crossServiceJoin.Err != nil {
-			s.T().Logf("DEBUG: cross-service join query error: %v", crossServiceJoin.Err)
-		}
-
-		// Colony traces checkpoint for this agent — shows where polling left off.
-		// If this value is beyond otel-app's max seq_id, those spans were skipped.
-		colonyCheckpoint := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
-			"SELECT agent_id, data_type, last_seq_id, session_id, updated_at "+
-				"FROM colony.polling_checkpoints WHERE agent_id = '"+agentID+"' ORDER BY data_type")
-		s.T().Logf("colony polling_checkpoints for agent %s:\n%s", agentID, colonyCheckpoint.Output)
-		if colonyCheckpoint.Err != nil {
-			s.T().Logf("DEBUG: checkpoint query error: %v", colonyCheckpoint.Err)
-		}
+		s.T().Logf("agent %s beyla_http_metrics_local summary:\n%s", agentID, beylaMetrics.Output)
 	}
+
+	// colony polling_checkpoints for ALL agents.
+	colonyCheckpoints := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT agent_id, data_type, last_seq_id, session_id, updated_at FROM colony.polling_checkpoints ORDER BY agent_id")
+	s.T().Logf("colony polling_checkpoints:\n%s", colonyCheckpoints.Output)
 
 	s.T().Log("=== END DEBUG beyla span ingestion state ===")
 }
