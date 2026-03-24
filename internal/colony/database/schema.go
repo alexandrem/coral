@@ -195,7 +195,7 @@ var schemaDDL = []string{
 		duration_us BIGINT NOT NULL,
 		status_code SMALLINT,
 		attributes TEXT,
-		PRIMARY KEY (trace_id, span_id)
+		PRIMARY KEY (agent_id, service_name, trace_id, span_id)
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time ON beyla_traces(service_name, start_time DESC)`,

@@ -41,7 +41,8 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 					MAX(child.start_time) AS last_observed
 			FROM beyla_traces child
 			JOIN beyla_traces parent
-				ON  child.trace_id       = parent.trace_id
+				ON  child.agent_id       = parent.agent_id
+				AND child.trace_id       = parent.trace_id
 				AND child.parent_span_id = parent.span_id
 			WHERE   LOWER(child.service_name) != LOWER(parent.service_name)
 			AND     child.start_time    >= ?

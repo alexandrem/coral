@@ -50,12 +50,12 @@ type beylaSQLMetricDB struct {
 type beylaTraceDB struct {
 	TraceID      string    `duckdb:"trace_id,pk"`
 	SpanID       string    `duckdb:"span_id,pk"`
-	ParentSpanID *string   `duckdb:"parent_span_id"`         // Nullable
-	AgentID      string    `duckdb:"agent_id,immutable"`     // Indexed, cannot be updated
-	ServiceName  string    `duckdb:"service_name,immutable"` // Indexed, cannot be updated
+	AgentID      string    `duckdb:"agent_id,pk"`     // RFD 036 partitioning
+	ServiceName  string    `duckdb:"service_name,pk"` // RFD 036 partitioning
+	ParentSpanID *string   `duckdb:"parent_span_id"`  // Nullable
 	SpanName     string    `duckdb:"span_name"`
 	SpanKind     string    `duckdb:"span_kind"`
-	StartTime    time.Time `duckdb:"start_time,immutable"`  // Indexed, cannot be updated
+	StartTime    time.Time `duckdb:"start_time,immutable"`
 	DurationUs   int64     `duckdb:"duration_us,immutable"` // Indexed, cannot be updated
 	StatusCode   int       `duckdb:"status_code"`
 	Attributes   string    `duckdb:"attributes"`
@@ -340,7 +340,7 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 			rejected++
 			continue
 		}
-		key := span.TraceId + "|" + span.SpanId
+		key := agentID + "|" + span.ServiceName + "|" + span.TraceId + "|" + span.SpanId
 		if existing, ok := latest[key]; !ok || span.SeqId >= existing.SeqId {
 			latest[key] = span
 		}

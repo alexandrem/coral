@@ -797,7 +797,7 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 	defer s.mu.RUnlock()
 
 	if maxRecords <= 0 {
-		maxRecords = 1000
+		maxRecords = 10000 // Match DefaultColonyQueryMaxRecords
 	} else if maxRecords > 50000 {
 		maxRecords = 50000
 	}

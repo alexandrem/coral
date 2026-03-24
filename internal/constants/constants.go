@@ -329,7 +329,7 @@ const (
 	DefaultDebugEventBufferSize = 1000
 
 	// DefaultColonyQueryMaxRecords is the default limit for data queries.
-	DefaultColonyQueryMaxRecords = 10000
+	DefaultColonyQueryMaxRecords = 50000
 
 	// DefaultColonyDebugQueryMaxRecords is the default limit for debug queries.
 	DefaultColonyDebugQueryMaxRecords = 5000
