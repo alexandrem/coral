@@ -130,12 +130,12 @@ func TestInjectAutoloadConfig(t *testing.T) {
 		{
 			name:     "empty DSN (in-memory)",
 			dsn:      "",
-			wantAuto: false,
+			wantAuto: true,
 		},
 		{
 			name:     ":memory: DSN",
 			dsn:      ":memory:",
-			wantAuto: false,
+			wantAuto: true,
 		},
 		{
 			name:     "file path without params",
