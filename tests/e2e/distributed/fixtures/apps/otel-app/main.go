@@ -402,7 +402,15 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 // break the JOIN.
 func handleChain(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, cpuAppURL+"/", nil)
+		// Extract incoming TraceID (provided by OTel SDK).
+		sc := trace.SpanContextFromContext(r.Context())
+
+		// Create a clean context with ONLY the TraceID (no active OTel span).
+		// This ensures Beyla uses the same TraceID for its CLIENT span
+		// and propagates it, allowing for correct JOINs.
+		cleanCtx := trace.ContextWithSpanContext(context.Background(), sc)
+
+		req, err := http.NewRequestWithContext(cleanCtx, http.MethodGet, cpuAppURL+"/", nil)
 		if err != nil {
 			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
 			return

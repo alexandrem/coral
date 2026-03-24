@@ -53,17 +53,17 @@ type beylaSQLMetricDB struct {
 }
 
 type beylaTraceDB struct {
-	TraceID      string    `duckdb:"trace_id,pk"`
-	SpanID       string    `duckdb:"span_id,pk"`
-	ParentSpanID string    `duckdb:"parent_span_id,immutable"`
-	AgentID      string    `duckdb:"agent_id,immutable"`
-	ServiceName  string    `duckdb:"service_name,immutable"`
-	SpanName     string    `duckdb:"span_name,immutable"`
-	SpanKind     string    `duckdb:"span_kind,immutable"`
-	StartTime    time.Time `duckdb:"start_time,immutable"`
-	DurationUs   int64     `duckdb:"duration_us,immutable"`
-	StatusCode   int       `duckdb:"status_code,immutable"`
-	Attributes   string    `duckdb:"attributes,immutable"`
+	TraceID      string    `duckdb:"trace_id"`
+	SpanID       string    `duckdb:"span_id"`
+	ParentSpanID string    `duckdb:"parent_span_id"`
+	AgentID      string    `duckdb:"agent_id"`
+	ServiceName  string    `duckdb:"service_name"`
+	SpanName     string    `duckdb:"span_name"`
+	SpanKind     string    `duckdb:"span_kind"`
+	StartTime    time.Time `duckdb:"start_time"`
+	DurationUs   int64     `duckdb:"duration_us"`
+	StatusCode   int       `duckdb:"status_code"`
+	Attributes   string    `duckdb:"attributes"`
 	CreatedAt    time.Time `duckdb:"created_at,immutable"`
 }
 
@@ -201,7 +201,7 @@ func (s *BeylaStorage) initSchema() error {
 	// Beyla distributed traces (RFD 036).
 	tracesSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_traces_local (
-			seq_id         UBIGINT DEFAULT nextval('seq_beyla_traces'),
+			seq_id         UBIGINT PRIMARY KEY DEFAULT nextval('seq_beyla_traces'),
 			trace_id       VARCHAR(32) NOT NULL,
 			span_id        VARCHAR(16) NOT NULL,
 			parent_span_id VARCHAR(16),
@@ -213,8 +213,7 @@ func (s *BeylaStorage) initSchema() error {
 			duration_us    BIGINT NOT NULL,
 			status_code    SMALLINT,
 			attributes     JSON,
-			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (trace_id, span_id)
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time
@@ -473,8 +472,8 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 		CreatedAt:    time.Now(),
 	}
 
-	if err := s.tracesTable.Upsert(ctx, item); err != nil {
-		return fmt.Errorf("failed to upsert trace span: %w", err)
+	if err := s.tracesTable.Insert(ctx, item); err != nil {
+		return fmt.Errorf("failed to insert trace span: %w", err)
 	}
 
 	return nil
@@ -508,8 +507,8 @@ func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceI
 		CreatedAt:    time.Now(),
 	}
 
-	if err := s.tracesTable.Upsert(ctx, item); err != nil {
-		return fmt.Errorf("failed to upsert OTLP span: %w", err)
+	if err := s.tracesTable.Insert(ctx, item); err != nil {
+		return fmt.Errorf("failed to insert OTLP span: %w", err)
 	}
 
 	return nil

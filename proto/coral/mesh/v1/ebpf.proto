@@ -133,6 +133,7 @@ message BeylaTraceSpan {
 
   uint32 status_code = 9;         // HTTP/gRPC status
   map<string, string> attributes = 10;
+  uint64 seq_id = 11;
 }
 
 // EbpfEvent represents a single eBPF event or aggregated summary.

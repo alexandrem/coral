@@ -378,6 +378,7 @@ func (h *ServiceHandler) QueryEbpfMetrics(
 				DurationUs:   span.Duration.AsDuration().Microseconds(),
 				StatusCode:   span.StatusCode,
 				Attributes:   span.Attributes,
+				SeqId:        span.SeqId,
 			})
 		}
 		response.TotalTraces = int32(len(response.TraceSpans))
