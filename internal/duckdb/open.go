@@ -36,36 +36,32 @@ func OpenDB(dsn string) (*sql.DB, error) {
 
 	connector, err := duckdbDriver.NewConnector(dsn, func(execer driver.ExecerContext) error {
 		ctx := context.Background()
-		// Try to load VSS extension with a few retries to handle intermittent network
-		// issues or concurrent installation conflicts in CI.
-		var lastErr error
+
+		// Install VSS once with process-wide serialization to prevent concurrent
+		// downloads or file corruption in CI. Errors are ignored — the extension
+		// may already be installed, and LOAD below will surface any real failure.
+		func() {
+			installMu.Lock()
+			defer installMu.Unlock()
+			_, _ = execer.ExecContext(ctx, "INSTALL vss", nil)
+		}()
+
+		// Retry LOAD to handle transient file-lock or network races after install.
+		var loadErr error
 		for attempt := 1; attempt <= 3; attempt++ {
 			if _, err := execer.ExecContext(ctx, "LOAD vss", nil); err == nil {
-				lastErr = nil
 				break
 			} else {
-				lastErr = err
-				// If LOAD fails, explicitly try INSTALL with process-wide synchronization.
-				if attempt == 1 {
-					func() {
-						installMu.Lock()
-						defer installMu.Unlock()
-						_, _ = execer.ExecContext(ctx, "INSTALL vss", nil)
-					}()
-				}
+				loadErr = err
 				time.Sleep(time.Duration(attempt) * 100 * time.Millisecond)
 			}
 		}
 
-		if lastErr != nil {
-			// Non-fatal if we can't load it, but we should log it for debugging.
-			// Since we don't have a logger here, we can't easily log.
-			// However, the connector init function's error is ignored by go-duckdb?
-			// Actually, it's NOT ignored, but we chose to return nil on line 38.
+		// VSS is non-fatal: the caller degrades gracefully without HNSW support.
+		// Only enable experimental persistence when VSS actually loaded.
+		if loadErr == nil {
+			_, _ = execer.ExecContext(ctx, "SET hnsw_enable_experimental_persistence = true", nil)
 		}
-
-		// Always try to set this, even if VSS failed to load.
-		_, _ = execer.ExecContext(ctx, "SET hnsw_enable_experimental_persistence = true", nil)
 
 		return nil
 	})
@@ -79,12 +75,9 @@ func OpenDB(dsn string) (*sql.DB, error) {
 // injectAutoloadConfig adds autoinstall_known_extensions and
 // autoload_known_extensions to the DSN query parameters if not already set.
 func injectAutoloadConfig(dsn string) string {
-	// Handle empty DSN (in-memory database).
-	if dsn == "" {
+	// Handle in-memory database (empty or explicit ":memory:").
+	if dsn == "" || dsn == ":memory:" {
 		return ":memory:?autoinstall_known_extensions=true&autoload_known_extensions=true"
-	}
-	if dsn == ":memory:" {
-		return dsn + "?autoinstall_known_extensions=true&autoload_known_extensions=true"
 	}
 
 	// Split path from query string.
