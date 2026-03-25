@@ -353,9 +353,10 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 			Msg("Rejected Beyla trace spans with empty TraceID or SpanID")
 	}
 
-	if len(latest) == 0 {
-		return nil
-	}
+	d.logger.Debug().
+		Int("incoming_count", len(spans)).
+		Str("agent_id", agentID).
+		Msg("Processing Beyla trace spans")
 
 	items := make([]*beylaTraceDB, 0, len(latest))
 	for _, span := range latest {
