@@ -121,6 +121,9 @@ type DiscoveryConfig struct {
 
 	// Process name patterns.
 	ProcessNames []string
+
+	// Network interfaces to monitor (default: all + lo).
+	NetworkInterfaces []string
 }
 
 // ProtocolsConfig enables/disables specific protocols.
@@ -683,9 +686,10 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	// Ports to exclude from Beyla instrumentation to prevent feedback loops (RFD 032).
 	// Excluding OTLP receiver and gRPC ports ensures Beyla doesn't trace its
 	// own exporter traffic.
-	excludePorts := fmt.Sprintf("%d,%d,%d,%d,%d",
+	excludePorts := fmt.Sprintf("%d,%d,%d,%d,%d,%d",
 		constants.DefaultOTLPGRPCPort,
 		constants.DefaultOTLPHTTPPort,
+		constants.DefaultBeylaGRPCPort,
 		constants.DefaultBeylaHTTPPort,
 		constants.DefaultColonyPort,
 		constants.DefaultAgentPort,
@@ -740,6 +744,16 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 				OpenPorts: strings.Join(unnamedPorts, ","),
 			})
 		}
+	}
+
+	// Discovery: network interfaces.
+	// We normally default to all interfaces, but loopback (lo) is critical for
+	// service-to-service calls in the same pod (E2E fixtures).
+	// Beyla 1.8+ handles this well if explicitly told or if it defaults to 'all'.
+	if len(m.config.Discovery.NetworkInterfaces) == 0 {
+		cfg.Discovery.NetworkInterfaces = []string{"all", "lo"}
+	} else {
+		cfg.Discovery.NetworkInterfaces = m.config.Discovery.NetworkInterfaces
 	}
 
 	// Discovery: process names (exe_name patterns).

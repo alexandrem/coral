@@ -20,9 +20,10 @@ type BeylaConfig struct {
 		ContextPropagation string `yaml:"context_propagation,omitempty"`
 	} `yaml:"ebpf,omitempty"`
 	Discovery struct {
-		ExcludePorts    string           `yaml:"exclude_ports,omitempty"`
-		ExcludeServices []ExcludeService `yaml:"exclude_services,omitempty"`
-		Services        []InstrumentRule `yaml:"services,omitempty"`
+		ExcludePorts      string           `yaml:"exclude_ports,omitempty"`
+		ExcludeServices   []ExcludeService `yaml:"exclude_services,omitempty"`
+		Services          []InstrumentRule `yaml:"services,omitempty"`
+		NetworkInterfaces []string         `yaml:"network_interfaces,omitempty"`
 	} `yaml:"discovery,omitempty"`
 	Attributes struct {
 		Kubernetes struct {
