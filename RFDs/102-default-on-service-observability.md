@@ -1,7 +1,7 @@
 ---
 rfd: "102"
 title: "Default-On Service Observability"
-state: "draft"
+state: "superseded"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,15 @@ areas: [ "agent", "cli", "service-discovery", "observability" ]
 
 # RFD 102 - Default-On Service Observability
 
-**Status:** 🚧 Draft
+**Status:** ⛔ Superseded
+
+> This RFD has been split into four focused RFDs. Implement those instead:
+>
+> - **RFD 103** — Beyla MonitorAll Dynamic Process Discovery (prerequisite)
+> - **RFD 104** — Default-On Observation (flag changes + OTLP callback)
+> - **RFD 105** — ServiceNameAdaptor and Unified Service Map
+> - **RFD 106** — ServiceStatus Proto Extension
+> - **RFD 107** — `coral services` Root Command
 
 ## Summary
 
