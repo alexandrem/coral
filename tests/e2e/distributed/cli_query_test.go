@@ -456,7 +456,7 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	// colony and whether cpu-app + otel-app are stored under the same agent_id.
 	colonyServices := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
 		"SELECT agent_id, service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
-			"FROM colony.beyla_traces GROUP BY agent_id, service_name ORDER BY agent_id, spans DESC")
+			"FROM colony.beyla_traces GROUP BY agent_id, service_name ORDER BY spans DESC")
 	s.T().Logf("colony beyla_traces by agent+service:\n%s", colonyServices.Output)
 
 	// service_connections shows what MaterializeConnections last derived.
@@ -468,13 +468,11 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	// otel_spans holds spans from the OTLP SDK path (not Beyla eBPF).
 	// If otel-app spans went here instead of beyla_traces, the JOIN in
 	// MaterializeConnections would never find them.
-	colonyOtelSpans := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
-		"SELECT service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
-			"FROM colony.otel_spans GROUP BY service_name ORDER BY spans DESC")
-	s.T().Logf("colony otel_spans by service (OTLP path):\n%s", colonyOtelSpans.Output)
-	if colonyOtelSpans.Err != nil {
-		s.T().Logf("DEBUG: otel_spans query error (table may not exist): %v", colonyOtelSpans.Err)
-	}
+	// otel_summaries holds aggregated metrics.
+	colonyOtelSummaries := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT service_name, COUNT(*) AS cnt, MAX(timestamp) AS last_seen "+
+			"FROM colony.otel_summaries GROUP BY service_name ORDER BY cnt DESC")
+	s.T().Logf("colony otel_summaries by service (aggregated):\n%s", colonyOtelSummaries.Output)
 
 	// --- Agent-level view (beyla_traces_local) ---
 	// Resolve all agents from the registry and dump their local traces.
@@ -495,11 +493,10 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 			"--database", "metrics.duckdb")
 		s.T().Logf("agent %s beyla_traces_local count:\n%s", agentID, agentCount.Output)
 
-		agentServices := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+		agentTraces := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT service_name, COUNT(*) AS spans, MIN(start_time) AS first_seen, MAX(start_time) AS last_seen "+
-				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name ORDER BY spans DESC",
-			"--database", "metrics.duckdb")
-		s.T().Logf("agent %s beyla_traces_local by service:\n%s", agentID, agentServices.Output)
+				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name", "--database", "metrics.duckdb")
+		s.T().Logf("agent %s beyla_traces_local by service:\n%s", agentID, agentTraces.Output)
 
 		// otel-app client-side span check (the missing link for topology).
 		otelClientSpans := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
