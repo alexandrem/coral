@@ -470,7 +470,7 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 	// MaterializeConnections would never find them.
 	// otel_summaries holds aggregated metrics.
 	colonyOtelSummaries := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
-		"SELECT service_name, COUNT(*) AS cnt, MAX(timestamp) AS last_seen "+
+		"SELECT service_name, COUNT(*) AS cnt, MAX(bucket_time) AS last_seen "+
 			"FROM colony.otel_summaries GROUP BY service_name ORDER BY cnt DESC")
 	s.T().Logf("colony otel_summaries by service (aggregated):\n%s", colonyOtelSummaries.Output)
 

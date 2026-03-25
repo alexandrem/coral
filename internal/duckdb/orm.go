@@ -240,9 +240,9 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 
 	// 2. Retry mechanism for conflicts
 	cfg := retry.Config{
-		MaxRetries:     10,
+		MaxRetries:     30,
 		InitialBackoff: 10 * time.Millisecond,
-		MaxBackoff:     500 * time.Millisecond,
+		MaxBackoff:     2 * time.Second,
 		Jitter:         0.1,
 	}
 
