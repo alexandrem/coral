@@ -335,8 +335,12 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 	latest := make(map[string]*agentv1.EbpfTraceSpan)
 	rejected := 0
 	for _, span := range spans {
-		// Mandatory fields for topology (RFD 036).
-		if span.TraceId == "" || span.SpanId == "" {
+		// span_id is mandatory — it is the join key for MaterializeConnections.
+		// trace_id="" is accepted: Beyla's loopback CLIENT span OTLP export omits
+		// the trace_id bytes on some kernels while still generating a valid span_id
+		// and injecting the correct traceparent into the outgoing packet. The
+		// relaxed join in MaterializeConnections handles this case.
+		if span.SpanId == "" {
 			rejected++
 			continue
 		}
@@ -350,7 +354,7 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 		d.logger.Warn().
 			Int("rejected_count", rejected).
 			Str("agent_id", agentID).
-			Msg("Rejected Beyla trace spans with empty TraceID or SpanID")
+			Msg("Rejected Beyla trace spans with empty SpanID")
 	}
 
 	d.logger.Debug().

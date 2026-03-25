@@ -505,6 +505,18 @@ func (s *CLIQuerySuite) debugBeylaTracesLocal() {
 			"--database", "metrics.duckdb")
 		s.T().Logf("agent %s otel-app CLIENT spans:\n%s", agentID, otelClientSpans.Output)
 
+		// trace_id health check: how many otel-app spans have empty trace_id.
+		// If trace_id="" it means Beyla's loopback CLIENT span OTLP export bug is
+		// present — spans will be rejected by InsertBeylaTraces.
+		otelTraceIDCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT (CASE WHEN trace_id='' THEN 'empty' ELSE 'valid' END) AS trace_id_state, "+
+				"(CASE WHEN span_id='' THEN 'empty' ELSE 'valid' END) AS span_id_state, "+
+				"COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local "+
+				"WHERE service_name='otel-app' OR service_name='main' "+
+				"GROUP BY 1, 2",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s otel-app trace_id/span_id health:\n%s", agentID, otelTraceIDCheck.Output)
+
 		// beyla_http metrics check (confirms if Beyla is even seeing HTTP traffic).
 		beylaMetrics := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
 			"SELECT service_name, http_method, http_route, COUNT(*) AS cnt FROM "+dbAlias+".beyla_http_metrics_local "+
