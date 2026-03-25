@@ -91,7 +91,7 @@ func preinstallVSS() {
 		return
 	}
 	tempDB := sql.OpenDB(tempConnector)
-	defer tempDB.Close()
+	defer tempDB.Close() // nolint:errcheck
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
