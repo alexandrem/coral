@@ -3,3 +3,11 @@ services:
     port: 8080
   - name: otel-app
     port: 8090
+
+telemetry:
+  filters:
+    sample_rate: 1.0
+
+beyla:
+  sampling:
+    rate: 1.0
