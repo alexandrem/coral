@@ -391,30 +391,24 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
-// handleChain calls the cpu-app upstream service. Beyla's eBPF interceptor
-// owns the traceparent header for the outgoing call: it creates a CLIENT span
-// for otel-app, injects that span_id as the traceparent parent-id, and the
-// cpu-app SERVER span records it as parent_span_id. This keeps the span_id
-// chain inside beyla_traces consistent so MaterializeConnections' parent-span
-// JOIN can find the cross-service edge.
+// handleChain calls the cpu-app upstream service. The outgoing request uses
+// context.Background() so that no OTel SDK span context is visible to Beyla
+// when it fires its http.Client.Do uprobe. Beyla's eBPF interceptor then owns
+// the traceparent header end-to-end: it generates a fresh trace_id and span_id
+// for the CLIENT span on otel-app, injects traceparent into the outgoing
+// packet, and cpu-app's Beyla uprobe reads that traceparent and sets it as the
+// parent of the SERVER span. Both spans land in beyla_traces_local, get polled
+// into colony.beyla_traces, and the MaterializeConnections parent-span JOIN
+// finds the cross-service edge.
 //
-// The outgoing request uses context.Background() (not the OTel-instrumented
-// request context) so that the active OTel SDK span on the goroutine is not
-// visible to Beyla when it fires its http.Client.Do uprobe. If Beyla sees the
-// OTel span context it may propagate the OTel span_id rather than its own,
-// which would place the parent in otel_spans_local instead of beyla_traces and
-// break the JOIN.
+// Injecting the OTel SDK span context (e.g. via trace.ContextWithSpanContext)
+// causes Beyla's uprobe to read the in-memory traceparent from the request
+// context instead of generating its own. On some kernel versions (e.g. Azure
+// kernel 6.14) this read fails silently, producing trace_id="" in the OTLP
+// export and breaking the JOIN.
 func handleChain(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
-		// Extract incoming TraceID (provided by OTel SDK).
-		sc := trace.SpanContextFromContext(r.Context())
-
-		// Create a clean context with ONLY the TraceID (no active OTel span).
-		// This ensures Beyla uses the same TraceID for its CLIENT span
-		// and propagates it, allowing for correct JOINs.
-		cleanCtx := trace.ContextWithSpanContext(context.Background(), sc)
-
-		req, err := http.NewRequestWithContext(cleanCtx, http.MethodGet, cpuAppURL+"/", nil)
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, cpuAppURL+"/", nil)
 		if err != nil {
 			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
 			return
@@ -423,13 +417,12 @@ func handleChain(w http.ResponseWriter, r *http.Request) {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Printf("[chain] TraceID=%s, error=%v", sc.TraceID(), err)
 			http.Error(w, "upstream call failed", http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
 
-		log.Printf("[chain] TraceID=%s, upstream_status=%d", sc.TraceID(), resp.StatusCode)
+		log.Printf("[chain] upstream_status=%d", resp.StatusCode)
 
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","upstream_status":%d}`, resp.StatusCode)
