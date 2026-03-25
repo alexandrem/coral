@@ -1,6 +1,8 @@
 package database
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -27,51 +29,98 @@ func (d *Database) initSchema() error {
 		return fmt.Errorf("failed to commit schema transaction: %w", err)
 	}
 
-	// Create HNSW index (requires VSS extension to be loaded first).
-	// This is done outside the main transaction.
-	// Wrap in defer/recover to catch any segfaults from VSS extension.
+	// Ensure HNSW index exists and is valid (requires VSS extension to be loaded first).
+	// Done outside the main transaction; wrapped in recover to catch VSS panics.
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				d.logger.Warn().Interface("panic", r).Msg("HNSW index creation panicked, continuing without index")
+				d.logger.Warn().Interface("panic", r).Msg("HNSW index setup panicked, continuing without index")
 			}
 		}()
-		if err := d.createHNSWIndex(); err != nil {
-			d.logger.Warn().Err(err).Msg("Failed to create HNSW index, vector search may be slower")
+		if err := d.ensureHNSWIndex(); err != nil {
+			d.logger.Warn().Err(err).Msg("Failed to ensure HNSW index, vector search may be slower")
 		}
 	}()
 
 	return nil
 }
 
-// createHNSWIndex creates the HNSW index for vector similarity search.
+// ensureHNSWIndex creates the HNSW index if it does not exist, or rebuilds it
+// if a probe reveals it is invalid (e.g. due to a failed WAL replay).
 // This requires the VSS extension to be loaded.
-func (d *Database) createHNSWIndex() error {
-	// Check if we already have the index to avoid recreating it.
+func (d *Database) ensureHNSWIndex() error {
+	// Check catalog for the index.
 	var indexExists bool
-	err := d.db.QueryRow(`
+	if err := d.db.QueryRow(`
 		SELECT COUNT(*) > 0
 		FROM duckdb_indexes()
 		WHERE index_name = 'idx_functions_embedding'
-	`).Scan(&indexExists)
-
-	if err != nil {
-		d.logger.Debug().Err(err).Msg("Could not check if index exists, will attempt creation")
-	} else if indexExists {
-		d.logger.Debug().Msg("HNSW index already exists, skipping creation")
-		return nil
+	`).Scan(&indexExists); err != nil {
+		d.logger.Debug().Err(err).Msg("Could not query duckdb_indexes, will attempt HNSW creation")
 	}
 
-	query := `CREATE INDEX IF NOT EXISTS idx_functions_embedding ON functions
-		USING HNSW (embedding)
-		WITH (metric = 'cosine')`
+	if indexExists {
+		// Probe the index: a WAL-replayed HNSW index may be in the catalog but
+		// corrupt on disk, causing a panic or error on first access.
+		// Note: the probe is best-effort when the table is empty (no on-disk
+		// HNSW data means no corruption is possible).
+		if d.probeHNSWIndex() {
+			d.logger.Debug().Msg("HNSW index exists and is valid")
+			return nil
+		}
 
-	if _, err := d.db.Exec(query); err != nil {
+		// Index is invalid — must drop before recreating.
+		d.logger.Warn().Msg("HNSW index failed probe after WAL replay, rebuilding")
+		if _, err := d.db.Exec(`DROP INDEX IF EXISTS idx_functions_embedding`); err != nil {
+			return fmt.Errorf("failed to drop invalid HNSW index: %w", err)
+		}
+	}
+
+	// CREATE without IF NOT EXISTS: we either never had the index, or just
+	// dropped it above. IF NOT EXISTS would silently succeed if the drop above
+	// somehow left it in place, hiding the problem.
+	if _, err := d.db.Exec(`
+		CREATE INDEX idx_functions_embedding ON functions
+		USING HNSW (embedding)
+		WITH (metric = 'cosine')
+	`); err != nil {
 		return fmt.Errorf("failed to create HNSW index: %w", err)
 	}
 
-	d.logger.Info().Msg("Successfully created HNSW index for vector search")
+	action := "created"
+	if indexExists {
+		action = "rebuilt"
+	}
+	d.logger.Info().Str("action", action).Msg("HNSW index ready for vector search")
 	return nil
+}
+
+// probeHNSWIndex executes a lightweight similarity query to confirm the HNSW
+// index is usable. A corrupt index (e.g. from incomplete WAL replay) typically
+// panics or returns an error on first access; the defer/recover catches both.
+func (d *Database) probeHNSWIndex() (valid bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			d.logger.Warn().Interface("panic", r).Msg("HNSW index probe panicked")
+			valid = false
+		}
+	}()
+
+	// ORDER BY with a cosine distance forces the query planner to load the HNSW
+	// index structure. LIMIT 1 keeps it cheap even for large tables.
+	// QueryRow drives the query to completion; Exec may short-circuit for SELECTs.
+	var name *string
+	err := d.db.QueryRow(`
+		SELECT function_name
+		FROM functions
+		ORDER BY array_cosine_similarity(
+			embedding,
+			(SELECT list_apply(generate_series(0, 383), i -> 0.0::FLOAT)::FLOAT[384])
+		) DESC
+		LIMIT 1
+	`).Scan(&name)
+	// sql.ErrNoRows means the table is empty — not a corruption, probe passed.
+	return err == nil || errors.Is(err, sql.ErrNoRows)
 }
 
 // schemaDDL contains all DDL statements for colony database schema.

@@ -13,43 +13,52 @@ import (
 )
 
 var (
-	// installMu serializes extension installation within the process to avoid
-	// race conditions where multiple connections try to download/install the
-	// same extension simultaneously, which can lead to corruption or
-	// "Unknown index type" errors in DuckDB.
+	// installMu serializes all INSTALL calls (process-wide) to prevent
+	// concurrent downloads that can corrupt the extension cache.
 	installMu sync.Mutex
+
+	// preinstallVSSOnce ensures the global VSS installation (which populates
+	// the extension directory) happens at most once, even across concurrent
+	// OpenDB calls for different database files.
+	preinstallVSSOnce sync.Once
 )
 
-// OpenDB opens a DuckDB database with autoloading of known extensions enabled.
-// This ensures the VSS extension (providing HNSW indexes) is automatically
-// loaded during WAL replay when the database file is opened, preventing
-// "unknown index type 'HNSW'" errors.
+// OpenDB opens a DuckDB database with robust VSS (HNSW) support.
 //
-// Additionally, a per-connection init function loads VSS and enables
-// experimental HNSW persistence on every pooled connection.
+// It guarantees:
+//   - VSS is pre-installed before opening any disk database that already exists
+//     (critical for WAL replay of HNSW indexes).
+//   - autoinstall + autoload are forced on the DSN so the extension is available
+//     during duckdb_open_ext / WAL replay.
+//   - Every pooled connection explicitly LOADs VSS (with retry) and enables
+//     experimental persistence.
+//
+// VSS loading is non-fatal; the database opens successfully even if the
+// extension is unavailable (e.g. offline, permission issues).
 func OpenDB(dsn string) (*sql.DB, error) {
-	// Inject autoinstall/autoload into the DSN so DuckDB loads the VSS
-	// extension during database open (WAL replay), before any connection
-	// is created. This is the only way to handle HNSW indexes in WAL files
-	// since WAL replay happens inside duckdb_open_ext.
 	dsn = injectAutoloadConfig(dsn)
+
+	// Pre-install VSS once per process for any existing disk database.
+	// This populates the extension cache before WAL replay occurs.
+	if isDiskDatabase(dsn) {
+		preinstallVSSOnce.Do(preinstallVSS)
+	}
 
 	connector, err := duckdbDriver.NewConnector(dsn, func(execer driver.ExecerContext) error {
 		ctx := context.Background()
 
-		// Install VSS once with process-wide serialization to prevent concurrent
-		// downloads or file corruption in CI. Errors are ignored — the extension
-		// may already be installed, and LOAD below will surface any real failure.
+		// INSTALL is idempotent and serialized process-wide.
 		func() {
 			installMu.Lock()
 			defer installMu.Unlock()
 			_, _ = execer.ExecContext(ctx, "INSTALL vss", nil)
 		}()
 
-		// Retry LOAD to handle transient file-lock or network races after install.
+		// LOAD with retry to survive transient races after INSTALL.
 		var loadErr error
 		for attempt := 1; attempt <= 3; attempt++ {
 			if _, err := execer.ExecContext(ctx, "LOAD vss", nil); err == nil {
+				loadErr = nil
 				break
 			} else {
 				loadErr = err
@@ -57,7 +66,6 @@ func OpenDB(dsn string) (*sql.DB, error) {
 			}
 		}
 
-		// VSS is non-fatal: the caller degrades gracefully without HNSW support.
 		// Only enable experimental persistence when VSS actually loaded.
 		if loadErr == nil {
 			_, _ = execer.ExecContext(ctx, "SET hnsw_enable_experimental_persistence = true", nil)
@@ -72,15 +80,40 @@ func OpenDB(dsn string) (*sql.DB, error) {
 	return sql.OpenDB(connector), nil
 }
 
-// injectAutoloadConfig adds autoinstall_known_extensions and
-// autoload_known_extensions to the DSN query parameters if not already set.
+// preinstallVSS forces a one-time global installation of the VSS extension
+// using a throw-away in-memory connection. Errors are ignored (VSS is optional).
+func preinstallVSS() {
+	installMu.Lock()
+	defer installMu.Unlock()
+
+	tempConnector, err := duckdbDriver.NewConnector(":memory:", nil)
+	if err != nil {
+		return
+	}
+	tempDB := sql.OpenDB(tempConnector)
+	defer tempDB.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _ = tempDB.ExecContext(ctx, "INSTALL vss")
+}
+
+// isDiskDatabase returns true for file-based DSNs (not :memory:).
+func isDiskDatabase(dsn string) bool {
+	if dsn == "" || dsn == ":memory:" || strings.HasPrefix(dsn, ":memory:") {
+		return false
+	}
+	return true
+}
+
+// injectAutoloadConfig forces the two flags required for safe VSS usage
+// (including during WAL replay). It always overrides them to true.
 func injectAutoloadConfig(dsn string) string {
-	// Handle in-memory database (empty or explicit ":memory:").
 	if dsn == "" || dsn == ":memory:" {
 		return ":memory:?autoinstall_known_extensions=true&autoload_known_extensions=true"
 	}
 
-	// Split path from query string.
 	sep := strings.IndexByte(dsn, '?')
 	path := dsn
 	query := ""
@@ -91,14 +124,16 @@ func injectAutoloadConfig(dsn string) string {
 
 	params, err := url.ParseQuery(query)
 	if err != nil {
-		// If we can't parse, return original DSN unchanged.
+		// Malformed query is rare; return original DSN unchanged.
 		return dsn
 	}
 
-	if !params.Has("autoinstall_known_extensions") {
+	// Set the flags only when the caller has not already specified them,
+	// so that explicit user overrides (e.g. autoload=false) are preserved.
+	if params.Get("autoinstall_known_extensions") == "" {
 		params.Set("autoinstall_known_extensions", "true")
 	}
-	if !params.Has("autoload_known_extensions") {
+	if params.Get("autoload_known_extensions") == "" {
 		params.Set("autoload_known_extensions", "true")
 	}
 
