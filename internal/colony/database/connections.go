@@ -59,8 +59,9 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 					MAX(child.start_time) AS last_observed
 			FROM beyla_traces child
 			JOIN beyla_traces parent
-				ON (child.parent_span_id = parent.span_id OR 
-				     (child.trace_id = parent.trace_id AND child.trace_id != '') OR
+				ON (child.parent_span_id = parent.span_id OR
+				     (child.trace_id = parent.trace_id AND child.trace_id != '' AND
+				      parent.span_kind = 'CLIENT' AND child.span_kind = 'SERVER') OR
 				     (parent.span_kind = 'CLIENT' AND child.span_kind = 'SERVER' AND
 				      ABS(EXTRACT(EPOCH FROM child.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent.start_time::TIMESTAMP)) <= 2.0))
 
