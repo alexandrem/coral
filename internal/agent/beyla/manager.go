@@ -732,8 +732,12 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 
 		// Create rules for named services.
 		for name, ports := range servicePorts {
+			// Combining OpenPorts and ExePath ensures we instrument the whole process.
+			// OpenPorts handles incoming traffic on specific ports.
+			// ExePath ensures we instrument all outgoing calls regardless of port.
 			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
 				OpenPorts: strings.Join(ports, ","),
+				ExePath:   ".*" + name + ".*",
 				Name:      name,
 			})
 		}
@@ -751,7 +755,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	// service-to-service calls in the same pod (E2E fixtures).
 	// Beyla 1.8+ handles this well if explicitly told or if it defaults to 'all'.
 	if len(m.config.Discovery.NetworkInterfaces) == 0 {
-		cfg.Discovery.NetworkInterfaces = []string{"all", "lo"}
+		cfg.Discovery.NetworkInterfaces = []string{"all"}
 	} else {
 		cfg.Discovery.NetworkInterfaces = m.config.Discovery.NetworkInterfaces
 	}

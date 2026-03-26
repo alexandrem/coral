@@ -875,6 +875,7 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 			StartTime:    timestamppb.New(startTime),
 			Duration:     durationpb.New(duration),
 			StatusCode:   uint32(statusCode), // #nosec G115
+			SeqId:        seqID,
 			Attributes:   attrs,
 		}
 		spans = append(spans, span)

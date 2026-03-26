@@ -334,12 +334,10 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 	// statement (even with ON CONFLICT), it may fail with a conflict error.
 	latest := make(map[string]*agentv1.EbpfTraceSpan)
 	rejected := 0
+	incomingByService := make(map[string]int)
 	for _, span := range spans {
+		incomingByService[span.ServiceName]++
 		// span_id is mandatory — it is the join key for MaterializeConnections.
-		// trace_id="" is accepted: Beyla's loopback CLIENT span OTLP export omits
-		// the trace_id bytes on some kernels while still generating a valid span_id
-		// and injecting the correct traceparent into the outgoing packet. The
-		// relaxed join in MaterializeConnections handles this case.
 		if span.SpanId == "" {
 			rejected++
 			continue
@@ -350,20 +348,35 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 		}
 	}
 
+	dedupedByService := make(map[string]int)
+	for _, span := range latest {
+		dedupedByService[span.ServiceName]++
+	}
+
 	if rejected > 0 {
+		rejectedBySvc := make(map[string]int)
+		for _, span := range spans {
+			if span.SpanId == "" {
+				rejectedBySvc[span.ServiceName]++
+			}
+		}
 		d.logger.Warn().
-			Int("rejected_count", rejected).
+			Int("rejected_total", rejected).
+			Interface("rejected_by_service", rejectedBySvc).
 			Str("agent_id", agentID).
-			Msg("Rejected Beyla trace spans with empty SpanID")
+			Msg("Rejected Beyla trace spans (missing SpanID - check instrumentation target)")
 	}
 
 	d.logger.Debug().
 		Int("incoming_count", len(spans)).
+		Interface("incoming_by_service", incomingByService).
+		Interface("deduped_by_service", dedupedByService).
 		Str("agent_id", agentID).
 		Msg("Processing Beyla trace spans")
 
 	items := make([]*beylaTraceDB, 0, len(latest))
 	for _, span := range latest {
+		// ... (rest of the loop)
 		startTime := time.UnixMilli(span.StartTime)
 
 		// Convert attributes to JSON.
@@ -374,7 +387,6 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 
 		var parentSpanID *string
 		if span.ParentSpanId != "" {
-			// Copy to safely point
 			p := span.ParentSpanId
 			parentSpanID = &p
 		}
@@ -394,8 +406,21 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 		})
 	}
 
+	minSeq, maxSeq := uint64(0), uint64(0)
+	if len(spans) > 0 {
+		minSeq, maxSeq = spans[0].SeqId, spans[0].SeqId
+		for _, s := range spans {
+			if s.SeqId < minSeq {
+				minSeq = s.SeqId
+			}
+			if s.SeqId > maxSeq {
+				maxSeq = s.SeqId
+			}
+		}
+	}
+
 	if err := d.beylaTracesTable.BatchUpsert(ctx, items); err != nil {
-		return fmt.Errorf("failed to batch upsert trace spans: %w", err)
+		return fmt.Errorf("failed to batch upsert trace spans (incoming: %d, items: %d, seq: %d-%d): %w", len(spans), len(items), minSeq, maxSeq, err)
 	}
 
 	d.logger.Debug().
