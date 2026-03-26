@@ -154,7 +154,7 @@ var schemaDDL = []string{
 		agent_id VARCHAR NOT NULL,
 		service_name TEXT NOT NULL,
 		span_name TEXT NOT NULL,
-		span_kind VARCHAR(10),
+		span_kind VARCHAR,
 		start_time TIMESTAMPTZ NOT NULL,
 		duration_us BIGINT NOT NULL,
 		status_code SMALLINT,
