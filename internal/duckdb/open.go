@@ -24,5 +24,11 @@ func OpenDB(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	return sql.OpenDB(connector), nil
+	db := sql.OpenDB(connector)
+	// DuckDB does not support concurrent writes well, and standard database/sql parallel
+	// connections will result in 'TransactionContext Error: Conflict on update' errors
+	// and lock contention. Restricting to a single connection prevents these issues.
+	db.SetMaxOpenConns(1)
+
+	return db, nil
 }
