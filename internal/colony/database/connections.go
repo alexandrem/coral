@@ -65,7 +65,11 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 				      child.parent_span_id != '' AND
 				      NOT EXISTS (SELECT 1 FROM beyla_traces p2 WHERE p2.span_id = child.parent_span_id)) OR
 				     (UPPER(parent.span_kind) = 'CLIENT' AND UPPER(child.span_kind) = 'SERVER' AND
-				      (parent.trace_id = '' OR child.trace_id = '') AND
+				      (parent.trace_id = '' OR child.trace_id = '' OR
+				       NOT EXISTS (SELECT 1 FROM beyla_traces x
+				                   WHERE x.trace_id = parent.trace_id
+				                     AND UPPER(x.span_kind) = 'SERVER'
+				                     AND LOWER(x.service_name) != LOWER(parent.service_name))) AND
 				      ABS(EXTRACT(EPOCH FROM child.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent.start_time::TIMESTAMP)) <= 2.0))
 
 			WHERE   LOWER(child.service_name) != LOWER(parent.service_name)
