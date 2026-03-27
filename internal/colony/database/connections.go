@@ -50,37 +50,87 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	//    but the specific parent_span_id link was lost or a middle span (e.g. CLIENT)
 	//    was not captured.
 	query := `
-		WITH joined_traces AS (
-			SELECT  LOWER(parent.service_name) AS from_service,
-					LOWER(child.service_name)  AS to_service,
-					'http'              AS protocol,
-					COUNT(*)            AS connection_count,
-					MIN(child.start_time) AS first_observed,
-					MAX(child.start_time) AS last_observed
-			FROM beyla_traces child
-			JOIN beyla_traces parent
-				ON (child.parent_span_id = parent.span_id OR
-				     (child.trace_id = parent.trace_id AND child.trace_id != '' AND
-				      UPPER(parent.span_kind) = 'CLIENT' AND UPPER(child.span_kind) = 'SERVER' AND
-				      child.parent_span_id != '' AND
-				      NOT EXISTS (SELECT 1 FROM beyla_traces p2 WHERE p2.span_id = child.parent_span_id)) OR
-				     (UPPER(parent.span_kind) = 'CLIENT' AND UPPER(child.span_kind) = 'SERVER' AND
-				      (parent.trace_id = '' OR child.trace_id = '' OR
-				       NOT EXISTS (SELECT 1 FROM beyla_traces x
-				                   WHERE x.trace_id = parent.trace_id
-				                     AND UPPER(x.span_kind) = 'SERVER'
-				                     AND LOWER(x.service_name) != LOWER(parent.service_name))) AND
-				      ABS(EXTRACT(EPOCH FROM child.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent.start_time::TIMESTAMP)) <= 2.0))
+		WITH child_spans AS (
+			-- Potential destination spans (we filter by kind within specific strategies below)
+			SELECT * FROM beyla_traces 
+			WHERE start_time >= ?
+		),
+		matches AS (
+			-- STRATEGY 1: Direct parent_span_id link (Precise)
+			-- Both sides were captured and explicitly linked. This is kind-agnostic to 
+			-- support various instrumentation styles and legacy unit tests.
+			SELECT 
+				c.span_id as child_id,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
+				c.start_time,
+				p.start_time as parent_time,
+				1 as priority
+			FROM child_spans c
+			JOIN beyla_traces p ON c.parent_span_id = p.span_id
+			WHERE LOWER(c.service_name) != LOWER(p.service_name)
 
-			WHERE   LOWER(child.service_name) != LOWER(parent.service_name)
+			UNION ALL
 
-			AND     child.start_time    >= ?
+			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
+			-- Used when eBPF context propagation works but the parent span itself was not recorded.
+			SELECT 
+				c.span_id as child_id,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
+				c.start_time,
+				p.start_time as parent_time,
+				2 as priority
+			FROM child_spans c
+			JOIN beyla_traces p ON c.trace_id = p.trace_id
+			WHERE c.trace_id != ''
+			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
+			  AND LOWER(c.service_name) != LOWER(p.service_name)
+			  -- Only fallback if the child actually expected a parent (prevents root spans from matching)
+			  AND c.parent_span_id != ''
+
+			UNION ALL
+
+			-- STRATEGY 3: Time-based correlation (Last resort fallback)
+			-- Handles traces with broken context propagation. Correlation window is 2 seconds.
+			SELECT 
+				c.span_id as child_id,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
+				c.start_time,
+				p.start_time as parent_time,
+				3 as priority
+			FROM child_spans c
+			JOIN beyla_traces p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
+			WHERE UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
+			  AND LOWER(c.service_name) != LOWER(p.service_name)
+			  -- Only use this heuristic if trace-id based matching is not possible
+			  AND (c.trace_id = '' OR p.trace_id = '')
+		),
+		best_matches AS (
+			-- Pick only the best match for each child span to avoid multiplication across strategies.
+			-- If multiple candidates exist within the same priority level, pick the one closest in time.
+			SELECT from_service, to_service, start_time
+			FROM matches
+			QUALIFY row_number() OVER (
+				PARTITION BY child_id 
+				ORDER BY priority ASC, ABS(EXTRACT(EPOCH FROM start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent_time::TIMESTAMP)) ASC
+			) = 1
+		),
+		aggregated AS (
+			SELECT 
+				from_service, 
+				to_service, 
+				'http' as protocol,
+				COUNT(*) as connection_count,
+				MIN(start_time) as first_observed,
+				MAX(start_time) as last_observed
+			FROM best_matches
 			GROUP BY 1, 2, 3
 		)
-
 		INSERT INTO service_connections (from_service, to_service, protocol, connection_count, first_observed, last_observed)
 		SELECT from_service, to_service, protocol, connection_count, first_observed, last_observed
-		FROM joined_traces
+		FROM aggregated
 		ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
 			connection_count = service_connections.connection_count + excluded.connection_count,
 			last_observed    = CASE WHEN EXCLUDED.last_observed > service_connections.last_observed THEN EXCLUDED.last_observed ELSE service_connections.last_observed END
