@@ -43,22 +43,23 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 
 	d.logger.Info().Int("trace_count", count).Msg("Processing traces for materialization")
 
-	// Robust join strategy:
-	// 1. Primary: Use parent_span_id to find direct caller/callee relationships (precise).
-	// 2. Fallback: Use trace_id to correlate different services within the same trace.
-	//    This handles cases where eBPF context propagation works (shared trace_id)
-	//    but the specific parent_span_id link was lost or a middle span (e.g. CLIENT)
-	//    was not captured.
+	// Performance optimization: Pre-filter potential parent spans to a window around 'since'.
+	// This avoids full table scans during the fuzzy matching strategies.
+	candidatesSince := since.Add(-60 * time.Second)
+
 	query := `
-		WITH child_spans AS (
-			-- Potential destination spans (we filter by kind within specific strategies below)
+		WITH candidates AS (
+			-- All spans within the relevant window (since - 60s)
 			SELECT * FROM beyla_traces 
+			WHERE start_time >= ?
+		),
+		child_spans AS (
+			-- Destination spans to be matched (since)
+			SELECT * FROM candidates 
 			WHERE start_time >= ?
 		),
 		matches AS (
 			-- STRATEGY 1: Direct parent_span_id link (Precise)
-			-- Both sides were captured and explicitly linked. This is kind-agnostic to 
-			-- support various instrumentation styles and legacy unit tests.
 			SELECT 
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
@@ -67,13 +68,12 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 				p.start_time as parent_time,
 				1 as priority
 			FROM child_spans c
-			JOIN beyla_traces p ON c.parent_span_id = p.span_id
+			JOIN candidates p ON c.parent_span_id = p.span_id
 			WHERE LOWER(c.service_name) != LOWER(p.service_name)
 
 			UNION ALL
 
 			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
-			-- Used when eBPF context propagation works but the parent span itself was not recorded.
 			SELECT 
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
@@ -82,17 +82,15 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 				p.start_time as parent_time,
 				2 as priority
 			FROM child_spans c
-			JOIN beyla_traces p ON c.trace_id = p.trace_id
+			JOIN candidates p ON c.trace_id = p.trace_id
 			WHERE c.trace_id != ''
 			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
 			  AND LOWER(c.service_name) != LOWER(p.service_name)
-			  -- Only fallback if the child actually expected a parent (prevents root spans from matching)
 			  AND c.parent_span_id != ''
 
 			UNION ALL
 
 			-- STRATEGY 3: Time-based correlation (Last resort fallback)
-			-- Handles traces with broken context propagation. Correlation window is 2 seconds.
 			SELECT 
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
@@ -101,15 +99,11 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 				p.start_time as parent_time,
 				3 as priority
 			FROM child_spans c
-			JOIN beyla_traces p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
+			JOIN candidates p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
 			WHERE UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
 			  AND LOWER(c.service_name) != LOWER(p.service_name)
-			  -- Only use this heuristic if trace-id based matching is not possible
-			  AND (c.trace_id = '' OR p.trace_id = '')
 		),
 		best_matches AS (
-			-- Pick only the best match for each child span to avoid multiplication across strategies.
-			-- If multiple candidates exist within the same priority level, pick the one closest in time.
 			SELECT from_service, to_service, start_time
 			FROM matches
 			QUALIFY row_number() OVER (
@@ -136,7 +130,7 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			last_observed    = CASE WHEN EXCLUDED.last_observed > service_connections.last_observed THEN EXCLUDED.last_observed ELSE service_connections.last_observed END
 	`
 
-	res, err := d.db.ExecContext(ctx, query, since)
+	res, err := d.db.ExecContext(ctx, query, candidatesSince, since)
 	if err != nil {
 		return fmt.Errorf("failed to materialize connections: %w", err)
 	}
