@@ -34,8 +34,11 @@ produces two linked spans in `beyla_traces`:
   `traceparent`'s `parent_span_id`).
 
 Both spans share the same `trace_id`, and the server span's `parent_span_id`
-equals the client span's `span_id`. This parent-child linkage is the only input
-`MaterializeConnections` needs to reconstruct the dependency edge.
+equals the client span's `span_id`. This parent-child linkage is the primary input
+`MaterializeConnections` uses to reconstruct the dependency edge. However, because
+OTel SDKs and Beyla sometimes produce mismatched identifiers, Coral also employs
+fallback correlation strategies (Trace ID and Temporal proximity) to ensure
+topology completeness.
 
 #### Why Beyla Owns the Traceparent
 
@@ -87,45 +90,69 @@ CREATE TABLE IF NOT EXISTS service_connections (
 This table is a **derived, cached view** of `beyla_traces`. It is never written
 by agents; the Colony derives it entirely through `MaterializeConnections`.
 
-### The Materialization Join
+### The Materialization Join: Prioritized Matching
 
 `MaterializeConnections` in `internal/colony/database/connections.go` performs a
-self-join on `beyla_traces`:
+sophisticated join on `beyla_traces` using a three-tier prioritized strategy to
+ensure high-fidelity edges even in complex instrumentation scenarios.
+
+#### Strategy 1: Direct Parent-Span ID (Precise)
+The primary mechanism joins spans where the `parent_span_id` explicitly matches a
+`span_id` of a different service. This is the most accurate method and receives
+top priority.
+
+#### Strategy 2: Trace ID Fallback (Context Recovery)
+If the direct link is broken (common when OTel SDK context leaks into a Beyla-instrumented
+request), Coral matches spans sharing a `trace_id` where one is a `CLIENT` and the other is
+a `SERVER`. This recovers edges that would otherwise be lost due to inconsistent 
+span ID propagation.
+
+#### Strategy 3: Temporal Correlation (Last Resort)
+As a final fallback, Coral correlates `CLIENT` and `SERVER` spans between different 
+services that occur within a tight 2-second window, even if identifiers are missing.
+
+#### Logical Implementation (DuckDB)
 
 ```sql
-INSERT INTO service_connections
-    (from_service, to_service, protocol, first_observed, last_observed, connection_count)
-SELECT
-    parent.service_name   AS from_service,
-    child.service_name    AS to_service,
-    'http'                AS protocol,
-    MIN(child.start_time) AS first_observed,
-    MAX(child.start_time) AS last_observed,
-    COUNT(*)              AS connection_count
-FROM beyla_traces child
-JOIN beyla_traces parent
-    ON  child.trace_id       = parent.trace_id
-    AND child.parent_span_id = parent.span_id
-    AND child.service_name  != parent.service_name
-WHERE child.start_time >= ?
-GROUP BY parent.service_name, child.service_name
-ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
-    last_observed    = EXCLUDED.last_observed,
-    connection_count = EXCLUDED.connection_count
+WITH matches AS (
+    -- STRATEGY 1: Direct parent_span_id link
+    SELECT child.span_id, parent.service_name as from_service, 
+           child.service_name as to_service, 1 as priority
+    FROM beyla_traces child
+    JOIN beyla_traces parent ON child.parent_span_id = parent.span_id
+    WHERE child.service_name != parent.service_name
+
+    UNION ALL
+
+    -- STRATEGY 2: Trace ID match (Fallback)
+    SELECT child.span_id, parent.service_name as from_service, 
+           child.service_name as to_service, 2 as priority
+    FROM beyla_traces child
+    JOIN beyla_traces parent ON child.trace_id = parent.trace_id
+    WHERE parent.span_kind = 'CLIENT' AND child.span_kind = 'SERVER'
+      AND child.service_name != parent.service_name
+),
+best_matches AS (
+    SELECT from_service, to_service
+    FROM matches
+    QUALIFY row_number() OVER (PARTITION BY span_id ORDER BY priority ASC) = 1
+)
+INSERT INTO service_connections ...
+SELECT from_service, to_service, COUNT(*) FROM best_matches GROUP BY 1, 2
+ON CONFLICT DO UPDATE SET 
+    connection_count = service_connections.connection_count + EXCLUDED.connection_count
 ```
 
 **Key mechanics:**
 
-- **Self-join on trace identity.** `child.trace_id = parent.trace_id AND
-  child.parent_span_id = parent.span_id` finds exactly the parent-child span
-  pairs that represent an RPC hop.
-- **Cross-service filter.** `child.service_name != parent.service_name`
-  eliminates intra-service calls (e.g., an internal goroutine calling a helper).
-- **Time window.** `child.start_time >= ?` limits the join to the requested
-  window (default: last hour).
-- **Aggregation.** `GROUP BY (parent.service_name, child.service_name)` collapses
-  thousands of calls into a single edge. `connection_count` is replaced (not
-  incremented) on each upsert to avoid double-counting on cache refreshes.
+- **Deduplication via `QUALIFY`.** Picking the best match per `span_id` ensures
+  that a single RPC call doesn't produce multiple duplicate edges or bidirectional
+  noise.
+- **Incremental Accumulation.** `connection_count` is now incremented (not replaced)
+  to accurately reflect throughput across materialization windows.
+- **Candidates Window.** Materialization uses a rolling "candidates" window 
+  (lookback of 60s from `since`) to ensure parent spans are available for joining
+  without requiring a full table scan.
 
 #### What the L7 Join Does NOT Capture
 
@@ -311,15 +338,16 @@ enum value for each edge.
 ## Data Flow Diagram
 
 ```
-Beyla eBPF (agent)                    ss/netstat Poller (agent)
-  │  captures HTTP/gRPC spans           │  polls active TCP connections
-  ▼                                     ▼
-beyla_traces (agent DuckDB)          netobs.Aggregator
-  │  sequence-based polling (RFD 089)   │  dedup + accumulate metrics
-  ▼                                     ▼
-beyla_traces (colony DuckDB)         ReportConnections RPC stream
-  │  parent-span self-join               │  IP → agent correlation
-  │  MaterializeConnections (TTL 30s)    ▼
+Beyla eBPF (agent)         OTel SDK / OTLP (agent)       ss/netstat Poller (agent)
+  │                            │                             │
+  ▼                            ▼                             ▼
+  └──────────────┬─────────────┘                      netobs.Aggregator
+                 ▼                                           │
+  beyla_traces (agent DuckDB)                                │
+  │  sequence-based polling (RFD 089)                        ▼
+  ▼                                          ReportConnections RPC stream
+beyla_traces (colony DuckDB)                 │  IP → agent correlation
+  │  MaterializeConnections (3-tier fallback)▼
   ▼                                  topology_connections (colony DuckDB)
 service_connections (colony DuckDB)    │
   │                                     │
@@ -356,10 +384,10 @@ topology     tool           consumers
 
 ### Integration Tests
 
-- **`tests/integration/topology_test.go`** — L7 OTel leak fix: validates that
-  broken `parent_span_id` references (from OTel SDK context leaking into the HTTP
-  request) are correctly excluded from materialization while clean Beyla-owned
-  traces produce edges.
+- **`tests/integration/topology_test.go`** — L7 Topology Recovery: validates that
+  previously "broken" context chains (mismatched `parent_span_id` from OTel SDK leaks)
+  are now successfully recovered via the `trace_id` fallback logic, ensuring
+  consistent edge visualization.
 
 ### E2E Tests (`tests/e2e/distributed/`)
 
