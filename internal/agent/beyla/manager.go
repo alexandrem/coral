@@ -467,7 +467,7 @@ func (m *Manager) startOTLPReceiver() error {
 			SampleRate:             sampleRate,
 		},
 		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
-		SpanHandler: m.handleBeylaSpan,
+		SpanHandler: m.HandleSpan,
 	}
 
 	// Create OTLP receiver (storage can be nil since we use SpanHandler).
@@ -502,8 +502,10 @@ func (m *Manager) startOTLPReceiver() error {
 	return nil
 }
 
-// handleBeylaSpan is the SpanHandler callback that routes Beyla traces to beyla_traces_local.
-func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) error {
+// HandleSpan is the SpanHandler callback that routes traces to beyla_traces_local.
+// It is used by both Beyla's internal OTLP receiver and the shared agent OTLP receiver
+// to ensure all raw traces are available for colony-side topology materialization.
+func (m *Manager) HandleSpan(ctx context.Context, span telemetry.Span) error {
 	// Convert duration from ms to microseconds.
 	durationUs := int64(span.DurationMs * 1000)
 

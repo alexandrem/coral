@@ -138,10 +138,12 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 					Msg("OTLP receiver started successfully")
 				result.OTLPReceiver = otlpReceiver
 
-				// Wire up shared OTLP receiver with Beyla for user application metrics.
+				// Wire up shared OTLP receiver with Beyla for user application metrics & traces.
 				if beylaManager := s.agentInstance.GetBeylaManager(); beylaManager != nil {
-					beylaManager.SetSharedOTLPReceiver(otlpReceiver.GetReceiver())
-					s.logger.Info().Msg("Configured Beyla to process user application OTLP metrics")
+					receiver := otlpReceiver.GetReceiver()
+					beylaManager.SetSharedOTLPReceiver(receiver)
+					receiver.SetSpanHandler(beylaManager.HandleSpan)
+					s.logger.Info().Msg("Configured shared OTLP receiver to route raw spans to Beyla storage")
 				}
 			}
 		}

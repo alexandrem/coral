@@ -391,28 +391,22 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
-// handleChain calls the cpu-app upstream service. The outgoing request uses
-// context.Background() so that no OTel SDK span context is visible to Beyla
-// when it fires its http.Client.Do uprobe. Beyla's eBPF interceptor then owns
-// the traceparent header end-to-end: it generates a fresh trace_id and span_id
-// for the CLIENT span on otel-app, injects traceparent into the outgoing
-// packet, and cpu-app's Beyla uprobe reads that traceparent and sets it as the
-// parent of the SERVER span. Both spans land in beyla_traces_local, get polled
-// into colony.beyla_traces, and the MaterializeConnections parent-span JOIN
-// finds the cross-service edge.
-//
-// Injecting the OTel SDK span context (e.g. via trace.ContextWithSpanContext)
-// causes Beyla's uprobe to read the in-memory traceparent from the request
-// context instead of generating its own. On some kernel versions (e.g. Azure
-// kernel 6.14) this read fails silently, producing trace_id="" in the OTLP
-// export and breaking the JOIN.
 func handleChain(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, cpuAppURL+"/", nil)
+		ctx := r.Context()
+
+		// Create the upstream request.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cpuAppURL+"/", nil)
 		if err != nil {
 			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
 			return
 		}
+
+		// Inject the current SDK span context into the outgoing request headers.
+		// This allows the downstream service (cpu-app) to participate in the same trace.
+		// Even if Beyla's eBPF uprobe fails to read this header on some kernels,
+		// the OTel SDK span (now routed to Beyla storage) serves as the parent atlas.
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)

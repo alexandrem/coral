@@ -367,7 +367,7 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 			Msg("Rejected Beyla trace spans (missing SpanID - check instrumentation target)")
 	}
 
-	d.logger.Debug().
+	d.logger.Info().
 		Int("incoming_count", len(spans)).
 		Interface("incoming_by_service", incomingByService).
 		Interface("deduped_by_service", dedupedByService).
@@ -423,7 +423,7 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 		return fmt.Errorf("failed to batch upsert trace spans (incoming: %d, items: %d, seq: %d-%d): %w", len(spans), len(items), minSeq, maxSeq, err)
 	}
 
-	d.logger.Debug().
+	d.logger.Info().
 		Int("span_count", len(spans)).
 		Int("item_count", len(items)).
 		Str("agent_id", agentID).
