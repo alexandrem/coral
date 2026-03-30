@@ -50,7 +50,11 @@ var (
 
 func main() {
 	// Setup OpenTelemetry.
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log.Printf("otel-app starting (waiting 5s for Beyla uprobes)...")
+	time.Sleep(5 * time.Second)
 
 	// Get OTLP endpoint from environment or use default.
 	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -387,26 +391,22 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
-// handleChain calls the cpu-app upstream service. Beyla's eBPF interceptor
-// owns the traceparent header for the outgoing call: it creates a CLIENT span
-// for otel-app, injects that span_id as the traceparent parent-id, and the
-// cpu-app SERVER span records it as parent_span_id. This keeps the span_id
-// chain inside beyla_traces consistent so MaterializeConnections' parent-span
-// JOIN can find the cross-service edge.
-//
-// The outgoing request uses context.Background() (not the OTel-instrumented
-// request context) so that the active OTel SDK span on the goroutine is not
-// visible to Beyla when it fires its http.Client.Do uprobe. If Beyla sees the
-// OTel span context it may propagate the OTel span_id rather than its own,
-// which would place the parent in otel_spans_local instead of beyla_traces and
-// break the JOIN.
 func handleChain(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, cpuAppURL+"/", nil)
+		ctx := r.Context()
+
+		// Create the upstream request.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cpuAppURL+"/", nil)
 		if err != nil {
 			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
 			return
 		}
+
+		// Inject the current SDK span context into the outgoing request headers.
+		// This allows the downstream service (cpu-app) to participate in the same trace.
+		// Even if Beyla's eBPF uprobe fails to read this header on some kernels,
+		// the OTel SDK span (now routed to Beyla storage) serves as the parent atlas.
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
@@ -415,6 +415,8 @@ func handleChain(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer resp.Body.Close()
+
+		log.Printf("[chain] upstream_status=%d", resp.StatusCode)
 
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","upstream_status":%d}`, resp.StatusCode)

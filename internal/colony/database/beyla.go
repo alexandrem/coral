@@ -50,12 +50,12 @@ type beylaSQLMetricDB struct {
 type beylaTraceDB struct {
 	TraceID      string    `duckdb:"trace_id,pk"`
 	SpanID       string    `duckdb:"span_id,pk"`
-	ParentSpanID *string   `duckdb:"parent_span_id"`         // Nullable
-	AgentID      string    `duckdb:"agent_id,immutable"`     // Indexed, cannot be updated
-	ServiceName  string    `duckdb:"service_name,immutable"` // Indexed, cannot be updated
+	AgentID      string    `duckdb:"agent_id,pk"`     // RFD 036 partitioning
+	ServiceName  string    `duckdb:"service_name,pk"` // RFD 036 partitioning
+	ParentSpanID *string   `duckdb:"parent_span_id"`  // Nullable
 	SpanName     string    `duckdb:"span_name"`
 	SpanKind     string    `duckdb:"span_kind"`
-	StartTime    time.Time `duckdb:"start_time,immutable"`  // Indexed, cannot be updated
+	StartTime    time.Time `duckdb:"start_time,immutable"`
 	DurationUs   int64     `duckdb:"duration_us,immutable"` // Indexed, cannot be updated
 	StatusCode   int       `duckdb:"status_code"`
 	Attributes   string    `duckdb:"attributes"`
@@ -68,47 +68,70 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 	}
 
 	var items []*beylaHTTPMetricDB
+	// 1. Deduplicate by (timestamp, agent_id, service_name, method, route, status, bucket)
+	// Beyla may report multiple readings for the same bucket/timestamp in one poll.
+	type key struct {
+		ts     int64
+		svc    string
+		method string
+		route  string
+		status uint32
+		bucket float64
+	}
+	latest := make(map[key]*agentv1.EbpfHttpMetric)
 	for _, metric := range metrics {
-		timestamp := time.UnixMilli(metric.Timestamp)
-
-		// Convert attributes to JSON.
-		attributesJSON, err := json.Marshal(metric.Attributes)
-		if err != nil {
-			return fmt.Errorf("failed to marshal attributes: %w", err)
-		}
-
-		// Insert each histogram bucket as a separate row.
 		for i, bucket := range metric.LatencyBuckets {
-			if i >= len(metric.LatencyCounts) {
+			if i >= len(metric.LatencyCounts) || metric.LatencyCounts[i] == 0 {
+				continue
+			}
+			k := key{
+				ts:     metric.Timestamp,
+				svc:    metric.ServiceName,
+				method: metric.HttpMethod,
+				route:  metric.HttpRoute,
+				status: metric.HttpStatusCode,
+				bucket: bucket,
+			}
+			if existing, ok := latest[k]; !ok || metric.SeqId >= existing.SeqId {
+				latest[k] = metric
+			}
+		}
+	}
+
+	for k, metric := range latest {
+		timestamp := time.UnixMilli(k.ts)
+		// Convert attributes to JSON.
+		attributesJSON, _ := json.Marshal(metric.Attributes)
+
+		// Get count for this bucket.
+		count := uint64(0)
+		for i, b := range metric.LatencyBuckets {
+			if b == k.bucket {
+				count = metric.LatencyCounts[i]
 				break
 			}
-
-			count := metric.LatencyCounts[i]
-			if count == 0 {
-				continue // Skip empty buckets.
-			}
-
-			countInt64, clamped := safe.Uint64ToInt64(count)
-			if clamped {
-				d.logger.Warn().
-					Uint64("original_count", count).
-					Int64("clamped_count", countInt64).
-					Str("agent_id", agentID).
-					Str("service_name", metric.ServiceName).
-					Msg("HTTP metric count exceeded int64 max, clamped")
-			}
-			items = append(items, &beylaHTTPMetricDB{
-				Timestamp:       timestamp,
-				AgentID:         agentID,
-				ServiceName:     metric.ServiceName,
-				HTTPMethod:      metric.HttpMethod,
-				HTTPRoute:       metric.HttpRoute,
-				HTTPStatusCode:  int(metric.HttpStatusCode),
-				LatencyBucketMs: bucket,
-				Count:           countInt64,
-				Attributes:      string(attributesJSON),
-			})
 		}
+
+		countInt64, clamped := safe.Uint64ToInt64(count)
+		if clamped {
+			d.logger.Warn().
+				Uint64("original_count", count).
+				Int64("clamped_count", countInt64).
+				Str("agent_id", agentID).
+				Str("service_name", metric.ServiceName).
+				Msg("HTTP metric count exceeded int64 max, clamped")
+		}
+		items = append(items, &beylaHTTPMetricDB{
+			Timestamp:       timestamp,
+			AgentID:         agentID,
+			ServiceName:     metric.ServiceName,
+			HTTPMethod:      metric.HttpMethod,
+			HTTPRoute:       metric.HttpRoute,
+			HTTPStatusCode:  int(metric.HttpStatusCode),
+			LatencyBucketMs: k.bucket,
+			Count:           countInt64,
+			Attributes:      string(attributesJSON),
+		})
 	}
 
 	if len(items) == 0 {
@@ -135,46 +158,66 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 	}
 
 	var items []*beylaGRPCMetricDB
+	// 1. Deduplicate by (timestamp, agent_id, service_name, method, status, bucket)
+	type key struct {
+		ts     int64
+		svc    string
+		method string
+		status uint32
+		bucket float64
+	}
+	latest := make(map[key]*agentv1.EbpfGrpcMetric)
 	for _, metric := range metrics {
-		timestamp := time.UnixMilli(metric.Timestamp)
-
-		// Convert attributes to JSON.
-		attributesJSON, err := json.Marshal(metric.Attributes)
-		if err != nil {
-			return fmt.Errorf("failed to marshal attributes: %w", err)
-		}
-
-		// Insert each histogram bucket as a separate row.
 		for i, bucket := range metric.LatencyBuckets {
-			if i >= len(metric.LatencyCounts) {
+			if i >= len(metric.LatencyCounts) || metric.LatencyCounts[i] == 0 {
+				continue
+			}
+			k := key{
+				ts:     metric.Timestamp,
+				svc:    metric.ServiceName,
+				method: metric.GrpcMethod,
+				status: metric.GrpcStatusCode,
+				bucket: bucket,
+			}
+			if existing, ok := latest[k]; !ok || metric.SeqId >= existing.SeqId {
+				latest[k] = metric
+			}
+		}
+	}
+
+	for k, metric := range latest {
+		timestamp := time.UnixMilli(k.ts)
+		// Convert attributes to JSON.
+		attributesJSON, _ := json.Marshal(metric.Attributes)
+
+		// Get count for this bucket.
+		count := uint64(0)
+		for i, b := range metric.LatencyBuckets {
+			if b == k.bucket {
+				count = metric.LatencyCounts[i]
 				break
 			}
-
-			count := metric.LatencyCounts[i]
-			if count == 0 {
-				continue // Skip empty buckets.
-			}
-
-			countInt64, clamped := safe.Uint64ToInt64(count)
-			if clamped {
-				d.logger.Warn().
-					Uint64("original_count", count).
-					Int64("clamped_count", countInt64).
-					Str("agent_id", agentID).
-					Str("service_name", metric.ServiceName).
-					Msg("gRPC metric count exceeded int64 max, clamped")
-			}
-			items = append(items, &beylaGRPCMetricDB{
-				Timestamp:       timestamp,
-				AgentID:         agentID,
-				ServiceName:     metric.ServiceName,
-				GRPCMethod:      metric.GrpcMethod,
-				GRPCStatusCode:  int(metric.GrpcStatusCode),
-				LatencyBucketMs: bucket,
-				Count:           countInt64,
-				Attributes:      string(attributesJSON),
-			})
 		}
+
+		countInt64, clamped := safe.Uint64ToInt64(count)
+		if clamped {
+			d.logger.Warn().
+				Uint64("original_count", count).
+				Int64("clamped_count", countInt64).
+				Str("agent_id", agentID).
+				Str("service_name", metric.ServiceName).
+				Msg("gRPC metric count exceeded int64 max, clamped")
+		}
+		items = append(items, &beylaGRPCMetricDB{
+			Timestamp:       timestamp,
+			AgentID:         agentID,
+			ServiceName:     metric.ServiceName,
+			GRPCMethod:      metric.GrpcMethod,
+			GRPCStatusCode:  int(metric.GrpcStatusCode),
+			LatencyBucketMs: k.bucket,
+			Count:           countInt64,
+			Attributes:      string(attributesJSON),
+		})
 	}
 
 	if len(items) == 0 {
@@ -201,46 +244,66 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	}
 
 	var items []*beylaSQLMetricDB
+	// 1. Deduplicate by (timestamp, agent_id, service_name, op, table, bucket)
+	type key struct {
+		ts     int64
+		svc    string
+		op     string
+		table  string
+		bucket float64
+	}
+	latest := make(map[key]*agentv1.EbpfSqlMetric)
 	for _, metric := range metrics {
-		timestamp := time.UnixMilli(metric.Timestamp)
-
-		// Convert attributes to JSON.
-		attributesJSON, err := json.Marshal(metric.Attributes)
-		if err != nil {
-			return fmt.Errorf("failed to marshal attributes: %w", err)
-		}
-
-		// Insert each histogram bucket as a separate row.
 		for i, bucket := range metric.LatencyBuckets {
-			if i >= len(metric.LatencyCounts) {
+			if i >= len(metric.LatencyCounts) || metric.LatencyCounts[i] == 0 {
+				continue
+			}
+			k := key{
+				ts:     metric.Timestamp,
+				svc:    metric.ServiceName,
+				op:     metric.SqlOperation,
+				table:  metric.TableName,
+				bucket: bucket,
+			}
+			if existing, ok := latest[k]; !ok || metric.SeqId >= existing.SeqId {
+				latest[k] = metric
+			}
+		}
+	}
+
+	for k, metric := range latest {
+		timestamp := time.UnixMilli(k.ts)
+		// Convert attributes to JSON.
+		attributesJSON, _ := json.Marshal(metric.Attributes)
+
+		// Get count for this bucket.
+		count := uint64(0)
+		for i, b := range metric.LatencyBuckets {
+			if b == k.bucket {
+				count = metric.LatencyCounts[i]
 				break
 			}
-
-			count := metric.LatencyCounts[i]
-			if count == 0 {
-				continue // Skip empty buckets.
-			}
-
-			countInt64, clamped := safe.Uint64ToInt64(count)
-			if clamped {
-				d.logger.Warn().
-					Uint64("original_count", count).
-					Int64("clamped_count", countInt64).
-					Str("agent_id", agentID).
-					Str("service_name", metric.ServiceName).
-					Msg("SQL metric count exceeded int64 max, clamped")
-			}
-			items = append(items, &beylaSQLMetricDB{
-				Timestamp:       timestamp,
-				AgentID:         agentID,
-				ServiceName:     metric.ServiceName,
-				SQLOperation:    metric.SqlOperation,
-				TableName:       metric.TableName,
-				LatencyBucketMs: bucket,
-				Count:           countInt64,
-				Attributes:      string(attributesJSON),
-			})
 		}
+
+		countInt64, clamped := safe.Uint64ToInt64(count)
+		if clamped {
+			d.logger.Warn().
+				Uint64("original_count", count).
+				Int64("clamped_count", countInt64).
+				Str("agent_id", agentID).
+				Str("service_name", metric.ServiceName).
+				Msg("SQL metric count exceeded int64 max, clamped")
+		}
+		items = append(items, &beylaSQLMetricDB{
+			Timestamp:       timestamp,
+			AgentID:         agentID,
+			ServiceName:     metric.ServiceName,
+			SQLOperation:    metric.SqlOperation,
+			TableName:       metric.TableName,
+			LatencyBucketMs: k.bucket,
+			Count:           countInt64,
+			Attributes:      string(attributesJSON),
+		})
 	}
 
 	if len(items) == 0 {
@@ -260,14 +323,60 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	return nil
 }
 
-// InsertBeylaTraces inserts Beyla trace spans into the database (RFD 036).
 func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans []*agentv1.EbpfTraceSpan) error {
 	if len(spans) == 0 {
 		return nil
 	}
 
-	items := make([]*beylaTraceDB, len(spans))
-	for i, span := range spans {
+	// 1. Deduplicate by (trace_id, span_id) within the batch.
+	// Beyla may report multiple events for the same span (start, update, end).
+	// If DuckDB receives multiple rows for the same PK in a SINGLE BatchUpsert
+	// statement (even with ON CONFLICT), it may fail with a conflict error.
+	latest := make(map[string]*agentv1.EbpfTraceSpan)
+	rejected := 0
+	incomingByService := make(map[string]int)
+	for _, span := range spans {
+		incomingByService[span.ServiceName]++
+		// span_id is mandatory — it is the join key for MaterializeConnections.
+		if span.SpanId == "" {
+			rejected++
+			continue
+		}
+		key := agentID + "|" + span.ServiceName + "|" + span.TraceId + "|" + span.SpanId
+		if existing, ok := latest[key]; !ok || span.SeqId >= existing.SeqId {
+			latest[key] = span
+		}
+	}
+
+	dedupedByService := make(map[string]int)
+	for _, span := range latest {
+		dedupedByService[span.ServiceName]++
+	}
+
+	if rejected > 0 {
+		rejectedBySvc := make(map[string]int)
+		for _, span := range spans {
+			if span.SpanId == "" {
+				rejectedBySvc[span.ServiceName]++
+			}
+		}
+		d.logger.Warn().
+			Int("rejected_total", rejected).
+			Interface("rejected_by_service", rejectedBySvc).
+			Str("agent_id", agentID).
+			Msg("Rejected Beyla trace spans (missing SpanID - check instrumentation target)")
+	}
+
+	d.logger.Info().
+		Int("incoming_count", len(spans)).
+		Interface("incoming_by_service", incomingByService).
+		Interface("deduped_by_service", dedupedByService).
+		Str("agent_id", agentID).
+		Msg("Processing Beyla trace spans")
+
+	items := make([]*beylaTraceDB, 0, len(latest))
+	for _, span := range latest {
+		// ... (rest of the loop)
 		startTime := time.UnixMilli(span.StartTime)
 
 		// Convert attributes to JSON.
@@ -278,12 +387,11 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 
 		var parentSpanID *string
 		if span.ParentSpanId != "" {
-			// Copy to safely point
 			p := span.ParentSpanId
 			parentSpanID = &p
 		}
 
-		items[i] = &beylaTraceDB{
+		items = append(items, &beylaTraceDB{
 			TraceID:      span.TraceId,
 			SpanID:       span.SpanId,
 			ParentSpanID: parentSpanID,
@@ -295,15 +403,29 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 			DurationUs:   span.DurationUs,
 			StatusCode:   int(span.StatusCode),
 			Attributes:   string(attributesJSON),
+		})
+	}
+
+	minSeq, maxSeq := uint64(0), uint64(0)
+	if len(spans) > 0 {
+		minSeq, maxSeq = spans[0].SeqId, spans[0].SeqId
+		for _, s := range spans {
+			if s.SeqId < minSeq {
+				minSeq = s.SeqId
+			}
+			if s.SeqId > maxSeq {
+				maxSeq = s.SeqId
+			}
 		}
 	}
 
 	if err := d.beylaTracesTable.BatchUpsert(ctx, items); err != nil {
-		return fmt.Errorf("failed to batch upsert trace spans: %w", err)
+		return fmt.Errorf("failed to batch upsert trace spans (incoming: %d, items: %d, seq: %d-%d): %w", len(spans), len(items), minSeq, maxSeq, err)
 	}
 
-	d.logger.Debug().
+	d.logger.Info().
 		Int("span_count", len(spans)).
+		Int("item_count", len(items)).
 		Str("agent_id", agentID).
 		Msg("Inserted Beyla trace spans")
 

@@ -1,4 +1,4 @@
-.PHONY: build build-colony build-agent build-all build-dev clean init install install-tools test run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
+.PHONY: build build-colony build-agent build-all build-dev clean init install install-tools test test-integration run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
 
 # Build variables
 BINARY_NAME=coral
@@ -150,13 +150,18 @@ install: build ## Install the binary to $GOPATH/bin
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/
 	@echo "✓ Installed to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 
-test: generate ## Run tests
-	@echo "Running tests..."
+test: generate ## Run unit tests
+	@echo "Running unit tests..."
 	go test ./...
+
+test-integration: generate ## Run integration tests (requires Docker/Colima)
+	@echo "Running integration tests..."
+	@cd tests/integration && go test -v ./...
 
 test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
 	go test -short -count=1 -parallel=8 -coverprofile=coverage.out -covermode=atomic ./... -timeout=10m
+	@cd tests/integration && go test -short -count=1 -parallel=4 ./...
 
 test-linux: ## Run tests in Linux Docker (tests platform-specific code)
 	@echo "Running tests in Linux Docker..."

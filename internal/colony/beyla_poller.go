@@ -157,9 +157,15 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 	}
 	if sqlCheckpoint != nil {
 		sqlSeqID = sqlCheckpoint.LastSeqID
+		if storedSessionID == "" {
+			storedSessionID = sqlCheckpoint.SessionID
+		}
 	}
 	if tracesCheckpoint != nil {
 		tracesSeqID = tracesCheckpoint.LastSeqID
+		if storedSessionID == "" {
+			storedSessionID = tracesCheckpoint.SessionID
+		}
 	}
 
 	// Query agent with sequence-based request.
@@ -184,7 +190,11 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 	}
 
 	// Handle session_id mismatch (agent database was recreated).
-	if storedSessionID != "" && resp.Msg.SessionId != "" && storedSessionID != resp.Msg.SessionId {
+	// storedSessionID is derived from the most recently seen session across all data
+	// types — if any previously stored session differs from the agent's current
+	// session, all checkpoints are stale and must be reset.
+	globalMismatch := storedSessionID != "" && resp.Msg.SessionId != "" && storedSessionID != resp.Msg.SessionId
+	if globalMismatch {
 		p.logger.Warn().
 			Str("agent", agent.AgentID).
 			Str("stored_session", storedSessionID).
@@ -211,7 +221,31 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 		}
 	}
 
+	// Secondary check: catch a stale traces checkpoint when the global mismatch
+	// was not triggered (e.g. HTTP/gRPC checkpoints were absent so storedSessionID
+	// was empty, but the traces checkpoint survived from a previous agent run).
+	// This prevents the traces checkpoint from silently skipping spans whose
+	// seq_ids are below the stale watermark.
 	sessionID := resp.Msg.SessionId
+	if !globalMismatch && sessionID != "" && tracesCheckpoint != nil &&
+		tracesCheckpoint.SessionID != "" && tracesCheckpoint.SessionID != sessionID {
+		p.logger.Warn().
+			Str("agent", agent.AgentID).
+			Str("stale_traces_session", tracesCheckpoint.SessionID).
+			Str("agent_session", sessionID).
+			Msg("Stale traces checkpoint detected, resetting to re-ingest spans from seq 0")
+
+		_ = p.db.ResetPollingCheckpoint(ctx, agent.AgentID, beylaTracesDataType)
+		req.Msg.TracesStartSeqId = 0
+
+		queryCtx3, cancel3 := context.WithTimeout(ctx, agentQueryTimeout)
+		defer cancel3()
+
+		resp, err = client.QueryEbpfMetrics(queryCtx3, req)
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+	}
 
 	// Detect gaps and store metrics per type (RFD 089).
 

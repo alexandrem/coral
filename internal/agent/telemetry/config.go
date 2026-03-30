@@ -8,8 +8,9 @@ import (
 )
 
 // SpanHandler is a callback function for custom span processing.
-// When set, the OTLP receiver calls this instead of storing to default storage.
-// This allows Beyla to intercept spans and store them in beyla_traces_local.
+// When set, the OTLP receiver calls this in addition to storing in default storage.
+// This allows other components (like Beyla) to receive spans while maintaining
+// the standard telemetry storage for tests and common queries.
 type SpanHandler func(ctx context.Context, span Span) error
 
 // Config contains configuration for the OTLP receiver and telemetry processing.
@@ -42,7 +43,7 @@ type Config struct {
 	StorageRetentionHours int
 
 	// SpanHandler is an optional callback for custom span processing.
-	// When set, spans are passed to this handler instead of default storage.
+	// When set, spans are passed to this handler in addition to default storage.
 	// Used by Beyla to route traces to beyla_traces_local table.
 	SpanHandler SpanHandler
 }

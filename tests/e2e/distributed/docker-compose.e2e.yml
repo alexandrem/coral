@@ -34,6 +34,12 @@ services:
       - CORAL_AGENT_BIND_ALL=true
       - CORAL_HEARTBEAT_INTERVAL=5s
       - CORAL_MEMORY_PROFILING_INTERVAL=5s
+    volumes:
+      # Mount explicit per-service config so Beyla gets named rules for cpu-app
+      # (port 8080) and otel-app (port 8090). Without this, --monitor-all uses a
+      # single open_ports: "1-65535" catch-all that groups all processes under one
+      # service name, breaking topology materialisation's service_name inequality check.
+      - ./tests/e2e/distributed/fixtures/agent-0-config.yaml:/etc/coral/agent.yaml:ro
     healthcheck:
       interval: 30s
       timeout: 10s

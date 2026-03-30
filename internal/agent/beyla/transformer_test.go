@@ -307,18 +307,16 @@ func TestExtractStatusCode(t *testing.T) {
 
 func TestBeylaConfig(t *testing.T) {
 	// Test that beylaConfig struct can be created and fields are accessible
-	config := beylaConfig{
+	config := BeylaConfig{
 		LogLevel: "info",
 	}
+	config.Ebpf.ContextPropagation = "all"
 
-	config.Discovery.Services = []struct {
-		OpenPorts string `yaml:"open_ports,omitempty"`
-		ExeName   string `yaml:"exe_name,omitempty"`
-		Name      string `yaml:"name,omitempty"`
-	}{
+	config.Discovery.ExcludePorts = "4317,4318"
+	config.Discovery.Services = []InstrumentRule{
 		{
 			OpenPorts: "8080-9090",
-			ExeName:   "my-app",
+			ExePath:   "my-app",
 			Name:      "test-service",
 		},
 	}
@@ -327,6 +325,10 @@ func TestBeylaConfig(t *testing.T) {
 
 	if config.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want %q", config.LogLevel, "info")
+	}
+
+	if config.Ebpf.ContextPropagation != "all" {
+		t.Errorf("ContextPropagation = %q, want %q", config.Ebpf.ContextPropagation, "all")
 	}
 
 	if len(config.Discovery.Services) != 1 {
@@ -343,7 +345,7 @@ func TestBeylaConfig(t *testing.T) {
 }
 
 func TestBeylaConfigWithExports(t *testing.T) {
-	config := beylaConfig{}
+	config := BeylaConfig{}
 
 	// Test OTEL traces export
 	config.OtelTracesExport = &struct {

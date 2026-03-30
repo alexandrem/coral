@@ -205,6 +205,14 @@ func (r *OTLPReceiver) Stop() error {
 	return nil
 }
 
+// SetSpanHandler sets the function called for each span received.
+// This allows other components (like Beyla) to intercept and route spans.
+func (r *OTLPReceiver) SetSpanHandler(handler func(context.Context, Span) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.config.SpanHandler = handler
+}
+
 // Export implements the OTLP gRPC TraceService.Export method.
 func (w *traceServiceWrapper) Export(
 	ctx context.Context,
@@ -238,26 +246,23 @@ func (w *traceServiceWrapper) Export(
 				}
 
 				// Use custom handler if configured (e.g., Beyla routes to beyla_traces_local).
-				// Otherwise, store in default storage (otel_spans_local).
 				if w.receiver.config.SpanHandler != nil {
 					if err := w.receiver.config.SpanHandler(ctx, span); err != nil {
 						w.receiver.logger.Warn().
 							Err(err).
 							Str("trace_id", span.TraceID).
 							Msg("SpanHandler failed to process span")
-					} else {
-						spansProcessed++
 					}
+				}
+
+				// Always store in default local storage (otel_spans_local).
+				if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
+					w.receiver.logger.Warn().
+						Err(err).
+						Str("trace_id", span.TraceID).
+						Msg("Failed to store span")
 				} else {
-					// Store in local storage (default behavior).
-					if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
-						w.receiver.logger.Warn().
-							Err(err).
-							Str("trace_id", span.TraceID).
-							Msg("Failed to store span")
-					} else {
-						spansProcessed++
-					}
+					spansProcessed++
 				}
 			}
 		}
