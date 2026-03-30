@@ -386,10 +386,11 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 
 	// Always dump beyla span ingestion state so passing and failing runs can be
 	// compared side-by-side in CI logs.
-	s.debugBeylaTracesLocal()
+	// s.debugBeylaTracesLocal()
 
 	if timedOut {
 		s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
+		s.debugBeylaTracesLocal()
 		return
 	}
 
