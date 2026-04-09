@@ -153,6 +153,42 @@ func TestFormatCompactCallGraph(t *testing.T) {
 	})
 }
 
+func TestFormatCompactCallGraphFromJSON(t *testing.T) {
+	t.Run("empty input", func(t *testing.T) {
+		assert.Equal(t, "", formatCompactCallGraphFromJSON(""))
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		assert.Equal(t, "", formatCompactCallGraphFromJSON("not json"))
+	})
+
+	t.Run("empty connections array", func(t *testing.T) {
+		assert.Equal(t, "", formatCompactCallGraphFromJSON(`{"colony_id":"c1","connections":[]}`))
+	})
+
+	t.Run("single connection", func(t *testing.T) {
+		input := `{"colony_id":"c1","connections":[{"from":"api","to":"db","protocol":"HTTP"}]}`
+		assert.Equal(t, "Call graph: api→db (HTTP)", formatCompactCallGraphFromJSON(input))
+	})
+
+	t.Run("multiple connections", func(t *testing.T) {
+		input := `{"colony_id":"c1","connections":[` +
+			`{"from":"api-gateway","to":"user-service","protocol":"HTTP"},` +
+			`{"from":"worker","to":"queue","protocol":"gRPC"}` +
+			`]}`
+		assert.Equal(t, "Call graph: api-gateway→user-service (HTTP), worker→queue (gRPC)", formatCompactCallGraphFromJSON(input))
+	})
+
+	t.Run("service names with hyphens and dots", func(t *testing.T) {
+		input := `{"connections":[{"from":"my-svc.v2","to":"db.primary","protocol":"HTTP"}]}`
+		assert.Equal(t, "Call graph: my-svc.v2→db.primary (HTTP)", formatCompactCallGraphFromJSON(input))
+	})
+
+	t.Run("missing connections key", func(t *testing.T) {
+		assert.Equal(t, "", formatCompactCallGraphFromJSON(`{"colony_id":"c1"}`))
+	})
+}
+
 func TestConversationPersistence(t *testing.T) {
 	// Setup minimalist agent
 	askCfg := &config.AskConfig{
