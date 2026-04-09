@@ -16,34 +16,48 @@ type AgentLookup interface {
 	GetAgent(agentID string) (meshIP string, err error)
 }
 
-// AgentDuckDBProxyHandler reverse-proxies DuckDB HTTP requests from the colony's
-// public endpoint to the target agent's DuckDB server on the WireGuard mesh (RFD 095).
+// AgentDuckDBProxyHandler reverse-proxies DuckDB and Vortex HTTP requests from the
+// colony's public endpoint to the target agent's HTTP server on the WireGuard mesh
+// (RFD 095, RFD 097).
 //
-// Routes: /agent/{agentID}/duckdb[/{rest}]
+// Routes:
+//
+//	/agent/{agentID}/duckdb[/{rest}]  → /duckdb/[{rest}]   on agent port 9001
+//	/agent/{agentID}/vortex[/{rest}]  → /vortex/[{rest}]   on agent port 9001
 //
 // The /agent/{agentID} prefix is stripped before forwarding; the agent receives the
-// request at its own /duckdb[/*] path on port 9001.
+// request at its own path on port 9001.
 type AgentDuckDBProxyHandler struct {
-	registry AgentLookup
-	logger   zerolog.Logger
+	registry  AgentLookup
+	logger    zerolog.Logger
+	agentPort string // port agents listen on; defaults to "9001"
 }
 
-// NewAgentDuckDBProxyHandler creates a proxy handler for /agent/{id}/duckdb/* requests.
+// NewAgentDuckDBProxyHandler creates a proxy handler for /agent/{id}/duckdb/* and
+// /agent/{id}/vortex/* requests.
 func NewAgentDuckDBProxyHandler(registry AgentLookup, logger zerolog.Logger) *AgentDuckDBProxyHandler {
 	return &AgentDuckDBProxyHandler{
-		registry: registry,
-		logger:   logger.With().Str("component", "agent-duckdb-proxy").Logger(),
+		registry:  registry,
+		logger:    logger.With().Str("component", "agent-duckdb-proxy").Logger(),
+		agentPort: "9001",
 	}
 }
 
-// ServeHTTP proxies an incoming /agent/{agentID}/duckdb/* request to the agent.
+// ServeHTTP proxies an incoming /agent/{agentID}/duckdb/* or
+// /agent/{agentID}/vortex/* request to the agent.
 func (h *AgentDuckDBProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Path format: /agent/{agentID}/duckdb[/{rest}]
-	// Split into at most 4 parts: ["agent", "{id}", "duckdb", "{rest}"]
+	// Path format: /agent/{agentID}/{service}[/{rest}]
+	// Split into at most 4 parts: ["agent", "{id}", "{service}", "{rest}"]
 	trimmed := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(trimmed, "/", 4)
 
-	if len(parts) < 3 || parts[0] != "agent" || parts[2] != "duckdb" {
+	if len(parts) < 3 || parts[0] != "agent" {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	service := parts[2]
+	if service != "duckdb" && service != "vortex" {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
@@ -59,35 +73,33 @@ func (h *AgentDuckDBProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		h.logger.Warn().
 			Str("agent_id", agentID).
 			Err(err).
-			Msg("Agent not found for DuckDB proxy request")
+			Msg("Agent not found for proxy request")
 		http.Error(w, fmt.Sprintf("agent not found: %s", agentID), http.StatusNotFound)
 		return
 	}
 
-	// Build target URL: http://{meshIP}:9001
+	// Build target URL: http://{meshIP}:{agentPort}
 	target := &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(meshIP, "9001"),
+		Host:   net.JoinHostPort(meshIP, h.agentPort),
 	}
 
-	// Rewrite path: strip /agent/{agentID} prefix, keep /duckdb/[{rest}].
+	// Rewrite path: strip /agent/{agentID} prefix, keep /{service}/[{rest}].
 	// Always use a trailing slash on the base path to prevent Go's http.ServeMux from
-	// issuing a 301 redirect for /duckdb → /duckdb/. The ReverseProxy passes that
-	// redirect back to the CLI with a relative Location header, which the CLI resolves
-	// against the original proxy URL and ends up hitting the colony's own /duckdb/
-	// endpoint instead of the agent's.
-	forwardedPath := "/duckdb/"
+	// issuing a 301 redirect. The ReverseProxy passes that redirect back to the CLI
+	// with a relative Location header, which the CLI resolves against the original
+	// proxy URL and ends up hitting the colony's own endpoint instead of the agent's.
+	forwardedPath := "/" + service + "/"
 	if len(parts) == 4 && parts[3] != "" {
-		// If there is a rest of the path, join it but ensure we don't accidentally
-		// strip the base slash if parts[3] is empty (already handled by the if).
-		forwardedPath = "/duckdb/" + parts[3]
+		forwardedPath = "/" + service + "/" + parts[3]
 	}
 
 	h.logger.Debug().
 		Str("agent_id", agentID).
 		Str("mesh_ip", meshIP).
+		Str("service", service).
 		Str("forwarded_path", forwardedPath).
-		Msg("Proxying DuckDB request to agent")
+		Msg("Proxying request to agent")
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Director = func(req *http.Request) {
@@ -95,7 +107,7 @@ func (h *AgentDuckDBProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		req.URL.Host = target.Host
 		req.URL.Path = forwardedPath
 		req.URL.RawPath = ""
-		// Preserve query query string (important for some DuckDB features).
+		// Preserve query string (important for ?query= and DuckDB features).
 		req.URL.RawQuery = r.URL.RawQuery
 		req.Host = target.Host
 	}
@@ -103,8 +115,9 @@ func (h *AgentDuckDBProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		h.logger.Warn().
 			Str("agent_id", agentID).
 			Str("mesh_ip", meshIP).
+			Str("service", service).
 			Err(err).
-			Msg("DuckDB proxy request to agent failed")
+			Msg("Proxy request to agent failed")
 		http.Error(w, "agent unreachable", http.StatusBadGateway)
 	}
 

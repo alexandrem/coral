@@ -35,6 +35,7 @@ For more information, see: https://github.com/coral-mesh/coral/blob/main/RFDs/03
 	cmd.AddCommand(NewListAgentsCmd())
 	cmd.AddCommand(NewQueryCmd())
 	cmd.AddCommand(NewShellCmd())
+	cmd.AddCommand(NewExportCmd())
 
 	return cmd
 }

@@ -523,7 +523,24 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 .help        # Show help
 .refresh     # Detach and re-attach databases to refresh data
 .exit        # Exit shell
+
+# Export a table as a Vortex (.vx) snapshot (RFD 097)
+coral duckdb export <agent-id> <table> [-d <database>] [-o <file.vx>]
+coral duckdb export <agent-id> --query "<sql>" [-o <file.vx>]
 ```
+
+### Export Flags (`coral duckdb export`)
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--database` | `-d` | `metrics` | Database name on the agent |
+| `--query` | | | Custom SQL (SELECT only); overrides `<table>` positional arg |
+| `--output` | `-o` | auto-generated | Output file path (e.g. `traces.vx`) |
+
+Auto-generated filename format: `<agent-id>-<table>-<timestamp>.vx`
+
+Returns exit code 1 with a clear message when the agent does not have the Vortex
+DuckDB community extension installed (HTTP 501).
 
 ### Available Databases
 

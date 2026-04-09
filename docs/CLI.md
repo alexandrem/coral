@@ -1464,6 +1464,61 @@ coral duckdb query agent-prod-1 \
 
 ---
 
+### Investigation Snapshots (Vortex Export)
+
+Export a point-in-time snapshot of agent telemetry as a portable
+[Vortex](https://vortex.rs) (`.vx`) file for offline analysis or sharing.
+Vortex is a next-generation columnar format with faster selective column reads
+than Parquet — ideal for the narrow, random-access query patterns used in LLM
+investigation sessions.
+
+**Exported files can be opened without a running agent** using the `vortex`
+Python package or any Apache Arrow-compatible tool.
+
+```bash
+# Export a full table (filename auto-generated)
+coral duckdb export agent-prod-1 beyla_http_metrics_local
+# → Saved 18.2 MB → agent-prod-1-beyla_http_metrics_local-2026-03-11T14-30Z.vx
+
+# Export to a specific file
+coral duckdb export agent-prod-1 beyla_traces_local --output traces.vx
+
+# Export a filtered query
+coral duckdb export agent-prod-1 \
+  --query "SELECT * FROM beyla_http_metrics_local WHERE timestamp > now() - INTERVAL 15 MINUTES" \
+  --output recent.vx
+
+# Specify a non-default database
+coral duckdb export agent-prod-1 beyla_http_metrics_local --database beyla
+```
+
+After export, Coral prints a usage hint:
+
+```
+Saved 18.2 MB → agent-prod-1-beyla_http_metrics_local-2026-03-11T14-30Z.vx
+
+    Open in Python:
+      import vortex
+      tbl = vortex.read("agent-prod-1-beyla_http_metrics_local-2026-03-11T14-30Z.vx").to_arrow()
+```
+
+**Availability**: Requires the community Vortex DuckDB extension to be
+installable on the agent host. The agent installs it on first use from
+`community.duckdb.org`. If unavailable, the command exits with a clear error.
+Check with `curl http://<agent-mesh-ip>:9001/duckdb` — the response includes
+`"vortex_enabled": true/false`.
+
+**Disk safety**: The agent checks available temp-directory space before
+exporting. If the projected write would push utilization above 80%
+(configurable via `agent.storage.vortex_disk_threshold`), the request is
+rejected with a descriptive error.
+
+**Security**: Only `SELECT` queries are accepted via `--query`. Table names
+must be valid identifiers. The same registered-database allowlist as the
+DuckDB proxy applies.
+
+---
+
 ### Interactive SQL Shell
 
 For exploratory analysis, use the interactive shell with readline support,
