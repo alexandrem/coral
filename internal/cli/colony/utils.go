@@ -14,6 +14,7 @@ import (
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/privilege"
 	runtimepkg "github.com/coral-mesh/coral/internal/runtime"
+	"github.com/coral-mesh/coral/pkg/version"
 )
 
 // performPreflightChecks verifies that the system is ready for colony startup.
@@ -99,7 +100,7 @@ func gatherPlatformInfo() map[string]interface{} {
 		Pretty: false,
 	}, "platform-detector")
 
-	detector := runtimepkg.NewDetector(logger, "dev")
+	detector := runtimepkg.NewDetector(logger, version.Version)
 
 	// Detect platform.
 	ctx := context.Background()
