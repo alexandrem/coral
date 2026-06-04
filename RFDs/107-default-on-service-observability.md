@@ -1,5 +1,5 @@
 ---
-rfd: "102"
+rfd: "107"
 title: "Default-On Service Observability"
 state: "superseded"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "agent", "cli", "service-discovery", "observability" ]
 ---
 
-# RFD 102 - Default-On Service Observability
+# RFD 107 - Default-On Service Observability
 
 **Status:** ⛔ Superseded
 
