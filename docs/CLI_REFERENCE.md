@@ -293,6 +293,9 @@ coral query cpu-profile --service <name> [--since <duration>] [--until <duration
 # Historical memory profiles
 coral query memory-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--show-growth] [--show-types] [--format summary|folded]
 
+# Trace-driven CPU/memory profiling (RFD 078)
+coral query trace-profile <trace-id> [--service <name>] [--type cpu|memory] [--top <n>]
+
 # Time range options (all commands):
 #   --since <duration>     # Relative (5m, 1h, 30m, 24h, 1d, 1w)
 
@@ -316,6 +319,11 @@ coral query traces api --source ebpf                 # Only eBPF traces
 coral query traces api --min-duration-ms 500         # Only slow traces (>500ms)
 coral query traces payments-api --since 30m          # Last 30 minutes
 coral query traces api --max-traces 5                # Limit results
+
+# Examples - Trace-Driven Profiling:
+coral query trace-profile abc123def456789            # Correlate CPU profile samples with a specific trace
+coral query trace-profile abc123def456789 --service payment-svc # Filter trace profile to payment service
+coral query trace-profile abc123def456789 --top 5    # Top 5 CPU hotspots per service
 
 # Examples - Logs:
 coral query logs api                                 # All logs for api service
@@ -348,6 +356,7 @@ coral query memory-profile --service api --since 1h --format folded | flamegraph
   from eBPF + OTLP
 - **Traces**: Distributed trace spans with parent-child relationships, source
   annotations (eBPF/OTLP)
+- **Trace Profiles**: Request-level CPU flame graphs correlated with specific trace IDs via `(process_pid, time_window)` join (RFD 078)
 - **Logs**: Application logs from OTLP with filtering and search
 - **Topology**: Live service call graph derived from trace data — which services
   call which, over which protocol, and how often
