@@ -23,17 +23,17 @@ func newTestDatabase(t *testing.T) (*Database, func()) {
 
 // insertCrossServiceSpan inserts a parent span in parentSvc and a child span in childSvc
 // linked by the same trace ID. This represents a single cross-service call.
-func insertCrossServiceSpan(t *testing.T, db *Database, traceID, parentSpanID, childSpanID, parentSvc, childSvc string) {
+func insertCrossServiceSpan(t *testing.T, db *Database, traceID, parentSpanID, childSpanID, parentSvc, childSvc string, offset time.Duration) {
 	t.Helper()
 	ctx := context.Background()
-	now := time.Now()
+	now := time.Now().Add(offset)
 
 	parent := &agentv1.EbpfTraceSpan{
 		TraceId:     traceID,
 		SpanId:      parentSpanID,
 		ServiceName: parentSvc,
 		SpanName:    "GET /api",
-		SpanKind:    "server",
+		SpanKind:    "client",
 		StartTime:   now.UnixMilli(),
 		DurationUs:  1000,
 		StatusCode:  200,
@@ -46,7 +46,7 @@ func insertCrossServiceSpan(t *testing.T, db *Database, traceID, parentSpanID, c
 		ParentSpanId: parentSpanID,
 		ServiceName:  childSvc,
 		SpanName:     "POST /rpc",
-		SpanKind:     "client",
+		SpanKind:     "server",
 		StartTime:    now.UnixMilli(),
 		DurationUs:   500,
 		StatusCode:   200,
@@ -64,6 +64,7 @@ func TestMaterializeConnections_DetectsEdge(t *testing.T) {
 		"parentspan000001",
 		"childspan0000001",
 		"api-gateway", "user-service",
+		0,
 	)
 
 	since := time.Now().Add(-time.Hour)
@@ -146,6 +147,7 @@ func TestMaterializeConnections_AggregatesMultipleCalls(t *testing.T) {
 			"parent0000000"+string(rune('1'+i)),
 			"child00000000"+string(rune('1'+i)),
 			"frontend", "backend",
+			time.Duration(i)*time.Minute,
 		)
 	}
 
@@ -169,6 +171,7 @@ func TestMaterializeConnections_MultipleDistinctEdges(t *testing.T) {
 		"parentspan000010",
 		"childspan0000010",
 		"api-gateway", "user-service",
+		0,
 	)
 	// user-service → postgres
 	insertCrossServiceSpan(t, db,
@@ -176,6 +179,7 @@ func TestMaterializeConnections_MultipleDistinctEdges(t *testing.T) {
 		"parentspan000011",
 		"childspan0000011",
 		"user-service", "postgres",
+		10*time.Minute,
 	)
 
 	since := time.Now().Add(-time.Hour)
@@ -235,6 +239,7 @@ func TestGetServiceConnections_ReturnsConnections(t *testing.T) {
 		"parentspan000030",
 		"childspan0000030",
 		"svc-a", "svc-b",
+		0,
 	)
 
 	since := time.Now().Add(-time.Hour)
@@ -273,6 +278,7 @@ func TestGetServiceConnections_CacheHitSkipsMaterialization(t *testing.T) {
 		"parentspan000040",
 		"childspan0000040",
 		"cached-a", "cached-b",
+		0,
 	)
 	conns1, err := db.GetServiceConnections(ctx, since)
 	require.NoError(t, err)
@@ -285,6 +291,7 @@ func TestGetServiceConnections_CacheHitSkipsMaterialization(t *testing.T) {
 		"parentspan000041",
 		"childspan0000041",
 		"new-a", "new-b",
+		0,
 	)
 
 	// Second call: should hit cache and return only the first result.
@@ -307,6 +314,7 @@ func TestGetServiceConnections_StaleCache(t *testing.T) {
 		"parentspan000050",
 		"childspan0000050",
 		"stale-a", "stale-b",
+		0,
 	)
 	_, err := db.GetServiceConnections(ctx, since)
 	require.NoError(t, err)
@@ -322,6 +330,7 @@ func TestGetServiceConnections_StaleCache(t *testing.T) {
 		"parentspan000051",
 		"childspan0000051",
 		"stale-c", "stale-d",
+		0,
 	)
 
 	conns, err := db.GetServiceConnections(ctx, since)

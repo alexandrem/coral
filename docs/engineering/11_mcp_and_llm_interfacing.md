@@ -58,9 +58,12 @@ The `Agent` manages the high-level reasoning loop:
 
 1. **Context Discovery**: Before the first user prompt, the agent calls
    `coral service list --format json` (via `coral_cli`) to populate the system
-   prompt with live service knowledge.
+   prompt with live service knowledge. The full service dependency graph —
+   including L4 network edges — is available on demand via
+   `coral query topology --format json`, which includes a `layer` field
+   (`L7`, `L4`, or `BOTH`) on every connection (RFD 033).
 2. **System Prompting**: Injects the CLI reference and current
-   healthy/unhealthy snapshots to guide the LLM's command composition.
+   healthy/unhealthy service snapshots to guide the LLM's command composition.
 3. **Execution Loop**:
    - LLM requests `coral_cli` calls with an `args` array.
    - Agent forks the subprocess and captures stdout.

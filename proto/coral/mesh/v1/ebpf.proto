@@ -133,6 +133,12 @@ message BeylaTraceSpan {
 
   uint32 status_code = 9;         // HTTP/gRPC status
   map<string, string> attributes = 10;
+  uint64 seq_id = 11;
+
+  // OS process ID (TGID) of the instrumented process (RFD 078).
+  // Extracted from OTLP resource attribute process.pid.
+  // Zero if not available.
+  uint32 process_pid = 12;
 }
 
 // EbpfEvent represents a single eBPF event or aggregated summary.

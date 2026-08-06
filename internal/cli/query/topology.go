@@ -18,6 +18,7 @@ type topologyConnectionJSON struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Protocol string `json:"protocol"`
+	Layer    string `json:"layer"`
 }
 
 // topologyJSON is the JSON-serializable representation of the topology response.
@@ -26,21 +27,24 @@ type topologyJSON struct {
 	Connections []topologyConnectionJSON `json:"connections"`
 }
 
-// NewTopologyCmd creates the 'coral query topology' command (RFD 092).
+// NewTopologyCmd creates the 'coral query topology' command (RFD 092, RFD 033).
 func NewTopologyCmd() *cobra.Command {
 	var format string
+	var includeL4 bool
 
 	cmd := &cobra.Command{
 		Use:   "topology",
 		Short: "Show the service dependency graph",
-		Long: `Show the live service dependency graph derived from observed trace data.
+		Long: `Show the live service dependency graph derived from observed trace and network data.
 
 Displays all cross-service call relationships discovered in the last hour,
-showing which services call which other services and over what protocol.
+showing which services call which other services, over what protocol, and
+at which evidence layer (L7 application trace or L4 network observation).
 
 Examples:
-  coral query topology               # ASCII table
-  coral query topology --format json # JSON output
+  coral query topology                    # ASCII table (L4 + L7)
+  coral query topology --include-l4=false # L7 (trace-derived) edges only
+  coral query topology --format json      # JSON output
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
@@ -55,7 +59,7 @@ Examples:
 				return fmt.Errorf("failed to get topology: %w", err)
 			}
 
-			conns := resp.Msg.Connections
+			conns := filterConnections(resp.Msg.Connections, includeL4)
 
 			if format == "json" {
 				return printTopologyJSON(resp.Msg.ColonyId, conns)
@@ -66,7 +70,35 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
+	cmd.Flags().BoolVar(&includeL4, "include-l4", true, "Include L4 network edges (RFD 033)")
 	return cmd
+}
+
+// filterConnections drops L4-only edges when includeL4 is false.
+func filterConnections(conns []*colonypb.Connection, includeL4 bool) []*colonypb.Connection {
+	if includeL4 {
+		return conns
+	}
+	filtered := conns[:0:0]
+	for _, c := range conns {
+		if c.EvidenceLayer != colonypb.EvidenceLayer_EVIDENCE_LAYER_L4_NETWORK {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+// evidenceLayerLabel returns the short display label for an evidence layer.
+func evidenceLayerLabel(layer colonypb.EvidenceLayer) string {
+	switch layer {
+	case colonypb.EvidenceLayer_EVIDENCE_LAYER_L4_NETWORK:
+		return "L4"
+	case colonypb.EvidenceLayer_EVIDENCE_LAYER_BOTH:
+		return "BOTH"
+	default:
+		// L7_TRACE and UNSPECIFIED (legacy) are both L7.
+		return "L7"
+	}
 }
 
 func printTopologyText(conns []*colonypb.Connection) error {
@@ -82,8 +114,9 @@ func printTopologyText(conns []*colonypb.Connection) error {
 		minFrom     = len("FROM SERVICE")
 		minTo       = len("TO SERVICE")
 		minProtocol = len("PROTOCOL")
+		minLayer    = len("LAYER")
 	)
-	fromW, toW, protoW := minFrom, minTo, minProtocol
+	fromW, toW, protoW, layerW := minFrom, minTo, minProtocol, minLayer
 	for _, c := range conns {
 		if len(c.SourceId) > fromW {
 			fromW = len(c.SourceId)
@@ -94,20 +127,24 @@ func printTopologyText(conns []*colonypb.Connection) error {
 		if len(c.ConnectionType) > protoW {
 			protoW = len(c.ConnectionType)
 		}
+		if l := len(evidenceLayerLabel(c.EvidenceLayer)); l > layerW {
+			layerW = l
+		}
 	}
 
 	// Print header.
-	fmtStr := fmt.Sprintf("%%-%ds  →  %%-%ds  %%-%ds\n", fromW, toW, protoW)
-	fmt.Printf(fmtStr, "FROM SERVICE", "TO SERVICE", "PROTOCOL")
-	fmt.Printf("%s     %s  %s\n",
+	fmtStr := fmt.Sprintf("%%-%ds  →  %%-%ds  %%-%ds  %%-%ds\n", fromW, toW, protoW, layerW)
+	fmt.Printf(fmtStr, "FROM SERVICE", "TO SERVICE", "PROTOCOL", "LAYER")
+	fmt.Printf("%s     %s  %s  %s\n",
 		strings.Repeat("-", fromW),
 		strings.Repeat("-", toW),
 		strings.Repeat("-", protoW),
+		strings.Repeat("-", layerW),
 	)
 
 	// Print rows.
 	for _, c := range conns {
-		fmt.Printf(fmtStr, c.SourceId, c.TargetId, strings.ToUpper(c.ConnectionType))
+		fmt.Printf(fmtStr, c.SourceId, c.TargetId, strings.ToUpper(c.ConnectionType), evidenceLayerLabel(c.EvidenceLayer))
 	}
 
 	return nil
@@ -124,6 +161,7 @@ func printTopologyJSON(colonyID string, conns []*colonypb.Connection) error {
 			From:     c.SourceId,
 			To:       c.TargetId,
 			Protocol: strings.ToUpper(c.ConnectionType),
+			Layer:    evidenceLayerLabel(c.EvidenceLayer),
 		})
 	}
 

@@ -18,52 +18,125 @@ type ServiceConnection struct {
 
 // MaterializeConnections re-derives service connections from the beyla_traces table
 // and upserts the results into service_connections (RFD 092).
-// The derivation uses a parent-span self-join to identify calls that cross service
-// boundaries within the given time window.
 func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) error {
-	d.logger.Info().
-		Time("since", since).
-		Msg("Materializing service connections")
+	d.connectionsMu.Lock()
+	defer d.connectionsMu.Unlock()
 
-	// Check if we have any beyla traces at all.
-	var traceCount int
-	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM beyla_traces").Scan(&traceCount); err != nil {
-		return fmt.Errorf("failed to check trace count: %w", err)
+	// default to last materialized time minus 1 minute for overlap if since is zero.
+	if since.IsZero() {
+		since = time.Now().Add(-1 * time.Hour)
 	}
 
+	d.logger.Info().
+		Time("since", since).
+		Msg("Materializing service connections from Beyla traces")
+
+	// Verify we have spans to work with.
+	var count int
+	if err := d.db.QueryRowContext(ctx, "SELECT count(*) FROM beyla_traces WHERE start_time >= ?", since).Scan(&count); err != nil {
+		return fmt.Errorf("failed to check trace count: %w", err)
+	}
+	if count == 0 {
+		d.logger.Info().Msg("No recent traces found for materialization")
+		return nil
+	}
+
+	d.logger.Info().Int("trace_count", count).Msg("Processing traces for materialization")
+
+	// Performance optimization: Pre-filter potential parent spans to a window around 'since'.
+	// This avoids full table scans during the fuzzy matching strategies.
+	candidatesSince := since.Add(-60 * time.Second)
+
 	query := `
-		WITH joined_traces AS (
-			SELECT  parent.service_name AS from_service,
-					child.service_name  AS to_service,
-					'http'              AS protocol,
-					COUNT(*)            AS connection_count,
-					MIN(child.start_time) AS first_observed,
-					MAX(child.start_time) AS last_observed
-			FROM beyla_traces child
-			JOIN beyla_traces parent
-				ON  child.trace_id       = parent.trace_id
-				AND child.parent_span_id = parent.span_id
-			WHERE   child.service_name  != parent.service_name
-			AND     child.start_time    >= ?
+		WITH candidates AS (
+			-- All spans within the relevant window (since - 60s)
+			SELECT * FROM beyla_traces 
+			WHERE start_time >= ?
+		),
+		child_spans AS (
+			-- Destination spans to be matched (since)
+			SELECT * FROM candidates 
+			WHERE start_time >= ?
+		),
+		matches AS (
+			-- STRATEGY 1: Direct parent_span_id link (Precise)
+			SELECT 
+				c.span_id as child_id,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
+				c.start_time,
+				p.start_time as parent_time,
+				1 as priority
+			FROM child_spans c
+			JOIN candidates p ON c.parent_span_id = p.span_id
+			WHERE LOWER(c.service_name) != LOWER(p.service_name)
+
+			UNION ALL
+
+			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
+			SELECT 
+				c.span_id as child_id,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
+				c.start_time,
+				p.start_time as parent_time,
+				2 as priority
+			FROM child_spans c
+			JOIN candidates p ON c.trace_id = p.trace_id
+			WHERE c.trace_id != ''
+			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
+			  AND LOWER(c.service_name) != LOWER(p.service_name)
+			  AND c.parent_span_id != ''
+
+			UNION ALL
+
+			-- STRATEGY 3: Time-based correlation (Last resort fallback)
+			SELECT 
+				c.span_id as child_id,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
+				c.start_time,
+				p.start_time as parent_time,
+				3 as priority
+			FROM child_spans c
+			JOIN candidates p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
+			WHERE UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
+			  AND LOWER(c.service_name) != LOWER(p.service_name)
+		),
+		best_matches AS (
+			SELECT from_service, to_service, start_time
+			FROM matches
+			QUALIFY row_number() OVER (
+				PARTITION BY child_id 
+				ORDER BY priority ASC, ABS(EXTRACT(EPOCH FROM start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent_time::TIMESTAMP)) ASC
+			) = 1
+		),
+		aggregated AS (
+			SELECT 
+				from_service, 
+				to_service, 
+				'http' as protocol,
+				COUNT(*) as connection_count,
+				MIN(start_time) as first_observed,
+				MAX(start_time) as last_observed
+			FROM best_matches
 			GROUP BY 1, 2, 3
 		)
 		INSERT INTO service_connections (from_service, to_service, protocol, connection_count, first_observed, last_observed)
 		SELECT from_service, to_service, protocol, connection_count, first_observed, last_observed
-		FROM joined_traces
+		FROM aggregated
 		ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
-			connection_count = EXCLUDED.connection_count,
+			connection_count = service_connections.connection_count + excluded.connection_count,
 			last_observed    = CASE WHEN EXCLUDED.last_observed > service_connections.last_observed THEN EXCLUDED.last_observed ELSE service_connections.last_observed END
 	`
 
-	res, err := d.db.ExecContext(ctx, query, since)
+	res, err := d.db.ExecContext(ctx, query, candidatesSince, since)
 	if err != nil {
 		return fmt.Errorf("failed to materialize connections: %w", err)
 	}
 
-	rowsAffected, _ := res.RowsAffected()
-	d.logger.Info().
-		Int64("rows_affected", rowsAffected).
-		Msg("Materialized service connections")
+	rows, _ := res.RowsAffected()
+	d.logger.Info().Int64("edges_materialized", rows).Msg("Materialization complete")
 
 	return nil
 }
@@ -76,6 +149,7 @@ func (d *Database) GetServiceConnections(ctx context.Context, since time.Time) (
 	d.connectionsMu.Unlock()
 
 	if needsMaterialization {
+		// MaterializeConnections will handle its own locking.
 		if err := d.MaterializeConnections(ctx, since); err != nil {
 			d.logger.Warn().Err(err).Msg("Failed to materialize service connections, serving stale data")
 		} else {

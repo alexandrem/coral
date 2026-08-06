@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -80,7 +79,7 @@ func (s *RuntimeService) Stop() error {
 	return nil
 }
 
-// GetRuntimeContext implements the GetRuntimeContext RPC.
+// GetRuntimeContext returns the cached runtime context.
 func (s *RuntimeService) GetRuntimeContext(
 	ctx context.Context,
 	req *agentv1.GetRuntimeContextRequest,
@@ -206,28 +205,4 @@ func (s *RuntimeService) GetDetectedAt() *timestamppb.Timestamp {
 	}
 
 	return s.runtimeContext.DetectedAt
-}
-
-// RuntimeServiceAdapter adapts RuntimeService to the Connect RPC AgentServiceHandler interface.
-type RuntimeServiceAdapter struct {
-	service *RuntimeService
-}
-
-// NewRuntimeServiceAdapter creates a new adapter for the runtime service.
-func NewRuntimeServiceAdapter(service *RuntimeService) *RuntimeServiceAdapter {
-	return &RuntimeServiceAdapter{service: service}
-}
-
-// GetRuntimeContext implements the Connect RPC handler interface.
-func (a *RuntimeServiceAdapter) GetRuntimeContext(
-	ctx context.Context,
-	req *connect.Request[agentv1.GetRuntimeContextRequest],
-) (*connect.Response[agentv1.RuntimeContextResponse], error) {
-	// Call the underlying service.
-	resp, err := a.service.GetRuntimeContext(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(resp), nil
 }

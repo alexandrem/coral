@@ -86,8 +86,20 @@ jobs:
   # Server binaries — Linux only (coral-colony, coral-agent)
   # ──────────────────────────────────────────────────────────────
   server:
-    name: Build server binaries (linux-amd64)
+    name: Build server binaries (${{ matrix.os }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: linux-amd64
+            goos: linux
+            goarch: amd64
+            cc: gcc
+          - os: linux-arm64
+            goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
     steps:
       - uses: actions/checkout@v4
 
@@ -95,6 +107,9 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          fi
 
       - uses: actions/setup-go@v5
         with:
@@ -108,18 +123,22 @@ jobs:
         run: make generate
 
       - name: Build server binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
         run: make build-colony && make build-agent
 
       - name: Stage binaries
         run: |
           mkdir -p dist/
-          cp bin/linux_amd64/coral-colony dist/coral-colony-linux-amd64
-          cp bin/linux_amd64/coral-agent  dist/coral-agent-linux-amd64
-          chmod +x dist/coral-colony-linux-amd64 dist/coral-agent-linux-amd64
+          cp bin/${{ matrix.goos }}_${{ matrix.goarch }}/coral-colony dist/coral-colony-${{ matrix.os }}
+          cp bin/${{ matrix.goos }}_${{ matrix.goarch }}/coral-agent  dist/coral-agent-${{ matrix.os }}
+          chmod +x dist/coral-colony-${{ matrix.os }} dist/coral-agent-${{ matrix.os }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-server-linux-amd64
+          name: dist-server-${{ matrix.os }}
           path: dist/
           retention-days: 1
           if-no-files-found: error

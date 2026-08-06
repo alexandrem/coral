@@ -278,6 +278,18 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 	return nil
 }
 
+// GetBeylaConfig retrieves the currently active Beyla configuration file from the agent container.
+func (f *ComposeFixture) GetBeylaConfig(ctx context.Context, agentName string) (string, error) {
+	containerName := fmt.Sprintf("coral-e2e-%s-1", agentName)
+	// Find the latest beyla-config-*.yaml in /tmp
+	cmd := exec.CommandContext(ctx, "docker", "exec", containerName, "sh", "-c", "cat $(ls -t /tmp/beyla-config-*.yaml | head -1)")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to read beyla config from %s: %w\nOutput: %s", containerName, err, string(output))
+	}
+	return string(output), nil
+}
+
 // ReloadColonyConfig sends SIGHUP to the colony process to reload configuration
 // and API tokens from disk without restarting the container.
 func (f *ComposeFixture) ReloadColonyConfig(ctx context.Context) error {

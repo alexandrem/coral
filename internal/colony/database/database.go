@@ -26,21 +26,22 @@ type Database struct {
 	profileFrameStore *ProfileFrameStore // RFD 072: Global frame dictionary for CPU profiling.
 
 	// Tables (ORM)
-	servicesTable       *duckdb.Table[Service]
-	heartbeatsTable     *duckdb.Table[ServiceHeartbeat]
-	telemetryTable      *duckdb.Table[otelSummary]
-	systemMetricsTable  *duckdb.Table[SystemMetricsSummary]
-	cpuProfilesTable    *duckdb.Table[CPUProfileSummary]
-	memoryProfilesTable *duckdb.Table[MemoryProfileSummary]
-	binaryMetadataTable *duckdb.Table[BinaryMetadata]
-	beylaHTTPTable      *duckdb.Table[beylaHTTPMetricDB]
-	beylaGRPCTable      *duckdb.Table[beylaGRPCMetricDB]
-	beylaSQLTable       *duckdb.Table[beylaSQLMetricDB]
-	beylaTracesTable    *duckdb.Table[beylaTraceDB]
-	ipAllocationsTable  *duckdb.Table[IPAllocation]
-	debugSessionsTable  *duckdb.Table[DebugSession]
-	debugEventsTable    *duckdb.Table[DebugEvent]
-	connectionsTable    *duckdb.Table[ServiceConnection]
+	servicesTable            *duckdb.Table[Service]
+	heartbeatsTable          *duckdb.Table[ServiceHeartbeat]
+	telemetryTable           *duckdb.Table[otelSummary]
+	systemMetricsTable       *duckdb.Table[SystemMetricsSummary]
+	cpuProfilesTable         *duckdb.Table[CPUProfileSummary]
+	memoryProfilesTable      *duckdb.Table[MemoryProfileSummary]
+	binaryMetadataTable      *duckdb.Table[BinaryMetadata]
+	beylaHTTPTable           *duckdb.Table[beylaHTTPMetricDB]
+	beylaGRPCTable           *duckdb.Table[beylaGRPCMetricDB]
+	beylaSQLTable            *duckdb.Table[beylaSQLMetricDB]
+	beylaTracesTable         *duckdb.Table[beylaTraceDB]
+	ipAllocationsTable       *duckdb.Table[IPAllocation]
+	debugSessionsTable       *duckdb.Table[DebugSession]
+	debugEventsTable         *duckdb.Table[DebugEvent]
+	connectionsTable         *duckdb.Table[ServiceConnection]
+	topologyConnectionsTable *duckdb.Table[TopologyConnection] // RFD 033: L4 network topology.
 
 	// Cache state for GetServiceConnections (RFD 092).
 	connectionsMu               sync.Mutex
@@ -121,21 +122,22 @@ func open(storagePath, colonyID string, connectionsCacheTTL time.Duration, logge
 		profileFrameStore:   NewProfileFrameStore(), // RFD 072.
 		connectionsCacheTTL: connectionsCacheTTL,
 
-		servicesTable:       duckdb.NewTable[Service](db, "services"),
-		heartbeatsTable:     duckdb.NewTable[ServiceHeartbeat](db, "service_heartbeats"),
-		telemetryTable:      duckdb.NewTable[otelSummary](db, "otel_summaries"),
-		systemMetricsTable:  duckdb.NewTable[SystemMetricsSummary](db, "system_metrics_summaries"),
-		cpuProfilesTable:    duckdb.NewTable[CPUProfileSummary](db, "cpu_profile_summaries"),
-		memoryProfilesTable: duckdb.NewTable[MemoryProfileSummary](db, "memory_profile_summaries"),
-		binaryMetadataTable: duckdb.NewTable[BinaryMetadata](db, "binary_metadata_registry"),
-		beylaHTTPTable:      duckdb.NewTable[beylaHTTPMetricDB](db, "beyla_http_metrics"),
-		beylaGRPCTable:      duckdb.NewTable[beylaGRPCMetricDB](db, "beyla_grpc_metrics"),
-		beylaSQLTable:       duckdb.NewTable[beylaSQLMetricDB](db, "beyla_sql_metrics"),
-		beylaTracesTable:    duckdb.NewTable[beylaTraceDB](db, "beyla_traces"),
-		ipAllocationsTable:  duckdb.NewTable[IPAllocation](db, "agent_ip_allocations"),
-		debugSessionsTable:  duckdb.NewTable[DebugSession](db, "debug_sessions"),
-		debugEventsTable:    duckdb.NewTable[DebugEvent](db, "debug_events"),
-		connectionsTable:    duckdb.NewTable[ServiceConnection](db, "service_connections"),
+		servicesTable:            duckdb.NewTable[Service](db, "services"),
+		heartbeatsTable:          duckdb.NewTable[ServiceHeartbeat](db, "service_heartbeats"),
+		telemetryTable:           duckdb.NewTable[otelSummary](db, "otel_summaries"),
+		systemMetricsTable:       duckdb.NewTable[SystemMetricsSummary](db, "system_metrics_summaries"),
+		cpuProfilesTable:         duckdb.NewTable[CPUProfileSummary](db, "cpu_profile_summaries"),
+		memoryProfilesTable:      duckdb.NewTable[MemoryProfileSummary](db, "memory_profile_summaries"),
+		binaryMetadataTable:      duckdb.NewTable[BinaryMetadata](db, "binary_metadata_registry"),
+		beylaHTTPTable:           duckdb.NewTable[beylaHTTPMetricDB](db, "beyla_http_metrics"),
+		beylaGRPCTable:           duckdb.NewTable[beylaGRPCMetricDB](db, "beyla_grpc_metrics"),
+		beylaSQLTable:            duckdb.NewTable[beylaSQLMetricDB](db, "beyla_sql_metrics"),
+		beylaTracesTable:         duckdb.NewTable[beylaTraceDB](db, "beyla_traces"),
+		ipAllocationsTable:       duckdb.NewTable[IPAllocation](db, "agent_ip_allocations"),
+		debugSessionsTable:       duckdb.NewTable[DebugSession](db, "debug_sessions"),
+		debugEventsTable:         duckdb.NewTable[DebugEvent](db, "debug_events"),
+		connectionsTable:         duckdb.NewTable[ServiceConnection](db, "service_connections"),
+		topologyConnectionsTable: duckdb.NewTable[TopologyConnection](db, "topology_connections"),
 	}
 
 	// Initialize schema (only in read-write mode).

@@ -35,6 +35,15 @@ func (s *DebugService) SetSessionID(sessionID string) {
 	s.sessionID = sessionID
 }
 
+// resolveSdkAddr returns provided if non-empty, otherwise resolves it via the
+// agent's service registry using serviceName.
+func (s *DebugService) resolveSdkAddr(serviceName, provided string) (string, error) {
+	if provided != "" {
+		return provided, nil
+	}
+	return s.agent.ResolveSDK(serviceName)
+}
+
 // StartUprobeCollector handles requests to start uprobe collectors.
 func (s *DebugService) StartUprobeCollector(
 	ctx context.Context,
@@ -45,19 +54,12 @@ func (s *DebugService) StartUprobeCollector(
 		Str("function", req.FunctionName).
 		Msg("Starting uprobe collector")
 
-	// Get SDK address from service registry or config
-	// For now, we'll require it in the request config
-	sdkAddr := req.SdkAddr
-	if sdkAddr == "" {
-		// Attempt to resolve using agent discovery
-		resolved, err := s.agent.ResolveSDK(req.ServiceName)
-		if err != nil {
-			return &agentv1.StartUprobeCollectorResponse{
-				Supported: false,
-				Error:     fmt.Sprintf("failed to resolve sdk_addr: %v", err),
-			}, nil
-		}
-		sdkAddr = resolved
+	sdkAddr, err := s.resolveSdkAddr(req.ServiceName, req.SdkAddr)
+	if err != nil {
+		return &agentv1.StartUprobeCollectorResponse{
+			Supported: false,
+			Error:     fmt.Sprintf("failed to resolve sdk_addr: %v", err),
+		}, nil
 	}
 
 	// Build config map for eBPF manager
@@ -323,6 +325,7 @@ func (s *DebugService) QueryCPUProfileSamples(
 			SampleCount: sample.SampleCount,
 			ServiceName: sample.ServiceID,
 			SeqId:       sample.SeqID,
+			Tgid:        sample.TGID,
 		})
 
 		totalSamples += uint64(sample.SampleCount)
@@ -347,16 +350,12 @@ func (s *DebugService) ProfileMemory(
 		Int32("duration_seconds", req.DurationSeconds).
 		Msg("Starting memory profiling")
 
-	sdkAddr := req.SdkAddr
-	if sdkAddr == "" {
-		resolved, err := s.agent.ResolveSDK(req.ServiceName)
-		if err != nil {
-			return &agentv1.ProfileMemoryAgentResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to resolve sdk_addr: %v", err),
-			}, nil
-		}
-		sdkAddr = resolved
+	sdkAddr, err := s.resolveSdkAddr(req.ServiceName, req.SdkAddr)
+	if err != nil {
+		return &agentv1.ProfileMemoryAgentResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to resolve sdk_addr: %v", err),
+		}, nil
 	}
 
 	duration := int(req.DurationSeconds)
@@ -538,146 +537,4 @@ func (s *DebugService) ListCorrelations(
 	return &agentv1.ListCorrelationsResponse{
 		Descriptors: engine.List(),
 	}, nil
-}
-
-// DebugServiceAdapter adapts DebugService to the Connect RPC handler interface.
-type DebugServiceAdapter struct {
-	service *DebugService
-}
-
-// NewDebugServiceAdapter creates a new adapter for the debug service.
-func NewDebugServiceAdapter(service *DebugService) *DebugServiceAdapter {
-	return &DebugServiceAdapter{service: service}
-}
-
-// StartUprobeCollector implements the Connect RPC handler interface.
-func (a *DebugServiceAdapter) StartUprobeCollector(
-	ctx context.Context,
-	req *connect.Request[agentv1.StartUprobeCollectorRequest],
-) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
-	resp, err := a.service.StartUprobeCollector(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// StopUprobeCollector implements the Connect RPC handler interface.
-func (a *DebugServiceAdapter) StopUprobeCollector(
-	ctx context.Context,
-	req *connect.Request[agentv1.StopUprobeCollectorRequest],
-) (*connect.Response[agentv1.StopUprobeCollectorResponse], error) {
-	resp, err := a.service.StopUprobeCollector(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// QueryUprobeEvents implements the Connect RPC handler interface.
-func (a *DebugServiceAdapter) QueryUprobeEvents(
-	ctx context.Context,
-	req *connect.Request[agentv1.QueryUprobeEventsRequest],
-) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
-	resp, err := a.service.QueryUprobeEvents(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// UpdateProbeFilter implements the Connect RPC handler interface (RFD 090).
-func (a *DebugServiceAdapter) UpdateProbeFilter(
-	ctx context.Context,
-	req *connect.Request[agentv1.UpdateProbeFilterRequest],
-) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
-	resp, err := a.service.UpdateProbeFilter(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// ProfileCPU implements the Connect RPC handler interface.
-func (a *DebugServiceAdapter) ProfileCPU(
-	ctx context.Context,
-	req *connect.Request[agentv1.ProfileCPUAgentRequest],
-) (*connect.Response[agentv1.ProfileCPUAgentResponse], error) {
-	resp, err := a.service.ProfileCPU(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// QueryCPUProfileSamples implements the Connect RPC handler interface.
-func (a *DebugServiceAdapter) QueryCPUProfileSamples(
-	ctx context.Context,
-	req *connect.Request[agentv1.QueryCPUProfileSamplesRequest],
-) (*connect.Response[agentv1.QueryCPUProfileSamplesResponse], error) {
-	resp, err := a.service.QueryCPUProfileSamples(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// ProfileMemory implements the Connect RPC handler interface (RFD 077).
-func (a *DebugServiceAdapter) ProfileMemory(
-	ctx context.Context,
-	req *connect.Request[agentv1.ProfileMemoryAgentRequest],
-) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error) {
-	resp, err := a.service.ProfileMemory(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// QueryMemoryProfileSamples implements the Connect RPC handler interface (RFD 077).
-func (a *DebugServiceAdapter) QueryMemoryProfileSamples(
-	ctx context.Context,
-	req *connect.Request[agentv1.QueryMemoryProfileSamplesRequest],
-) (*connect.Response[agentv1.QueryMemoryProfileSamplesResponse], error) {
-	resp, err := a.service.QueryMemoryProfileSamples(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// DeployCorrelation implements the Connect RPC handler interface (RFD 091).
-func (a *DebugServiceAdapter) DeployCorrelation(
-	ctx context.Context,
-	req *connect.Request[agentv1.DeployCorrelationRequest],
-) (*connect.Response[agentv1.DeployCorrelationResponse], error) {
-	resp, err := a.service.DeployCorrelation(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// RemoveCorrelation implements the Connect RPC handler interface (RFD 091).
-func (a *DebugServiceAdapter) RemoveCorrelation(
-	ctx context.Context,
-	req *connect.Request[agentv1.RemoveCorrelationRequest],
-) (*connect.Response[agentv1.RemoveCorrelationResponse], error) {
-	resp, err := a.service.RemoveCorrelation(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// ListCorrelations implements the Connect RPC handler interface (RFD 091).
-func (a *DebugServiceAdapter) ListCorrelations(
-	ctx context.Context,
-	req *connect.Request[agentv1.ListCorrelationsRequest],
-) (*connect.Response[agentv1.ListCorrelationsResponse], error) {
-	resp, err := a.service.ListCorrelations(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
 }

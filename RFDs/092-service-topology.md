@@ -288,3 +288,7 @@ All five phases implemented. Build passes, all unit tests pass.
 
 **Historical topology diffing** (Future RFD)
 - Alert when the call graph changes significantly between deployments.
+
+**Infrastructure L4 Correlation (RFD 033)**
+- Augment this trace-based topology with raw L4 network observation to discover
+  non-instrumented dependencies (databases, external APIs) that traces don't see.

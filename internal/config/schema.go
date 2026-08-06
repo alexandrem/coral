@@ -409,7 +409,8 @@ type BeylaConfig struct {
 
 // BeylaDiscoveryConfig specifies which processes to instrument.
 type BeylaDiscoveryConfig struct {
-	Services []BeylaServiceConfig `yaml:"services,omitempty"`
+	Services          []BeylaServiceConfig `yaml:"services,omitempty"`
+	NetworkInterfaces []string             `yaml:"network_interfaces,omitempty"`
 }
 
 // BeylaServiceConfig defines a service to instrument.

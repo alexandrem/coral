@@ -238,65 +238,75 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 		query += fmt.Sprintf(" ON CONFLICT (%s) %s", conflictTarget, updateClause)
 	}
 
-	// 2. Transact
-	// Check if db is already a Tx or a DB
-	var tx *sql.Tx
-	var err error
+	// 2. Retry mechanism for conflicts
+	cfg := retry.Config{
+		MaxRetries:     30,
+		InitialBackoff: 10 * time.Millisecond,
+		MaxBackoff:     2 * time.Second,
+		Jitter:         0.1,
+	}
 
-	switch d := t.db.(type) {
-	case *sql.Tx:
-		tx = d
-	case *sql.DB:
-		tx, err = d.BeginTx(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("begin tx: %w", err)
-		}
-		defer func() {
+	return retry.Do(ctx, cfg, func() error {
+		// 3. Transact
+		// Check if db is already a Tx or a DB
+		var tx *sql.Tx
+		var err error
+
+		switch d := t.db.(type) {
+		case *sql.Tx:
+			tx = d
+		case *sql.DB:
+			tx, err = d.BeginTx(ctx, nil)
 			if err != nil {
-				_ = tx.Rollback()
+				return fmt.Errorf("begin tx: %w", err)
 			}
-		}()
-	default:
-		// Fallback for other Execer types (mocks etc), no explicit tx mgmt if not standard types
-		// But BatchUpsert implies we want atomicity if possible.
-		// For now assume standard sql.DB/Tx usage or compatible wrapper
-		return fmt.Errorf("unsupported Execer type for BatchUpsert: %T", t.db)
-	}
-
-	// 3. Prepare Statement
-	stmt, err := tx.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("prepare stmt: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	// 4. Exec Loop
-	for _, item := range items {
-		values := make([]interface{}, len(t.columns))
-		val := reflect.ValueOf(item)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
+			defer func() {
+				if err != nil {
+					_ = tx.Rollback()
+				}
+			}()
+		default:
+			// Fallback for other Execer types (mocks etc), no explicit tx mgmt if not standard types
+			// But BatchUpsert implies we want atomicity if possible.
+			// For now assume standard sql.DB/Tx usage or compatible wrapper
+			return fmt.Errorf("unsupported Execer type for BatchUpsert: %T", t.db)
 		}
 
-		for i, col := range t.columns {
-			fieldIdx := t.fieldMap[col]
-			values[i] = convertFieldValue(val.Field(fieldIdx).Interface())
-		}
-
-		_, err = stmt.ExecContext(ctx, values...)
+		// 4. Prepare Statement
+		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
-			return fmt.Errorf("batch exec: %w", err)
+			return fmt.Errorf("prepare stmt: %w", err)
 		}
-	}
+		defer func() { _ = stmt.Close() }()
 
-	// 5. Commit (only if we started the tx)
-	if _, started := t.db.(*sql.DB); started {
-		if err = tx.Commit(); err != nil {
-			return fmt.Errorf("commit: %w", err)
+		// 5. Exec Loop
+		for _, item := range items {
+			values := make([]interface{}, len(t.columns))
+			val := reflect.ValueOf(item)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+
+			for i, col := range t.columns {
+				fieldIdx := t.fieldMap[col]
+				values[i] = convertFieldValue(val.Field(fieldIdx).Interface())
+			}
+
+			_, err = stmt.ExecContext(ctx, values...)
+			if err != nil {
+				return fmt.Errorf("batch exec: %w", err)
+			}
 		}
-	}
 
-	return nil
+		// 6. Commit (only if we started the tx)
+		if _, started := t.db.(*sql.DB); started {
+			if err = tx.Commit(); err != nil {
+				return fmt.Errorf("commit: %w", err)
+			}
+		}
+
+		return nil
+	}, isTransactionConflict)
 }
 
 // Get retrieves a single item by its value in the first PK column.

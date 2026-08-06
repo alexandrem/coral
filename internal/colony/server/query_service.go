@@ -417,6 +417,170 @@ func (s *Server) ListServiceActivity(
 	}), nil
 }
 
+// QueryTraceProfile handles trace-driven profiling requests (RFD 078).
+// Joins beyla_traces with cpu_profile_summaries on (process_pid, time_window) to return
+// per-service CPU flame graph data correlated with a specific distributed trace.
+func (s *Server) QueryTraceProfile(
+	ctx context.Context,
+	req *connect.Request[colonyv1.QueryTraceProfileRequest],
+) (*connect.Response[colonyv1.QueryTraceProfileResponse], error) {
+	if req.Msg.TraceId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("trace_id is required"))
+	}
+
+	// For now we only support CPU profiles; MEMORY will be added in a later phase.
+	if req.Msg.ProfileType == colonyv1.ProfileType_PROFILE_TYPE_MEMORY {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("memory profile correlation not yet implemented"))
+	}
+
+	rows, metadata, err := s.database.QueryTraceProfileCPU(ctx, req.Msg.TraceId, req.Msg.ServiceName)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query trace profile: %w", err))
+	}
+
+	if metadata == nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("trace not found: %s", req.Msg.TraceId))
+	}
+
+	// Group rows by (service_name, tgid, span_name) and accumulate hotspots.
+	type serviceKey struct {
+		serviceName string
+		tgid        uint32
+		spanName    string
+		durationUs  int64
+	}
+
+	type serviceAccum struct {
+		key          serviceKey
+		startTime    time.Time
+		hotspots     map[string]int64 // stackHash -> total_samples (keyed by frame IDs string)
+		frameIDsMap  map[string][]int64
+		totalSamples int64
+	}
+
+	accums := make(map[serviceKey]*serviceAccum)
+	keyOrder := make([]serviceKey, 0)
+
+	for _, row := range rows {
+		key := serviceKey{
+			serviceName: row.ServiceName,
+			tgid:        row.TGID,
+			spanName:    row.SpanName,
+			durationUs:  row.DurationUs,
+		}
+
+		stackKey := fmt.Sprintf("%v", row.StackFrameIDs)
+
+		if accum, exists := accums[key]; exists {
+			if existing, ok := accum.hotspots[stackKey]; ok {
+				accum.hotspots[stackKey] = existing + row.TotalSamples
+			} else {
+				accum.hotspots[stackKey] = row.TotalSamples
+				accum.frameIDsMap[stackKey] = row.StackFrameIDs
+			}
+			accum.totalSamples += row.TotalSamples
+		} else {
+			accum := &serviceAccum{
+				key:       key,
+				startTime: row.StartTime,
+				hotspots:  map[string]int64{stackKey: row.TotalSamples},
+				frameIDsMap: map[string][]int64{
+					stackKey: row.StackFrameIDs,
+				},
+				totalSamples: row.TotalSamples,
+			}
+			accums[key] = accum
+			keyOrder = append(keyOrder, key)
+		}
+	}
+
+	// Build per-service profiles.
+	serviceProfiles := make([]*colonyv1.ServiceTraceProfile, 0, len(accums))
+	const maxHotspots = 10
+
+	for _, key := range keyOrder {
+		accum := accums[key]
+
+		// Sort hotspots by sample count descending and decode top-K.
+		type hotspotEntry struct {
+			stackKey string
+			samples  int64
+		}
+		entries := make([]hotspotEntry, 0, len(accum.hotspots))
+		for sk, count := range accum.hotspots {
+			entries = append(entries, hotspotEntry{sk, count})
+		}
+		// Simple insertion sort (small N — max 100 rows per service).
+		for i := 1; i < len(entries); i++ {
+			for j := i; j > 0 && entries[j].samples > entries[j-1].samples; j-- {
+				entries[j], entries[j-1] = entries[j-1], entries[j]
+			}
+		}
+		if len(entries) > maxHotspots {
+			entries = entries[:maxHotspots]
+		}
+
+		hotspots := make([]*colonyv1.CPUHotspot, 0, len(entries))
+		for rank, entry := range entries {
+			frameIDs := accum.frameIDsMap[entry.stackKey]
+			frameNames, err := s.database.DecodeStackFrames(ctx, frameIDs)
+			if err != nil {
+				s.logger.Warn().Err(err).Msg("Failed to decode stack frames for trace profile")
+				continue
+			}
+
+			pct := 0.0
+			if accum.totalSamples > 0 {
+				pct = float64(entry.samples) / float64(accum.totalSamples) * 100.0
+			}
+
+			hotspots = append(hotspots, &colonyv1.CPUHotspot{
+				Rank:        int32(rank + 1),
+				Frames:      frameNames,
+				Percentage:  pct,
+				SampleCount: uint64(entry.samples), // #nosec G115
+			})
+		}
+
+		// Estimate CPU time: (samples / total_samples) * duration_ms * cpu_cores_at_hz.
+		// Simplified: assume single core, 19Hz — each sample ≈ 52ms.
+		const sampleDurationMs = 52 // 1000ms / 19Hz ≈ 52ms per sample.
+		cpuTimeMs := accum.totalSamples * sampleDurationMs
+
+		// Coverage warning if sample count is very low.
+		coverageWarning := ""
+		if accum.totalSamples < 3 {
+			coverageWarning = fmt.Sprintf("Low sample coverage (%d samples). At 19Hz sampling, spans < 50ms may have no samples. Results are indicative only.", accum.totalSamples)
+		}
+
+		serviceProfiles = append(serviceProfiles, &colonyv1.ServiceTraceProfile{
+			ServiceName:     key.serviceName,
+			ProcessPid:      key.tgid,
+			SpanDurationMs:  key.durationUs / 1000,
+			SpanName:        key.spanName,
+			TopHotspots:     hotspots,
+			TotalSamples:    accum.totalSamples,
+			CpuTimeMs:       cpuTimeMs,
+			CoverageWarning: coverageWarning,
+		})
+	}
+
+	// Build trace metadata.
+	traceMetadata := &colonyv1.TraceSpanMetadata{
+		TraceId:         metadata.TraceID,
+		StartTime:       timestamppb.New(metadata.StartTime),
+		TotalDurationMs: metadata.TotalDurationMs,
+		Services:        metadata.Services,
+		SpanCount:       metadata.SpanCount,
+	}
+
+	return connect.NewResponse(&colonyv1.QueryTraceProfileResponse{
+		TraceId:         req.Msg.TraceId,
+		ServiceProfiles: serviceProfiles,
+		TraceMetadata:   traceMetadata,
+	}), nil
+}
+
 // validateSQL performs basic SQL validation to prevent destructive operations.
 func validateSQL(sql string) error {
 	// TODO: Implement comprehensive SQL validation.

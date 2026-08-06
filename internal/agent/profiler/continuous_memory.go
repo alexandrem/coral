@@ -129,6 +129,14 @@ func (p *ContinuousMemoryProfiler) GetStorage() interface{} {
 	return p.storage
 }
 
+// RemoveService removes a service from continuous memory profiling.
+func (p *ContinuousMemoryProfiler) RemoveService(serviceID string) {
+	p.activeServicesMu.Lock()
+	delete(p.activeServices, serviceID)
+	p.activeServicesMu.Unlock()
+	p.logger.Info().Str("service_id", serviceID).Msg("Service removed from continuous memory profiling")
+}
+
 // profileServiceLoop collects heap snapshots at regular intervals.
 func (p *ContinuousMemoryProfiler) profileServiceLoop(service MemoryServiceInfo) {
 	p.logger.Info().
@@ -147,6 +155,16 @@ func (p *ContinuousMemoryProfiler) profileServiceLoop(service MemoryServiceInfo)
 				Msg("Stopping continuous memory profiling for service")
 			return
 		case <-ticker.C:
+			p.activeServicesMu.Lock()
+			_, active := p.activeServices[service.ServiceID]
+			p.activeServicesMu.Unlock()
+			if !active {
+				p.logger.Info().
+					Str("service_id", service.ServiceID).
+					Msg("Stopping continuous memory profiling for service (removed)")
+				return
+			}
+
 			if err := p.collectAndStore(service); err != nil {
 				p.logger.Error().
 					Err(err).

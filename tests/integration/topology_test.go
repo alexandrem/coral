@@ -98,15 +98,18 @@ func TestServiceTopologyOtelLeakFix(t *testing.T) {
 	conns, err := db.GetServiceConnections(ctx, since)
 	require.NoError(t, err)
 
-	// The BUG pair (otel-app-bug -> cpu-app-bug) should fail to materialize because
-	// MaterializeConnections cannot find the unlinked OTel SDK parent_span_id in the beyla_traces table.
-	// The FIX pair (otel-app-fix -> cpu-app-fix) should succeed.
+	// Both pairs should materialize:
+	// - The BUG pair (otel-app-bug -> cpu-app-bug): parent_span_id is broken (points to an OTel SDK
+	//   span not in beyla_traces), but the trace_id fallback recovers the edge because both spans share
+	//   the same trace_id and have CLIENT/SERVER kinds respectively.
+	// - The FIX pair (otel-app-fix -> cpu-app-fix): parent_span_id correctly links the spans.
+	require.Len(t, conns, 2, "Both connections (bug recovery via trace_id and fix via parent_span_id) should be materialized")
 
-	assert.Len(t, conns, 1, "Only the connection with a matching parent_span_id should be materialized")
-
-	if len(conns) > 0 {
-		assert.Equal(t, "otel-app-fix", conns[0].FromService)
-		assert.Equal(t, "cpu-app-fix", conns[0].ToService)
-		assert.Equal(t, 1, conns[0].ConnectionCount)
+	// Collect connections into a map for order-independent assertions.
+	connMap := make(map[string]string, len(conns))
+	for _, c := range conns {
+		connMap[c.FromService] = c.ToService
 	}
+	assert.Equal(t, "cpu-app-bug", connMap["otel-app-bug"], "trace_id fallback should recover the bug-case edge")
+	assert.Equal(t, "cpu-app-fix", connMap["otel-app-fix"], "parent_span_id join should handle the fix-case edge")
 }
