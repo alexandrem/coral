@@ -123,17 +123,32 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 				MonitorAll:            s.monitorAll,
 			}
 
+			// Ensure ServiceMap is initialised before adding entries.
+			if beylaConfig.Discovery.ServiceMap == nil {
+				beylaConfig.Discovery.ServiceMap = make(map[int]string)
+			}
+
 			// Add configured services from config file to discovery.
+			// Populate ServiceMap so each service gets its own named Beyla rule,
+			// preventing all processes from being merged under one catch-all rule.
 			for _, svc := range s.agentCfg.Beyla.Discovery.Services {
 				if svc.OpenPort > 0 {
 					beylaConfig.Discovery.OpenPorts = append(beylaConfig.Discovery.OpenPorts, svc.OpenPort)
+					if svc.Name != "" {
+						beylaConfig.Discovery.ServiceMap[svc.OpenPort] = svc.Name
+					}
 				}
-				// TODO: Support K8s discovery mapping when available in beyla.DiscoveryConfig
 			}
 
 			// Add dynamic ports from services (RFD 053).
+			// Include service names in ServiceMap so Beyla emits correct service_name
+			// on each span. Without named rules, --monitor-all's catch-all
+			// (open_ports: "1-65535") groups every process under one service name.
 			for _, spec := range s.serviceSpecs {
 				beylaConfig.Discovery.OpenPorts = append(beylaConfig.Discovery.OpenPorts, int(spec.Port))
+				if spec.Name != "" {
+					beylaConfig.Discovery.ServiceMap[int(spec.Port)] = spec.Name
+				}
 			}
 
 			if s.monitorAll {

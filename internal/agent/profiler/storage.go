@@ -44,10 +44,11 @@ type ProfileSample struct {
 	Timestamp     time.Time
 	ServiceID     string
 	BuildID       string
-	StackHash     string  // Hash of stack for deduplication
-	StackFrameIDs []int64 // Integer-encoded stack frames
-	SampleCount   uint32  // Number of samples (matches protobuf)
+	StackHash     string  // Hash of stack for deduplication.
+	StackFrameIDs []int64 // Integer-encoded stack frames.
+	SampleCount   uint32  // Number of samples (matches protobuf).
 	SeqID         uint64  // Sequence ID for checkpoint-based polling (RFD 089).
+	TGID          uint32  // OS process ID (TGID) of the profiled process (RFD 078).
 }
 
 // MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
@@ -116,10 +117,11 @@ func (s *Storage) initSchema() error {
 			timestamp        TIMESTAMP  NOT NULL,
 			service_id       TEXT       NOT NULL,
 			build_id         TEXT       NOT NULL,
-			stack_hash       TEXT       NOT NULL,    -- Hash of stack for deduplication
+			tgid             INTEGER    NOT NULL DEFAULT 0,
+			stack_hash       TEXT       NOT NULL,    -- Hash of stack for deduplication.
 			stack_frame_ids  INTEGER[]  NOT NULL,
 			sample_count     INTEGER    NOT NULL,
-			PRIMARY KEY (timestamp, service_id, build_id, stack_hash)
+			PRIMARY KEY (timestamp, service_id, build_id, tgid, stack_hash)
 		);
 		CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_timestamp
 			ON cpu_profile_samples_local (timestamp);
@@ -129,6 +131,8 @@ func (s *Storage) initSchema() error {
 			ON cpu_profile_samples_local (build_id);
 		CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_seq_id
 			ON cpu_profile_samples_local (seq_id);
+		CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_tgid
+			ON cpu_profile_samples_local (tgid, timestamp);
 
 		-- Binary metadata for symbol resolution.
 		CREATE TABLE IF NOT EXISTS binary_metadata_local (
@@ -221,13 +225,14 @@ func (s *Storage) StoreSample(ctx context.Context, sample ProfileSample) error {
 	updateQuery := `
 		UPDATE cpu_profile_samples_local
 		SET sample_count = sample_count + ?
-		WHERE timestamp = ? AND service_id = ? AND build_id = ? AND stack_hash = ?
+		WHERE timestamp = ? AND service_id = ? AND build_id = ? AND tgid = ? AND stack_hash = ?
 	`
 	result, err := s.db.ExecContext(ctx, updateQuery,
 		sample.SampleCount,
 		sample.Timestamp,
 		sample.ServiceID,
 		sample.BuildID,
+		sample.TGID,
 		sample.StackHash,
 	)
 	if err != nil {
@@ -242,13 +247,14 @@ func (s *Storage) StoreSample(ctx context.Context, sample ProfileSample) error {
 		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
 		insertQuery := `
 			INSERT INTO cpu_profile_samples_local (
-				timestamp, service_id, build_id, stack_hash, stack_frame_ids, sample_count
-			) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?)
+				timestamp, service_id, build_id, tgid, stack_hash, stack_frame_ids, sample_count
+			) VALUES (?, ?, ?, ?, ?, ` + frameIDsStr + `, ?)
 		`
 		_, err = s.db.ExecContext(ctx, insertQuery,
 			sample.Timestamp,
 			sample.ServiceID,
 			sample.BuildID,
+			sample.TGID,
 			sample.StackHash,
 			sample.SampleCount,
 		)
@@ -280,13 +286,14 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 		updateQuery := `
 			UPDATE cpu_profile_samples_local
 			SET sample_count = sample_count + ?
-			WHERE timestamp = ? AND service_id = ? AND build_id = ? AND stack_hash = ?
+			WHERE timestamp = ? AND service_id = ? AND build_id = ? AND tgid = ? AND stack_hash = ?
 		`
 		result, err := tx.ExecContext(ctx, updateQuery,
 			sample.SampleCount,
 			sample.Timestamp,
 			sample.ServiceID,
 			sample.BuildID,
+			sample.TGID,
 			sample.StackHash,
 		)
 		if err != nil {
@@ -300,13 +307,14 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 			// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
 			insertQuery := `
 				INSERT INTO cpu_profile_samples_local (
-					timestamp, service_id, build_id, stack_hash, stack_frame_ids, sample_count
-				) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?)
+					timestamp, service_id, build_id, tgid, stack_hash, stack_frame_ids, sample_count
+				) VALUES (?, ?, ?, ?, ?, ` + frameIDsStr + `, ?)
 			`
 			_, err = tx.ExecContext(ctx, insertQuery,
 				sample.Timestamp,
 				sample.ServiceID,
 				sample.BuildID,
+				sample.TGID,
 				sample.StackHash,
 				sample.SampleCount,
 			)
@@ -357,7 +365,7 @@ func (s *Storage) QuerySamplesBySeqID(ctx context.Context, startSeqID uint64, ma
 	}
 
 	query := `
-		SELECT seq_id, timestamp, service_id, build_id, stack_frame_ids, sample_count
+		SELECT seq_id, timestamp, service_id, build_id, tgid, stack_frame_ids, sample_count
 		FROM cpu_profile_samples_local
 		WHERE seq_id > ?
 	`
@@ -389,6 +397,7 @@ func (s *Storage) QuerySamplesBySeqID(ctx context.Context, startSeqID uint64, ma
 			&sample.Timestamp,
 			&sample.ServiceID,
 			&sample.BuildID,
+			&sample.TGID,
 			&frameIDsInterface,
 			&sample.SampleCount,
 		)

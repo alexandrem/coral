@@ -176,6 +176,9 @@ message CPUProfileSample {
 
   // Sequence ID for checkpoint-based polling (RFD 089).
   uint64 seq_id = 6;
+
+  // OS process ID (TGID) at time of sample (RFD 078).
+  uint32 tgid = 7;
 }
 
 // QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).

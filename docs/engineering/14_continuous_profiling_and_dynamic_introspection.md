@@ -93,18 +93,31 @@ eBPF profiler are required.
 Beyla forwards finished spans to Coral's OTLP ingestion endpoint, including
 `process.pid` — the OS-level PID (TGID) of the instrumented process — as a
 standard OTLP resource attribute. The continuous profiler captures `tgid` in
-its BPF stack key at sample time. Both values are persisted to storage, enabling
-a DuckDB join at query time:
+its BPF stack key at sample time. Both values are persisted to storage:
+- `cpu_profile_samples_local` (agent) and `cpu_profile_summaries` (colony) persist `tgid`.
+- `beyla_traces_local` (agent) and `beyla_traces` (colony) persist `process_pid`.
+
+This enables an efficient DuckDB join at query time:
 
 ```sql
-SELECT p.stack_frame_ids, p.sample_count
-FROM cpu_profile_summaries p
-JOIN beyla_traces t
-  ON p.tgid = t.process_pid
- AND p.timestamp BETWEEN t.start_time
-                     AND t.start_time + (t.duration_us * INTERVAL '1 microsecond')
+SELECT
+    t.service_name,
+    t.span_name,
+    t.process_pid AS tgid,
+    t.duration_us,
+    t.start_time,
+    p.stack_frame_ids,
+    SUM(p.sample_count) AS total_samples
+FROM beyla_traces t
+INNER JOIN cpu_profile_summaries p ON
+    p.service_name = t.service_name AND
+    p.tgid = CAST(t.process_pid AS INTEGER) AND
+    p.timestamp >= t.start_time - INTERVAL '1 minute' AND
+    p.timestamp <= t.start_time + (t.duration_us * INTERVAL '1 microsecond') + INTERVAL '1 minute'
 WHERE t.trace_id = '<trace-id>'
-  AND t.service_name = 'payment-svc'
+    AND t.process_pid > 0
+GROUP BY t.service_name, t.span_name, t.process_pid, t.duration_us, t.start_time, p.stack_frame_ids
+ORDER BY total_samples DESC
 ```
 
 This is a **process-scoped** correlation, not goroutine-scoped: samples are
@@ -112,11 +125,12 @@ attributed to the entire process during the span's time window, not just the
 goroutine serving the request. For anomalously slow requests (e.g., 5 s vs.
 50 ms median), the target request dominates the sample window and the
 bottleneck function rises to the top of the flame graph. For short spans or
-high-concurrency services, results are best-effort.
+high-concurrency services, results are best-effort, and low sample counts (<3)
+trigger a `CoverageWarning` in the RPC response.
 
 The system surfaces this via a `QueryTraceProfile` RPC at the Colony and a
-`coral query trace-profile <trace-id>` CLI command, both yielding per-service
-flame graphs for any stored trace.
+`coral query trace-profile <trace-id>` CLI command (`--service`, `--top`, `--type`),
+both yielding per-service flame graphs for any stored trace.
 
 ### Future work: triggered and goroutine-scoped profiling (RFD 080)
 

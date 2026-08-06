@@ -642,6 +642,11 @@ message EbpfTraceSpan {
 
   // Sequence ID for checkpoint-based polling (RFD 089).
   uint64 seq_id = 11;
+
+  // OS process ID (TGID) of the instrumented process (RFD 078).
+  // Extracted from OTLP resource attribute process.pid.
+  // Zero if not available.
+  uint32 process_pid = 12;
 }
 
 // Shell RPC messages (RFD 026).

@@ -10,6 +10,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/pkg/version"
 )
 
 // AgentServer represents a running agent server.
@@ -254,7 +255,7 @@ func (b *AgentServerBuilder) CreateAgentInstance() error {
 		Context:         b.ctx,
 		AgentID:         b.agentID,
 		Logger:          b.logger,
-		Version:         "dev", // TODO: Get version from build info
+		Version:         version.Version,
 		RefreshInterval: 5 * time.Minute,
 	})
 	if err != nil {

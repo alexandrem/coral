@@ -19,6 +19,7 @@ import (
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/collector"
+	"github.com/coral-mesh/coral/internal/agent/netobs"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
@@ -137,10 +138,12 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 					Msg("OTLP receiver started successfully")
 				result.OTLPReceiver = otlpReceiver
 
-				// Wire up shared OTLP receiver with Beyla for user application metrics.
+				// Wire up shared OTLP receiver with Beyla for user application metrics & traces.
 				if beylaManager := s.agentInstance.GetBeylaManager(); beylaManager != nil {
-					beylaManager.SetSharedOTLPReceiver(otlpReceiver.GetReceiver())
-					s.logger.Info().Msg("Configured Beyla to process user application OTLP metrics")
+					receiver := otlpReceiver.GetReceiver()
+					beylaManager.SetSharedOTLPReceiver(receiver)
+					receiver.SetSpanHandler(beylaManager.HandleSpan)
+					s.logger.Info().Msg("Configured shared OTLP receiver to route raw spans to Beyla storage")
 				}
 			}
 		}
@@ -203,7 +206,42 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 		result.MeshPingServer = meshPingServer
 	}
 
+	// Initialize L4 network topology observation (RFD 033).
+	s.startNetworkObserver(ctx)
+
 	return result, nil
+}
+
+// startNetworkObserver creates and starts the netobs Manager for L4 topology
+// discovery (RFD 033). Non-fatal: a warning is logged on failure.
+func (s *ServiceRegistry) startNetworkObserver(ctx context.Context) {
+	if s.connectionMgr == nil {
+		s.logger.Debug().Msg("No colony connection manager, skipping network observation")
+		return
+	}
+
+	netobsMgr := netobs.NewManager(netobs.Config{
+		AgentID: s.agentID,
+		URLProvider: func() string {
+			return s.connectionMgr.GetLastSuccessfulRegURL()
+		},
+		Logger: s.logger.With().Str("component", "netobs").Logger(),
+	})
+
+	if err := netobsMgr.Start(); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to start network observer")
+		return
+	}
+
+	// Stop the observer when the service context is cancelled.
+	go func() {
+		<-ctx.Done()
+		if err := netobsMgr.Stop(); err != nil {
+			s.logger.Warn().Err(err).Msg("Error stopping network observer")
+		}
+	}()
+
+	s.logger.Info().Msg("L4 network topology observation started")
 }
 
 // buildTelemetryConfig creates telemetry configuration from agent config.

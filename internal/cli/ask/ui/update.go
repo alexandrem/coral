@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -30,20 +31,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamChunkMsg:
 		m.streamBuffer += msg.chunk
 		m.currentState = stateStreaming
-		return m, nil
+		// Keep listening for the next agent event.
+		return m, waitForEventCmd(m.eventChan)
 
 	case toolStartMsg:
 		m.currentTool = msg.toolName
 		m.currentCommand = msg.command
 		m.currentState = stateQuerying
-		return m, m.spinner.Tick
+		return m, tea.Batch(m.spinner.Tick, waitForEventCmd(m.eventChan))
 
 	case toolCompleteMsg:
 		m.currentTool = ""
 		m.currentCommand = ""
+		// Keep listening for the next agent event.
+		return m, waitForEventCmd(m.eventChan)
+
+	case scriptReviewMsg:
+		// Pause the agent event loop; wait for user y/n input.
+		m.reviewEventChan = m.eventChan
+		m.eventChan = nil
+		m.reviewName = msg.name
+		m.reviewContent = msg.content
+		m.reviewReply = msg.reply
+		m.currentState = stateScriptReview
 		return m, nil
 
 	case queryCompleteMsg:
+		m.eventChan = nil
 		if msg.err != nil {
 			m.lastError = msg.err
 			m.currentState = stateError
@@ -96,6 +110,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyMsg handles keyboard input.
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Script review state: only y/n/escape are meaningful.
+	if m.currentState == stateScriptReview {
+		return m.handleReviewKey(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		if m.currentState == stateQuerying || m.currentState == stateStreaming {
@@ -136,17 +155,55 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Content: question,
 		})
 
-		// Start query.
+		// Start query: create the event channel, launch the agent goroutine,
+		// and return a cmd that reads the first event.
+		eventChan := make(chan any, 100)
+		m.eventChan = eventChan
 		m.currentState = stateQuerying
 		m.streamBuffer = ""
 
-		return m, askQuestionCmd(m.agent, question, m.conversationID, m.debug, m.dryRun)
+		go func() {
+			defer close(eventChan)
+			resp, err := m.agent.AskWithChannel(
+				context.Background(), question, m.conversationID, m.dryRun, eventChan,
+			)
+			// Send the completion event directly; the adapter may have already
+			// closed the channel, but we send before that can happen.
+			eventChan <- AgentEvent{Type: "complete", Response: resp, Error: err}
+		}()
+
+		return m, waitForEventCmd(eventChan)
 	}
 
 	// Pass through to text input.
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+// handleReviewKey handles key input during the script_review state.
+// y/Y approves the script write; any other key (n, N, esc, ctrl+c) rejects it.
+func (m Model) handleReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var approved bool
+	switch msg.String() {
+	case "y", "Y":
+		approved = true
+	default:
+		approved = false
+	}
+
+	// Unblock the agent goroutine.
+	m.reviewReply <- approved
+
+	// Restore the event channel and resume listening.
+	m.eventChan = m.reviewEventChan
+	m.reviewEventChan = nil
+	m.reviewReply = nil
+	m.reviewName = ""
+	m.reviewContent = ""
+	m.currentState = stateQuerying
+
+	return m, waitForEventCmd(m.eventChan)
 }
 
 // handleInlineCommand processes inline commands like /help, /clear, /exit.

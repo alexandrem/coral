@@ -282,6 +282,19 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
 	s.Run("CLI_QueryTopology", cliQuerySuite.TestCLIQueryTopology)
 
+	// Run L4TopologySuite (RFD 033 — L4 network topology via ReportConnections)
+	l4Suite := &L4TopologySuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	l4Suite.SetT(s.T())
+	l4Suite.SetupSuite()
+	defer l4Suite.TearDownSuite()
+
+	s.Run("L4_EdgesAppearInTopology", l4Suite.TestL4EdgesAppearInTopology)
+	s.Run("L4_IncludeL4FalseFilters", l4Suite.TestIncludeL4FalseFiltersL4Edges)
+	s.Run("L4_JSONLayerField", l4Suite.TestL4JSONLayerField)
+	s.Run("L4_InternalEdgeResolution", l4Suite.TestL4InternalEdgeResolution)
+
 	// Run CLIConfigSuite (config commands - Phase 3)
 	cliConfigSuite := &CLIConfigSuite{
 		E2EDistributedSuite: s.E2EDistributedSuite,

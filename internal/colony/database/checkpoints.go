@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/coral-mesh/coral/internal/retry"
 )
 
 // PollingCheckpoint represents a checkpoint for sequence-based polling (RFD 089).
@@ -56,16 +59,37 @@ func (d *Database) GetPollingCheckpoint(ctx context.Context, agentID, dataType s
 // This should be called within the same transaction as the data storage
 // to ensure atomicity (RFD 089).
 func (d *Database) UpdatePollingCheckpoint(ctx context.Context, agentID, dataType, sessionID string, lastSeqID uint64) error {
-	_, err := d.db.ExecContext(ctx, `
-		INSERT INTO polling_checkpoints (agent_id, data_type, session_id, last_seq_id, last_poll_time, updated_at)
-		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-		ON CONFLICT (agent_id, data_type)
-		DO UPDATE SET
-			session_id = EXCLUDED.session_id,
-			last_seq_id = EXCLUDED.last_seq_id,
-			last_poll_time = now(),
-			updated_at = now()
-	`, agentID, dataType, sessionID, lastSeqID)
+	// Retry mechanism for conflicts with longer backoff (RFD 036, to survive MaterializeConnections).
+	cfg := retry.Config{
+		MaxRetries:     30,
+		InitialBackoff: 10 * time.Millisecond,
+		MaxBackoff:     2 * time.Second,
+		Jitter:         0.1,
+	}
+
+	err := retry.Do(ctx, cfg, func() error {
+		_, execErr := d.db.ExecContext(ctx, `
+			INSERT INTO polling_checkpoints (agent_id, data_type, session_id, last_seq_id, last_poll_time, updated_at)
+			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT (agent_id, data_type)
+			DO UPDATE SET
+				session_id = EXCLUDED.session_id,
+				last_seq_id = EXCLUDED.last_seq_id,
+				last_poll_time = now(),
+				updated_at = now()
+		`, agentID, dataType, sessionID, lastSeqID)
+		return execErr
+	}, func(err error) bool {
+		if err == nil {
+			return false
+		}
+		msg := err.Error()
+		return strings.Contains(msg, "Conflict on update") ||
+			strings.Contains(msg, "conflict") ||
+			strings.Contains(msg, "transaction") ||
+			strings.Contains(msg, "serialization") ||
+			strings.Contains(msg, "TransactionContext Error")
+	})
 
 	if err != nil {
 		return fmt.Errorf("failed to update polling checkpoint: %w", err)

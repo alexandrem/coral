@@ -150,3 +150,73 @@ func TestUserMessage_AppendsToConversation(t *testing.T) {
 	assert.Equal(t, stateQuerying, result.currentState)
 	assert.NotNil(t, cmd, "a query command should be returned")
 }
+
+// TestScriptReview_TransitionsToReviewState verifies that receiving a
+// scriptReviewMsg puts the model into stateScriptReview with the script data.
+func TestScriptReview_TransitionsToReviewState(t *testing.T) {
+	m := newTestModel(t, &spyAgent{}, nil)
+	// Simulate an in-flight query by giving the model an event channel.
+	ch := make(chan any, 10)
+	m.eventChan = ch
+
+	reply := make(chan bool, 1)
+	updated, cmd := m.Update(scriptReviewMsg{
+		name:    "my-script",
+		content: "console.log('hello')",
+		reply:   reply,
+	})
+	result := updated.(Model)
+
+	assert.Equal(t, stateScriptReview, result.currentState)
+	assert.Equal(t, "my-script", result.reviewName)
+	assert.Equal(t, "console.log('hello')", result.reviewContent)
+	assert.Nil(t, result.eventChan, "eventChan should be cleared during review")
+	assert.Equal(t, ch, result.reviewEventChan, "reviewEventChan should hold the old channel")
+	assert.Nil(t, cmd, "no cmd while waiting for user input")
+}
+
+// TestScriptReview_ApproveResumesQuery verifies that pressing 'y' sends true
+// to the reply channel and resumes listening on the event channel.
+func TestScriptReview_ApproveResumesQuery(t *testing.T) {
+	m := newTestModel(t, &spyAgent{}, nil)
+	ch := make(chan any, 10)
+	reply := make(chan bool, 1)
+
+	m.currentState = stateScriptReview
+	m.reviewEventChan = ch
+	m.reviewReply = reply
+	m.reviewName = "s"
+	m.reviewContent = "x"
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	result := updated.(Model)
+
+	approved := <-reply
+	assert.True(t, approved, "reply channel should receive true on 'y'")
+	assert.Equal(t, stateQuerying, result.currentState)
+	assert.Equal(t, ch, result.eventChan, "eventChan should be restored")
+	assert.NotNil(t, cmd, "a listen cmd should be returned")
+}
+
+// TestScriptReview_RejectResumesQuery verifies that pressing 'n' sends false
+// to the reply channel and resumes the query.
+func TestScriptReview_RejectResumesQuery(t *testing.T) {
+	m := newTestModel(t, &spyAgent{}, nil)
+	ch := make(chan any, 10)
+	reply := make(chan bool, 1)
+
+	m.currentState = stateScriptReview
+	m.reviewEventChan = ch
+	m.reviewReply = reply
+	m.reviewName = "s"
+	m.reviewContent = "x"
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	result := updated.(Model)
+
+	approved := <-reply
+	assert.False(t, approved, "reply channel should receive false on 'n'")
+	assert.Equal(t, stateQuerying, result.currentState)
+	assert.Equal(t, ch, result.eventChan, "eventChan should be restored")
+	assert.NotNil(t, cmd, "a listen cmd should be returned")
+}

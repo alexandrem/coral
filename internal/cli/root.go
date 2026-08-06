@@ -16,6 +16,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/proxy"
 	"github.com/coral-mesh/coral/internal/cli/query"
 	"github.com/coral-mesh/coral/internal/cli/run"
+	"github.com/coral-mesh/coral/internal/cli/script"
 	"github.com/coral-mesh/coral/internal/cli/terminal"
 	"github.com/coral-mesh/coral/internal/cli/tunhelper"
 	"github.com/coral-mesh/coral/pkg/version"
@@ -68,6 +69,7 @@ func init() {
 	rootCmd.AddCommand(profile.NewProfileCmd()) // On-demand profiling (CPU, memory).
 	rootCmd.AddCommand(query.NewQueryCmd())
 	rootCmd.AddCommand(run.NewRunCmd())           // RFD 076 - TypeScript script execution.
+	rootCmd.AddCommand(script.NewScriptCmd())     // RFD 100 - Investigation scripts.
 	rootCmd.AddCommand(terminal.NewTerminalCmd()) // RFD 094 - Rich mission-control TUI.
 	rootCmd.AddCommand(newVersionCmd())
 

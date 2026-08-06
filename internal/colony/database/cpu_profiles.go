@@ -19,6 +19,7 @@ type CPUProfileSummary struct {
 	AgentID       string    `duckdb:"agent_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
 	ServiceName   string    `duckdb:"service_name,pk,immutable"` // Immutable: PRIMARY KEY, cannot be updated.
 	BuildID       string    `duckdb:"build_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
+	TGID          uint32    `duckdb:"tgid,pk,immutable"`         // Immutable: OS process ID for trace correlation (RFD 078).
 	StackHash     string    `duckdb:"stack_hash,pk,immutable"`   // Immutable: PRIMARY KEY, cannot be updated.
 	StackFrameIDs []int64   `duckdb:"stack_frame_ids,immutable"` // Immutable: determined by stack_hash (part of PK).
 	SampleCount   uint32    `duckdb:"sample_count"`              // Mutable: updated when aggregating samples.
@@ -267,7 +268,7 @@ func (d *Database) QueryCPUProfileSummaries(ctx context.Context, serviceName str
 		Time("end_time", endTime).
 		Msg("Querying CPU profile summaries")
 
-	query := `SELECT timestamp, agent_id, service_name, build_id, stack_hash, stack_frame_ids, sample_count
+	query := `SELECT timestamp, agent_id, service_name, build_id, tgid, stack_hash, stack_frame_ids, sample_count
 		FROM cpu_profile_summaries
 		WHERE timestamp >= ? AND timestamp <= ?
 	`
@@ -296,6 +297,7 @@ func (d *Database) QueryCPUProfileSummaries(ctx context.Context, serviceName str
 			&summary.AgentID,
 			&summary.ServiceName,
 			&summary.BuildID,
+			&summary.TGID,
 			&summary.StackHash,
 			&frameIDsRaw,
 			&summary.SampleCount,

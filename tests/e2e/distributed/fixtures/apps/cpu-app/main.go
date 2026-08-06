@@ -24,10 +24,14 @@ func cpuIntensiveWork(iterations int) string {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
+	// Log headers for debugging.
+	traceParent := r.Header.Get("traceparent")
+	fmt.Printf("[%s] traceparent=%s\n", r.URL.Path, traceParent)
+
 	// Do CPU-intensive work.
 	// 5M iterations ≈ ~1s of CPU time, ensuring reliable capture at 19Hz sampling.
-	result := cpuIntensiveWork(5000000)
-	fmt.Fprintf(w, "Hash: %s\n", result)
+	cpuIntensiveWork(5000000)
+	fmt.Fprintf(w, "OK\n")
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
