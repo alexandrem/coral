@@ -17,6 +17,7 @@ const (
 	stateQuerying
 	stateStreaming
 	stateError
+	stateScriptReview // waiting for user to approve or reject a script write
 )
 
 // Agent interface to avoid import cycle.
@@ -53,6 +54,16 @@ type Model struct {
 	streamBuffer   string
 	currentTool    string
 	currentCommand string // CLI command string for the active tool (RFD 100)
+
+	// Active query channel — nil when no query is in flight.
+	// Created in handleKeyMsg and consumed by waitForEventCmd.
+	eventChan chan any
+
+	// Script review state — set when a script_review event is received.
+	reviewEventChan chan any // eventChan saved during review; restored after
+	reviewName      string
+	reviewContent   string
+	reviewReply     chan bool
 
 	// Error state
 	lastError error

@@ -19,6 +19,11 @@ instance.
 - **Role**: This layer acts as a "flight recorder." It provides the source of
   truth for the Colony's pull requests and allows for deep-dive "on-demand"
   queries for raw traces that haven't been aggregated yet.
+- **L4 Aggregation** (`internal/agent/netobs`): Outbound TCP connections are
+  deduplicated by `(dest_ip, dest_port, protocol)` within each flush window.
+  Accumulated metrics (`bytes_sent`, `bytes_received`, `retransmits`, `rtt_us`)
+  are streamed to the Colony via the `ReportConnections` client-streaming RPC
+  rather than stored locally.
 
 ## Colony Layer: Aggregated Insights
 
@@ -33,21 +38,20 @@ analytical summaries.
     - **Latencies**: Calculates P50, P95, and P99 percentiles for the bucket.
     - **Errors**: Counts total occurrences of error flags.
     - **Throughput**: Records total span/sample counts.
-    - **Service Topology**: Discovers and persists cross-service dependencies in `service_connections` (materialized with a 30s TTL).
+    - **Service Topology**: Discovers and persists cross-service dependencies in `service_connections` (materialized with a 30s TTL from `beyla_traces` self-join, RFD 092) and raw TCP infrastructure edges in `topology_connections` (upserted via `ReportConnections` streaming RPC, RFD 033).
     - **Exemplars**: Selects up to 5 "Sample Trace IDs" per bucket to allow "
       pivot-to-trace" navigation from aggregate charts.
-4. **Store**: Only the summarized `otel_summaries` and `service_connections` are kept in the central
-   DuckDB.
+4. **Store**: Only the summarized `otel_summaries`, `service_connections`, and `topology_connections` are kept in the central DuckDB.
 
 ## Persistence Trade-offs
 
 | Feature       | Edge (Agent)                 | Center (Colony)                  |
 |:--------------|:-----------------------------|:---------------------------------|
-| **Data Type** | Raw / Individual Records     | Aggregated Summaries             |
-| **Precision** | Nanosecond / Full Attributes | 1-Minute Buckets / Percentiles   |
-| **Storage**   | Volatile / High Churn        | Durable / Analytical             |
-| **Retention** | ~1 Hour                      | 7 - 30 Days                      |
-| **Query Use** | Diagnostics / Exemplars      | Trends / Alerting / Dashboarding |
+| **Data Type** | Raw / Individual Records     | Aggregated Summaries + L4 Edges        |
+| **Precision** | Nanosecond / Full Attributes | 1-Minute Buckets / Percentiles         |
+| **Storage**   | Volatile / High Churn        | Durable / Analytical                   |
+| **Retention** | ~1 Hour                      | 7 - 30 Days                            |
+| **Query Use** | Diagnostics / Exemplars      | Trends / Alerting / Topology Graphs    |
 
 ## Engineering Note: ACID on the Edge
 
@@ -75,3 +79,4 @@ Colony database.
 - [**RFD 046**: Colony DuckDB Remote Query](../../RFDs/046-colony-duckdb-remote-query.md)
 - [**RFD 089**: Sequence Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)
 - [**RFD 096**: Agent DuckDB Proxy](../../RFDs/096-agent-duckdb-proxy.md)
+- [**RFD 033**: Infrastructure & L4 Topology Discovery](../../RFDs/033-service-topology-discovery.md)

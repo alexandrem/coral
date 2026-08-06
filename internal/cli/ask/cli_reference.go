@@ -18,6 +18,7 @@ func GenerateCLIReference(root *cobra.Command) string {
 	// Include only the command groups the agent is likely to call.
 	relevant := map[string]bool{
 		"query": true, "debug": true, "service": true,
+		"script": true, "run": true,
 	}
 
 	for _, cmd := range root.Commands() {

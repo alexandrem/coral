@@ -855,49 +855,79 @@ coral query summary api --since 10m    # Specific service metrics
 
 ### Service Topology
 
-Coral's service topology provides a **live call graph** of your distributed
-system, derived automatically from observed trace data. Unlike static diagrams,
-the topology reflects actual traffic and dependencies discovered in real-time.
+Coral's service topology provides a **live dependency graph** of your
+distributed system derived from two complementary observation layers:
+
+- **L7 layer** — edges extracted from distributed trace spans captured by
+  Beyla's eBPF interceptor. High-fidelity with call counts and protocol
+  attribution; covers every service that produces HTTP/gRPC spans.
+- **L4 layer** (RFD 033) — edges from raw outbound TCP connections observed by
+  each agent via `ss`/`netstat` (eBPF probe planned). Covers databases,
+  external APIs, and any service that emits no traces at all.
+
+Each connection in the output carries a `LAYER` column (`L7`, `L4`, or `BOTH`)
+indicating its evidence source.
 
 **Key Features:**
 
-- **Call Graph** - Visualization of which services depend on each other
-- **Protocol Detection** - Identifies HTTP, gRPC, and SQL dependencies
-- **Real-Time** - Materialized from trace data with a 30-second TTL
+- **Two-Layer Coverage** - L7 trace-derived edges merged with L4 TCP-observed edges
+- **Protocol Detection** - HTTP, gRPC, SQL from traces; raw TCP from L4
+- **Real-Time** - L7 materialized with a 30-second TTL; L4 data streamed by agents
 - **Compact View** - Designed for rapid understanding and AI context injection
 
 **Commands:**
 
 ```bash
-# Get the call graph for the last hour (default)
+# Get the dependency graph for the last hour (default)
 coral query topology
 
 # Specify a custom time window
 coral query topology --since 30m
 
-# Get machine-readable output for scripts or integration
+# Suppress L4-only edges — show only trace-derived edges
+coral query topology --include-l4=false
+
+# Machine-readable output (includes layer field per connection)
 coral query topology --format json
 ```
 
 **Example Output:**
 
-```bash
-$ coral query topology
-Service call graph (last 1h):
-api-gateway → user-service (HTTP, 2341 calls, last: 2s ago)
-user-service → postgres (SQL, 1823 calls, last: 5s ago)
-worker → queue (gRPC, 234 calls, last: 1m ago)
+```
+Service Topology (last 1h, 4 connection(s)):
+
+FROM SERVICE    →  TO SERVICE       PROTOCOL  LAYER
+------------       ----------       --------  -----
+otel-app        →  cpu-app          HTTP      L7
+user-service    →  postgres         SQL       L7
+api-gateway     →  redis            TCP       L4
+api-gateway     →  user-service     HTTP      BOTH
+```
+
+**JSON Output:**
+
+```json
+{
+  "colony_id": "my-colony",
+  "connections": [
+    {"from": "api-gateway", "to": "redis",        "protocol": "TCP",  "layer": "L4"},
+    {"from": "api-gateway", "to": "user-service", "protocol": "HTTP", "layer": "BOTH"},
+    {"from": "otel-app",    "to": "cpu-app",       "protocol": "HTTP", "layer": "L7"}
+  ]
+}
 ```
 
 **Common Use Cases:**
 
 - **Incident Investigation** - Understand which downstream services might be
   causing issues
+- **Infrastructure Mapping** - Discover database and external API dependencies
+  that produce no traces (L4 edges)
 - **Architecture Validation** - Verify that services are only calling intended
   dependencies
 - **Onboarding** - Quickly understand the layout of a complex microservices
   environment
-- **AI Context** - Injected automatically into `coral ask` for smarter RCA
+- **AI Context** - Available on demand via `coral_cli` for smarter RCA
 
 ---
 

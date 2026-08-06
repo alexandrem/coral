@@ -132,6 +132,7 @@ type ColonyEndpointGetter interface {
 type ServiceFixture interface {
 	AgentEndpointGetter
 	ColonyEndpointGetter
+	GetBeylaConfig(ctx context.Context, agentName string) (string, error)
 }
 
 // ServiceConfig defines configuration for a service to connect.
@@ -250,6 +251,12 @@ func EnsureServicesConnected(
 		} else {
 			t.Log("✓ Services registered in colony")
 		}
+	}
+
+	// Logs generated Beyla configuration for this agent (RFD 032/110) to aid troubleshooting.
+	agentName := fmt.Sprintf("agent-%d", agentIndex)
+	if cfg, err := fixture.GetBeylaConfig(ctx, agentName); err == nil {
+		t.Logf("Generated Beyla configuration on %s:\n%s", agentName, cfg)
 	}
 }
 

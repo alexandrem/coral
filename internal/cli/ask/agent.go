@@ -44,13 +44,23 @@ type ToolCall struct {
 // AgentEvent represents an event during query execution (RFD 051).
 // Used for streaming updates to interactive UI.
 type AgentEvent struct {
-	Type     string    // "stream", "tool_start", "tool_complete", "error"
-	Content  string    // For stream chunks
-	ToolName string    // For tool events
-	Command  string    // For tool_start in CLI mode: full "coral <args>" string (RFD 100)
-	Duration float64   // For tool_complete (seconds)
-	Error    error     // For error events
-	Response *Response // For complete event
+	Type           string                 // "stream", "tool_start", "tool_complete", "script_review"
+	Content        string                 // For stream chunks
+	ToolName       string                 // For tool events
+	Command        string                 // For tool_start in CLI mode: full "coral <args>" string (RFD 100)
+	Duration       float64                // For tool_complete (seconds)
+	Error          error                  // For error events
+	Response       *Response              // For complete event
+	ScriptApproval *ScriptApprovalRequest // For script_review events (RFD 100 future work)
+}
+
+// ScriptApprovalRequest carries the data for a "script_review" agent event.
+// The agent goroutine blocks on ApprovalReply until the UI sends true (approve)
+// or false (reject).
+type ScriptApprovalRequest struct {
+	Name          string
+	Content       string
+	ApprovalReply chan bool
 }
 
 // eventEmitter is an interface for emitting agent events (RFD 051).
@@ -64,6 +74,9 @@ type eventEmitter interface {
 	// or empty in MCP mode.
 	EmitToolStart(toolName, command string)
 	EmitToolComplete(toolName string, duration float64)
+	// RequestScriptApproval shows the script to the user and blocks until they
+	// approve or reject. Returns true if the script should be written to disk.
+	RequestScriptApproval(name, content string) (bool, error)
 }
 
 // stdoutEmitter emits events to stdout (RFD 051).
@@ -84,7 +97,17 @@ func (e *stdoutEmitter) EmitToolStart(toolName, command string) {
 }
 
 func (e *stdoutEmitter) EmitToolComplete(toolName string, duration float64) {
-	// No-op for stdout mode
+	// No-op for stdout mode.
+}
+
+func (e *stdoutEmitter) RequestScriptApproval(name, content string) (bool, error) {
+	fmt.Fprintf(os.Stderr, "\n─── Script: %s ───\n%s\n─── End of script ───\n\n", name, content)
+	fmt.Fprint(os.Stderr, "Write to ~/.coral/scripts/? (y/N): ")
+	var resp string
+	if _, err := fmt.Fscanln(os.Stdin, &resp); err != nil {
+		return false, nil
+	}
+	return resp == "y" || resp == "Y", nil
 }
 
 // channelEmitter emits events to a channel (RFD 051).
@@ -104,6 +127,19 @@ func (e *channelEmitter) EmitToolStart(toolName, command string) {
 
 func (e *channelEmitter) EmitToolComplete(toolName string, duration float64) {
 	e.ch <- AgentEvent{Type: "tool_complete", ToolName: toolName, Duration: duration}
+}
+
+func (e *channelEmitter) RequestScriptApproval(name, content string) (bool, error) {
+	reply := make(chan bool, 1)
+	e.ch <- AgentEvent{
+		Type: "script_review",
+		ScriptApproval: &ScriptApprovalRequest{
+			Name:          name,
+			Content:       content,
+			ApprovalReply: reply,
+		},
+	}
+	return <-reply, nil
 }
 
 // NewAgent creates a new LLM agent with the given configuration.
@@ -722,6 +758,31 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 
 				// Emit tool start with CLI command string (RFD 100).
 				emitter.EmitToolStart(tc.Name, cmdStr)
+
+				// Intercept script write for the TUI approval gate (RFD 100 future work).
+				// The agent must not write scripts to disk without human review.
+				if isScriptWrite(cliArgs) {
+					name, content := scriptWriteParams(cliArgs)
+					approved, approvalErr := emitter.RequestScriptApproval(name, content)
+					if approvalErr != nil {
+						return nil, fmt.Errorf("script approval failed: %w", approvalErr)
+					}
+					if !approved {
+						msg := "script write rejected by user — revise the script and try again"
+						emitter.EmitToolComplete(tc.Name, 0)
+						toolCallResults = append(toolCallResults, ToolCall{
+							Name:   tc.Name,
+							Input:  args,
+							Output: mcp.NewToolResultError(msg),
+						})
+						toolResponses = append(toolResponses, llm.ToolResponse{
+							CallID:  tc.ID,
+							Name:    tc.Name,
+							Content: msg,
+						})
+						continue
+					}
+				}
 
 				toolResult, toolDuration, err = executeCLITool(ctx, cliArgs, a.debug)
 				if err != nil {
