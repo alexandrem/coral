@@ -1,5 +1,5 @@
 ---
-rfd: "089"
+rfd: "107"
 title: "Discovery Introspection & Admin API"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "networking", "discovery", "infrastructure" ]
 ---
 
-# RFD 089 - Discovery Introspection & Admin API
+# RFD 107 - Discovery Introspection & Admin API
 
 **Status:** 🚧 Draft
 
