@@ -455,3 +455,81 @@ message QueryRow {
   // Column values (stringified).
   repeated string values = 1;
 }
+
+// Trace-driven profiling (RFD 078).
+
+// ProfileType selects which profile data to join with the trace.
+enum ProfileType {
+  PROFILE_TYPE_UNSPECIFIED = 0;
+  PROFILE_TYPE_CPU = 1;
+  PROFILE_TYPE_MEMORY = 2;
+}
+
+// QueryTraceProfileRequest queries correlated profiling data for a trace ID.
+message QueryTraceProfileRequest {
+  // Required: 32-char hex trace ID.
+  string trace_id = 1;
+
+  // Optional: limit results to a specific service name.
+  string service_name = 2;
+
+  // Profile type to correlate (default: CPU).
+  ProfileType profile_type = 3;
+}
+
+// TraceSpanMetadata carries per-span metadata used in the profile correlation.
+message TraceSpanMetadata {
+  // Trace ID.
+  string trace_id = 1;
+
+  // Earliest span start time across all matched spans.
+  google.protobuf.Timestamp start_time = 2;
+
+  // Total trace duration in milliseconds (from first span start to last span end).
+  int64 total_duration_ms = 3;
+
+  // Distinct service names observed in the trace.
+  repeated string services = 4;
+
+  // Number of spans in the trace.
+  int32 span_count = 5;
+}
+
+// ServiceTraceProfile contains per-service profiling data correlated with a trace span.
+message ServiceTraceProfile {
+  // Service name.
+  string service_name = 1;
+
+  // OS process ID used as the join key.
+  uint32 process_pid = 2;
+
+  // Duration of the span (in milliseconds).
+  int64 span_duration_ms = 3;
+
+  // Span name (e.g., "POST /api/checkout").
+  string span_name = 4;
+
+  // Top CPU hotspots from profile samples during the span's time window.
+  repeated CPUHotspot top_hotspots = 5;
+
+  // Total profile samples in the correlation window.
+  int64 total_samples = 6;
+
+  // Estimated CPU time during the span in milliseconds.
+  int64 cpu_time_ms = 7;
+
+  // Warning when sample_count < 3 (low coverage due to 19Hz sampling rate).
+  string coverage_warning = 8;
+}
+
+// QueryTraceProfileResponse returns per-service flame graph data for a trace.
+message QueryTraceProfileResponse {
+  // The queried trace ID.
+  string trace_id = 1;
+
+  // Per-service profiling results.
+  repeated ServiceTraceProfile service_profiles = 2;
+
+  // Trace-level metadata.
+  TraceSpanMetadata trace_metadata = 3;
+}

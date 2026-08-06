@@ -274,6 +274,7 @@ func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, 
 			StackHash:     computeStackHash(frameIDs),
 			StackFrameIDs: frameIDs,
 			SampleCount:   sampleCount,
+			TGID:          uint32(service.PID), // OS process ID (TGID) for trace correlation (RFD 078).
 		})
 	}
 

@@ -325,6 +325,7 @@ func (s *DebugService) QueryCPUProfileSamples(
 			SampleCount: sample.SampleCount,
 			ServiceName: sample.ServiceID,
 			SeqId:       sample.SeqID,
+			Tgid:        sample.TGID,
 		})
 
 		totalSamples += uint64(sample.SampleCount)

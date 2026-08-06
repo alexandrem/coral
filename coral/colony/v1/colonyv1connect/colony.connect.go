@@ -69,6 +69,9 @@ const (
 	// ColonyServiceExecuteQueryProcedure is the fully-qualified name of the ColonyService's
 	// ExecuteQuery RPC.
 	ColonyServiceExecuteQueryProcedure = "/coral.colony.v1.ColonyService/ExecuteQuery"
+	// ColonyServiceQueryTraceProfileProcedure is the fully-qualified name of the ColonyService's
+	// QueryTraceProfile RPC.
+	ColonyServiceQueryTraceProfileProcedure = "/coral.colony.v1.ColonyService/QueryTraceProfile"
 	// ColonyServiceCallToolProcedure is the fully-qualified name of the ColonyService's CallTool RPC.
 	ColonyServiceCallToolProcedure = "/coral.colony.v1.ColonyService/CallTool"
 	// ColonyServiceStreamToolProcedure is the fully-qualified name of the ColonyService's StreamTool
@@ -113,6 +116,8 @@ type ColonyServiceClient interface {
 	GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error)
 	ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error)
 	ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error)
+	// Trace-driven profiling (RFD 078) - correlate CPU/memory profiles with trace spans.
+	QueryTraceProfile(context.Context, *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -220,6 +225,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("ExecuteQuery")),
 			connect.WithClientOptions(opts...),
 		),
+		queryTraceProfile: connect.NewClient[v1.QueryTraceProfileRequest, v1.QueryTraceProfileResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryTraceProfileProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryTraceProfile")),
+			connect.WithClientOptions(opts...),
+		),
 		callTool: connect.NewClient[v1.CallToolRequest, v1.CallToolResponse](
 			httpClient,
 			baseURL+ColonyServiceCallToolProcedure,
@@ -291,6 +302,7 @@ type colonyServiceClient struct {
 	getServiceActivity  *connect.Client[v1.GetServiceActivityRequest, v1.GetServiceActivityResponse]
 	listServiceActivity *connect.Client[v1.ListServiceActivityRequest, v1.ListServiceActivityResponse]
 	executeQuery        *connect.Client[v1.ExecuteQueryRequest, v1.ExecuteQueryResponse]
+	queryTraceProfile   *connect.Client[v1.QueryTraceProfileRequest, v1.QueryTraceProfileResponse]
 	callTool            *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
 	streamTool          *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
 	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
@@ -362,6 +374,11 @@ func (c *colonyServiceClient) ExecuteQuery(ctx context.Context, req *connect.Req
 	return c.executeQuery.CallUnary(ctx, req)
 }
 
+// QueryTraceProfile calls coral.colony.v1.ColonyService.QueryTraceProfile.
+func (c *colonyServiceClient) QueryTraceProfile(ctx context.Context, req *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error) {
+	return c.queryTraceProfile.CallUnary(ctx, req)
+}
+
 // CallTool calls coral.colony.v1.ColonyService.CallTool.
 func (c *colonyServiceClient) CallTool(ctx context.Context, req *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
 	return c.callTool.CallUnary(ctx, req)
@@ -426,6 +443,8 @@ type ColonyServiceHandler interface {
 	GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error)
 	ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error)
 	ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error)
+	// Trace-driven profiling (RFD 078) - correlate CPU/memory profiles with trace spans.
+	QueryTraceProfile(context.Context, *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -529,6 +548,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("ExecuteQuery")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceQueryTraceProfileHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryTraceProfileProcedure,
+		svc.QueryTraceProfile,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryTraceProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	colonyServiceCallToolHandler := connect.NewUnaryHandler(
 		ColonyServiceCallToolProcedure,
 		svc.CallTool,
@@ -609,6 +634,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceListServiceActivityHandler.ServeHTTP(w, r)
 		case ColonyServiceExecuteQueryProcedure:
 			colonyServiceExecuteQueryHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryTraceProfileProcedure:
+			colonyServiceQueryTraceProfileHandler.ServeHTTP(w, r)
 		case ColonyServiceCallToolProcedure:
 			colonyServiceCallToolHandler.ServeHTTP(w, r)
 		case ColonyServiceStreamToolProcedure:
@@ -682,6 +709,10 @@ func (UnimplementedColonyServiceHandler) ListServiceActivity(context.Context, *c
 
 func (UnimplementedColonyServiceHandler) ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ExecuteQuery is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) QueryTraceProfile(context.Context, *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryTraceProfile is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {

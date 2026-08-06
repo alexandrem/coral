@@ -35,6 +35,9 @@ service ColonyService {
   rpc ListServiceActivity(ListServiceActivityRequest) returns (ListServiceActivityResponse);
   rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
 
+  // Trace-driven profiling (RFD 078) - correlate CPU/memory profiles with trace spans.
+  rpc QueryTraceProfile(QueryTraceProfileRequest) returns (QueryTraceProfileResponse);
+
   // MCP Tool Execution (RFD 004 - MCP server integration).
 
   // Execute an MCP tool and return the result.

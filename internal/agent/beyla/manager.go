@@ -536,6 +536,7 @@ func (m *Manager) HandleSpan(ctx context.Context, span telemetry.Span) error {
 		span.Timestamp,
 		durationUs,
 		statusCode,
+		span.ProcessPID,
 		span.Attributes,
 	)
 }

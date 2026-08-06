@@ -2675,7 +2675,11 @@ type EbpfTraceSpan struct {
 	// Additional attributes.
 	Attributes map[string]string `protobuf:"bytes,10,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Sequence ID for checkpoint-based polling (RFD 089).
-	SeqId         uint64 `protobuf:"varint,11,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
+	SeqId uint64 `protobuf:"varint,11,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
+	// OS process ID (TGID) of the instrumented process (RFD 078).
+	// Extracted from OTLP resource attribute process.pid.
+	// Zero if not available.
+	ProcessPid    uint32 `protobuf:"varint,12,opt,name=process_pid,json=processPid,proto3" json:"process_pid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2783,6 +2787,13 @@ func (x *EbpfTraceSpan) GetAttributes() map[string]string {
 func (x *EbpfTraceSpan) GetSeqId() uint64 {
 	if x != nil {
 		return x.SeqId
+	}
+	return 0
+}
+
+func (x *EbpfTraceSpan) GetProcessPid() uint32 {
+	if x != nil {
+		return x.ProcessPid
 	}
 	return 0
 }
@@ -4785,7 +4796,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x06seq_id\x18\t \x01(\x04R\x05seqId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xed\x03\n" +
 	"\rEbpfTraceSpan\x12\x19\n" +
 	"\btrace_id\x18\x01 \x01(\tR\atraceId\x12\x17\n" +
 	"\aspan_id\x18\x02 \x01(\tR\x06spanId\x12$\n" +
@@ -4803,7 +4814,9 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"attributes\x18\n" +
 	" \x03(\v2-.coral.agent.v1.EbpfTraceSpan.AttributesEntryR\n" +
 	"attributes\x12\x15\n" +
-	"\x06seq_id\x18\v \x01(\x04R\x05seqId\x1a=\n" +
+	"\x06seq_id\x18\v \x01(\x04R\x05seqId\x12\x1f\n" +
+	"\vprocess_pid\x18\f \x01(\rR\n" +
+	"processPid\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd3\x01\n" +

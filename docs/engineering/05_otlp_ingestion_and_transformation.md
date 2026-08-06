@@ -22,6 +22,7 @@ collect telemetry from instrumented applications, sidecars, or other collectors.
 When an OTLP trace batch is received, it undergoes a transformation into Coral's
 internal high-precision format:
 
+- **Process PID Extraction**: The `process.pid` resource attribute (OS TGID of the instrumented process) is extracted from resource attributes to enable query-time trace-to-profile correlation (RFD 078).
 - **Service Discovery**: The `service.name` is extracted from the Resource
   attributes. If missing, it defaults to `unknown`.
 - **Identity Conversion**: Trace and Span IDs are converted from raw bytes to
@@ -55,6 +56,7 @@ storage:
 |:------------------------|:--------------------|:-------------------------------------|
 | `TraceId`               | `trace_id`          | Hex encoded string                   |
 | `Resource.service.name` | `service_name`      | Primary grouping key                 |
+| `Resource.process.pid`  | `process_pid`       | OS PID (TGID) for trace profiling (RFD 078) |
 | `status_code == ERROR`  | `is_error`          | Boolean flag for rapid filtering     |
 | `http.status_code`      | `http_status`       | Promoted attribute                   |
 | `Attributes`            | `attributes`        | Stored as JSON for flexible querying |
