@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -53,9 +54,10 @@ func (d *Database) QueryTraceProfileCPU(ctx context.Context, traceID string, ser
 			SUM(p.sample_count) AS total_samples
 		FROM beyla_traces t
 		INNER JOIN cpu_profile_summaries p ON
+			p.service_name = t.service_name AND
 			p.tgid = CAST(t.process_pid AS INTEGER) AND
-			p.timestamp >= t.start_time - INTERVAL '1 minute' AND
-			p.timestamp <= t.start_time + (t.duration_us * INTERVAL '1 microsecond') + INTERVAL '1 minute'
+			p.timestamp >= CAST(t.start_time AS TIMESTAMP) - INTERVAL '1 minute' AND
+			p.timestamp <= CAST(t.start_time AS TIMESTAMP) + (t.duration_us * INTERVAL '1 microsecond') + INTERVAL '1 minute'
 		WHERE t.trace_id = ?
 			AND t.process_pid > 0
 	`
@@ -120,16 +122,16 @@ func (d *Database) queryTraceMetadata(ctx context.Context, traceID string) (*Tra
 	query := `
 		SELECT
 			MIN(start_time) AS trace_start,
-			MAX(start_time + (duration_us * INTERVAL '1 microsecond')) AS trace_end,
+			MAX(CAST(start_time AS TIMESTAMP) + (duration_us * INTERVAL '1 microsecond')) AS trace_end,
 			COUNT(*) AS span_count,
-			LIST_DISTINCT(service_name ORDER BY service_name) AS services
+			list(DISTINCT service_name ORDER BY service_name) AS services
 		FROM beyla_traces
 		WHERE trace_id = ?
 	`
 
 	row := d.db.QueryRowContext(ctx, query, traceID)
 
-	var traceStart, traceEnd time.Time
+	var traceStart, traceEnd sql.NullTime
 	var spanCount int32
 	var servicesRaw interface{}
 
@@ -156,11 +158,11 @@ func (d *Database) queryTraceMetadata(ctx context.Context, traceID string) (*Tra
 		}
 	}
 
-	totalDurationMs := traceEnd.Sub(traceStart).Milliseconds()
+	totalDurationMs := traceEnd.Time.Sub(traceStart.Time).Milliseconds()
 
 	return &TraceMetadata{
 		TraceID:         traceID,
-		StartTime:       traceStart,
+		StartTime:       traceStart.Time,
 		TotalDurationMs: totalDurationMs,
 		Services:        services,
 		SpanCount:       spanCount,
