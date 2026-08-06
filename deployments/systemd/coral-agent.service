@@ -10,12 +10,14 @@ ExecStart=/usr/local/bin/coral-agent start --config /etc/coral/agent.yaml
 Restart=on-failure
 RestartSec=10s
 
-# Security hardening.
+# Security hardening & capabilities.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/coral /var/log/coral
+ReadWritePaths=/var/lib/coral /var/log/coral /etc/coral
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE CAP_SYS_RESOURCE CAP_BPF CAP_PERFMON
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE CAP_SYS_RESOURCE CAP_BPF CAP_PERFMON
 
 # Logging.
 StandardOutput=journal
