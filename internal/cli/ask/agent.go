@@ -351,7 +351,6 @@ func (a *Agent) buildSystemPrompt(ctx context.Context) string {
 func (a *Agent) buildMCPSystemPrompt(ctx context.Context) string {
 	serviceCtx := a.fetchServiceContext(ctx)
 	healthAlerts := a.fetchHealthAlerts(ctx)
-	topologyCtx := a.fetchTopologyContext(ctx)
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
@@ -360,10 +359,6 @@ func (a *Agent) buildMCPSystemPrompt(ctx context.Context) string {
 
 	if healthAlerts != "" {
 		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
-	}
-
-	if topologyCtx != "" {
-		prompt += "\n" + topologyCtx + "\n"
 	}
 
 	prompt += `
@@ -482,32 +477,6 @@ func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
 		return ""
 	}
 	return parseHealthAlerts(textContent.Text)
-}
-
-// fetchTopologyContext calls coral_topology via MCP and returns a compact call graph
-// line for injection into the system prompt. Returns empty string on failure or when
-// no connections are observed.
-func (a *Agent) fetchTopologyContext(ctx context.Context) string {
-	req := mcp.CallToolRequest{}
-	req.Params.Name = "coral_topology"
-	req.Params.Arguments = map[string]interface{}{}
-
-	result, err := a.mcpClient.CallTool(ctx, req)
-	if err != nil {
-		if a.debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch topology: %v\n", err)
-		}
-		return ""
-	}
-
-	if len(result.Content) == 0 {
-		return ""
-	}
-	textContent, ok := mcp.AsTextContent(result.Content[0])
-	if !ok {
-		return ""
-	}
-	return formatCompactCallGraph(textContent.Text)
 }
 
 // fetchTopologyCLI runs coral query topology in CLI dispatch mode and returns a compact
