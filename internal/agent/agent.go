@@ -37,12 +37,14 @@ type Lifecycle interface {
 // Defined as an interface to support Linux/non-Linux builds without import cycles.
 type cpuProfiler interface {
 	AddService(serviceID string, pid int, binaryPath string)
+	RemoveService(serviceID string)
 	Stop()
 }
 
 // memProfiler is the subset of profiler.ContinuousMemoryProfiler used by the agent.
 type memProfiler interface {
 	AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
+	RemoveService(serviceID string)
 	Stop()
 }
 
@@ -388,6 +390,13 @@ func (a *Agent) DisconnectService(serviceName string) error {
 		a.logger.Error().Err(err).Str("service", serviceName).Msg("Failed to stop service monitor")
 	}
 	delete(a.monitors, serviceName)
+
+	if a.continuousProfiler != nil {
+		a.continuousProfiler.RemoveService(serviceName)
+	}
+	if a.continuousMemoryProfiler != nil {
+		a.continuousMemoryProfiler.RemoveService(serviceName)
+	}
 
 	a.logger.Info().
 		Str("service", serviceName).
