@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 func TestDebugSessionAttachUprobeScenario(t *testing.T) {
 	tempDir := t.TempDir()
 	logger := zerolog.Nop()
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 

@@ -1,8 +1,10 @@
 package distributed
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -14,7 +16,7 @@ import (
 // 1. Query summary command (coral query summary)
 // 2. Query traces command (coral query traces)
 // 3. Query metrics command (coral query metrics)
-// 4. Query services command (coral query services)
+// 4. Service list command (coral colony service list)
 // 5. Flag combinations (--service, --time, --limit)
 // 6. Output formatting (table vs JSON)
 //
@@ -41,7 +43,7 @@ func (s *CLIQuerySuite) SetupSuite() {
 
 	// Ensure services are connected for query tests.
 	// This populates the services registry table via ConnectService API,
-	// allowing registry-based queries (like 'coral query services') to work.
+	// allowing registry-based queries (like 'coral colony service list') to work.
 	s.ensureServicesConnected()
 
 	s.T().Logf("CLI environment ready: endpoint=%s", colonyEndpoint)
@@ -97,14 +99,14 @@ func (s *CLIQuerySuite) TestQuerySummaryCommand() {
 	s.T().Logf("Query with service filter exit code: %d", resultWithService.ExitCode)
 }
 
-// TestQueryServicesCommand tests 'coral query services' output.
+// TestQueryServicesCommand tests 'coral colony service list' output.
 //
 // Validates:
 // - Lists discovered services
 // - Table and JSON formats work
 // - Service information is present
 func (s *CLIQuerySuite) TestQueryServicesCommand() {
-	s.T().Log("Testing 'coral query services' command...")
+	s.T().Log("Testing 'coral colony service list' command...")
 
 	// Test table format
 	result := helpers.QueryServices(s.ctx, s.cliEnv)
@@ -322,6 +324,355 @@ func (s *CLIQuerySuite) TestQueryTableOutputFormatting() {
 	s.T().Log("✓ Table formatting validated")
 }
 
+// TestCLIQueryTopology tests 'coral query topology' CLI command (RFD 092).
+//
+// Validates:
+//   - Cross-service edges (otel-app → cpu-app) appear after traffic generation
+//   - Default text output contains directed call edges
+//   - JSON output flag works and includes colony_id and connections fields
+func (s *CLIQuerySuite) TestCLIQueryTopology() {
+	s.T().Log("Testing 'coral query topology' CLI command (RFD 092)...")
+
+	// Generate real cross-service HTTP traffic so MaterializeConnections has
+	// parent-child span relationships to mine across service boundaries.
+	s.ensureCrossServiceData()
+
+	// Poll 'coral query topology' until the otel-app → cpu-app edge appears or
+	// the deadline is exceeded. On each cycle, send a few more /chain calls so
+	// fresh Beyla spans are always available — this handles cases where the
+	// otel-app container restarted mid-suite and Beyla's eBPF uprobes needed
+	// time to re-attach to the new process.
+	//
+	// The loop requires BOTH "otel-app" AND "cpu-app" to avoid false positives:
+	// previously it broke on "otel-app" alone, which matched "coral-agent → otel-app"
+	// (agent health-check edge) instead of the real "otel-app → cpu-app" topology edge.
+	const (
+		topologyTimeout  = 60 * time.Second
+		topologyInterval = 5 * time.Second
+	)
+	otelAppURL := "http://localhost:8082"
+	chainClient := &http.Client{Timeout: 3 * time.Second}
+	deadline := time.Now().Add(topologyTimeout)
+
+	// Log Beyla config once up front so it appears in CI output regardless of
+	// whether the test times out.
+	if cfg, err := s.fixture.GetBeylaConfig(s.ctx, "agent-0"); err == nil {
+		s.T().Logf("Beyla config on agent-0:\n%s", cfg)
+	}
+
+	var result *helpers.CLIResult
+	timedOut := false
+	for {
+		// Keep generating cross-service calls so there is always fresh traffic
+		// for Beyla to capture once its uprobe attaches to the new process.
+		for i := 0; i < 3; i++ {
+			if resp, err := chainClient.Get(otelAppURL + "/chain"); err == nil {
+				_ = resp.Body.Close()
+			}
+		}
+
+		result = s.cliEnv.Run(s.ctx, "query", "topology")
+		if result.Err == nil && strings.Contains(result.Output, "otel-app") && strings.Contains(result.Output, "cpu-app") {
+			break
+		}
+		if time.Now().After(deadline) {
+			s.T().Logf("coral query topology last output:\n%s", result.Output)
+			timedOut = true
+			break
+		}
+		s.T().Logf("otel-app → cpu-app edge not yet in topology output, retrying in %s...", topologyInterval)
+		time.Sleep(topologyInterval)
+	}
+
+	// Always dump beyla span ingestion state so passing and failing runs can be
+	// compared side-by-side in CI logs.
+	// s.debugBeylaTracesLocal()
+
+	if timedOut {
+		s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
+		s.debugBeylaTracesLocal()
+		return
+	}
+
+	result.MustSucceed(s.T())
+	s.Require().NotEmpty(result.Output, "CLI topology output should not be empty")
+	s.T().Logf("coral query topology output:\n%s", result.Output)
+
+	// The output must include a detected edge between the two services.
+	// otel-app calls cpu-app via the /chain endpoint; Beyla's eBPF interceptor
+	// owns the traceparent header so the parent-child span pair lives entirely
+	// in beyla_traces, letting MaterializeConnections find the edge.
+	s.Require().Contains(result.Output, "otel-app", "Output should name the caller service")
+	s.Require().Contains(result.Output, "cpu-app", "Output should name the callee service")
+	s.Require().Contains(result.Output, "→", "Output should show a directed call edge")
+	// RFD 033: LAYER column must be present in topology output.
+	s.Require().Contains(result.Output, "LAYER", "Output should include LAYER column header (RFD 033)")
+
+	// JSON output format.
+	jsonResult := s.cliEnv.Run(s.ctx, "query", "topology", "--format", "json")
+	jsonResult.MustSucceed(s.T())
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonResult.Output), &parsed); err != nil {
+		s.T().Logf("JSON parse error (output was): %s", jsonResult.Output)
+		s.Require().NoError(err, "JSON output should be valid JSON")
+	}
+	s.Require().Contains(parsed, "colony_id", "JSON output must include colony_id field")
+	s.Require().Contains(parsed, "connections", "JSON output must include connections field")
+
+	// RFD 033: JSON connections must include the layer field.
+	if conns, ok := parsed["connections"].([]interface{}); ok && len(conns) > 0 {
+		firstConn, ok := conns[0].(map[string]interface{})
+		s.Require().True(ok, "connection entry must be an object")
+		s.Require().Contains(firstConn, "layer", "JSON connection must include layer field (RFD 033)")
+	}
+
+	s.T().Log("✓ coral query topology CLI validated with real cross-service connections")
+}
+
+// debugBeylaTracesLocal queries beyla_traces_local on the agent that runs
+// otel-app and cpu-app, and also queries the colony's beyla_traces table.
+// Both dumps are logged so CI failures can be diagnosed without local repro.
+func (s *CLIQuerySuite) debugBeylaTracesLocal() {
+	s.T().Log("=== DEBUG: beyla span ingestion state ===")
+
+	// The duckdb proxy requires admin auth on the public HTTPS endpoint.
+	token, err := s.fixture.CreateToken(s.ctx, "debug-beyla-traces", "admin")
+	if err != nil {
+		s.T().Logf("DEBUG: could not create admin token: %v", err)
+		return
+	}
+
+	duckdbEnv, err := helpers.SetupCLIEnv(s.ctx, s.fixture.ColonyID, "https://localhost:8443")
+	if err != nil {
+		s.T().Logf("DEBUG: could not set up duckdb CLI env: %v", err)
+		return
+	}
+	defer duckdbEnv.Cleanup()
+	duckdbEnv.ExtraVars["CORAL_INSECURE"] = "true"
+	duckdbEnv.ExtraVars["CORAL_API_TOKEN"] = token
+
+	// --- Colony-level view (beyla_traces) ---
+	// This works without an agent ID and shows what was successfully polled
+	// from the agent to the colony — a reliable baseline even if agent proxy fails.
+	// The colony database is attached as "colony", so tables must be qualified.
+	s.T().Log("--- colony beyla_traces (polled data) ---")
+
+	colonyCount := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT COUNT(*) AS total FROM colony.beyla_traces")
+	s.T().Logf("colony beyla_traces count:\n%s", colonyCount.Output)
+
+	// Group by (agent_id, service_name) — confirms which agent's spans reached the
+	// colony and whether cpu-app + otel-app are stored under the same agent_id.
+	colonyServices := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT agent_id, service_name, COUNT(*) AS spans, MAX(start_time) AS last_seen "+
+			"FROM colony.beyla_traces GROUP BY agent_id, service_name ORDER BY spans DESC")
+	s.T().Logf("colony beyla_traces by agent+service:\n%s", colonyServices.Output)
+
+	// list all unique service names to see if otel-app is there with a typo or weird chars
+	uniqueServices := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT DISTINCT '[' || service_name || ']' as name_bracketed FROM colony.beyla_traces")
+	s.T().Logf("colony distinct service names (bracketed):\n%s", uniqueServices.Output)
+
+	// service_connections shows what MaterializeConnections last derived.
+	colonyConns := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT from_service, to_service, protocol, connection_count, last_observed "+
+			"FROM colony.service_connections ORDER BY last_observed DESC")
+	s.T().Logf("colony service_connections:\n%s", colonyConns.Output)
+
+	// otel_spans holds spans from the OTLP SDK path (not Beyla eBPF).
+	// If otel-app spans went here instead of beyla_traces, the JOIN in
+	// MaterializeConnections would never find them.
+	// otel_summaries holds aggregated metrics.
+	colonyOtelSummaries := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT service_name, COUNT(*) AS cnt, MAX(bucket_time) AS last_seen "+
+			"FROM colony.otel_summaries GROUP BY service_name ORDER BY cnt DESC")
+	s.T().Logf("colony otel_summaries by service (aggregated):\n%s", colonyOtelSummaries.Output)
+
+	// --- Agent-level view (beyla_traces_local) ---
+	// Resolve all agents from the registry and dump their local traces.
+	agents, agentErr := helpers.ColonyAgentsJSON(s.ctx, duckdbEnv)
+	if agentErr != nil {
+		s.T().Logf("DEBUG: could not list agents: %v", agentErr)
+		return
+	}
+
+	for _, agent := range agents {
+		agentID := agent["agent_id"].(string)
+		s.T().Logf("--- agent %s beyla_traces_local (raw local data) ---", agentID)
+
+		dbAlias := "agent_" + sanitizeAgentIDForSQL(agentID)
+
+		agentCount := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT COUNT(*) AS total_spans FROM "+dbAlias+".beyla_traces_local",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s beyla_traces_local count:\n%s", agentID, agentCount.Output)
+
+		agentTraces := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, COUNT(*) AS spans, MIN(start_time) AS first_seen, MAX(start_time) AS last_seen "+
+				"FROM "+dbAlias+".beyla_traces_local GROUP BY service_name", "--database", "metrics.duckdb")
+		s.T().Logf("agent %s beyla_traces_local by service:\n%s", agentID, agentTraces.Output)
+
+		// span_kind check
+		agentKinds := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT span_kind, COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local GROUP BY 1",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s seen span kinds:\n%s", agentID, agentKinds.Output)
+
+		// otel-app client-side span check (the missing link for topology).
+		otelClientSpans := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT span_kind, COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local "+
+				"WHERE (service_name='otel-app' OR service_name='main') AND span_kind='CLIENT' GROUP BY span_kind",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s otel-app CLIENT spans:\n%s", agentID, otelClientSpans.Output)
+
+		// trace_id health check: how many otel-app spans have empty trace_id.
+		// If trace_id="" it means Beyla's loopback CLIENT span OTLP export bug is
+		// present — spans will be rejected by InsertBeylaTraces.
+		otelTraceIDCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT (CASE WHEN trace_id='' THEN 'empty' ELSE 'valid' END) AS trace_id_state, "+
+				"(CASE WHEN span_id='' THEN 'empty' ELSE 'valid' END) AS span_id_state, "+
+				"COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local "+
+				"WHERE service_name='otel-app' OR service_name='main' "+
+				"GROUP BY 1, 2",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s otel-app trace_id/span_id health:\n%s", agentID, otelTraceIDCheck.Output)
+
+		// detail check for CLIENT spans
+		clientDetailCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT seq_id, trace_id, span_id, parent_span_id, span_name FROM "+dbAlias+".beyla_traces_local "+
+				"WHERE span_kind='CLIENT' ORDER BY seq_id DESC LIMIT 5",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s CLIENT spans details (last 5):\n%s", agentID, clientDetailCheck.Output)
+
+		// beyla_http metrics check (confirms if Beyla is even seeing HTTP traffic).
+		beylaMetrics := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, http_method, http_route, COUNT(*) AS cnt FROM "+dbAlias+".beyla_http_metrics_local "+
+				"GROUP BY 1, 2, 3",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s beyla_http_metrics_local summary:\n%s", agentID, beylaMetrics.Output)
+		// seq_id range check: see if some services have higher seq_id than others
+		seqRangeCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT service_name, MIN(seq_id) AS min_seq, MAX(seq_id) AS max_seq, COUNT(*) AS cnt FROM "+dbAlias+".beyla_traces_local "+
+				"GROUP BY 1 ORDER BY min_seq",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s beyla_traces_local seq_id range:\n%s", agentID, seqRangeCheck.Output)
+
+		// detail check for otel-app
+		otelDetailCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT seq_id, trace_id, span_id, parent_span_id, span_kind, start_time FROM "+dbAlias+".beyla_traces_local "+
+				"WHERE service_name='otel-app' ORDER BY seq_id DESC LIMIT 5",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s otel-app spans details (last 5):\n%s", agentID, otelDetailCheck.Output)
+
+		// check for potential topology matches on the agent itself
+		topologyMatchCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT child.service_name as child_svc, parent.service_name as parent_svc, count(*) "+
+				"FROM "+dbAlias+".beyla_traces_local child "+
+				"JOIN "+dbAlias+".beyla_traces_local parent ON child.parent_span_id = parent.span_id "+
+				"WHERE child.service_name != parent.service_name "+
+				"GROUP BY 1, 2",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s local topology matches:\n%s", agentID, topologyMatchCheck.Output)
+
+		// check for shared trace IDs
+		sharedTraceCheck := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT trace_id, count(distinct service_name) as svcs, group_concat(distinct service_name) as names "+
+				"FROM "+dbAlias+".beyla_traces_local "+
+				"GROUP BY 1 HAVING svcs > 1 LIMIT 5",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s shared trace IDs (cross-service):\n%s", agentID, sharedTraceCheck.Output)
+
+		// deep dive for common trace IDs
+		sharedTraceIDs := duckdbEnv.Run(s.ctx, "duckdb", "query", agentID,
+			"SELECT trace_id FROM "+dbAlias+".beyla_traces_local WHERE service_name='otel-app' "+
+				"INTERSECT "+
+				"SELECT trace_id FROM "+dbAlias+".beyla_traces_local WHERE service_name='cpu-app' "+
+				"LIMIT 1",
+			"--database", "metrics.duckdb")
+		s.T().Logf("agent %s shared trace ID deep-dive intersection:\n%s", agentID, sharedTraceIDs.Output)
+	}
+
+	// colony polling_checkpoints for ALL agents.
+	colonyCheckpoints := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT agent_id, data_type, last_seq_id, session_id, updated_at FROM colony.polling_checkpoints ORDER BY agent_id")
+	s.T().Logf("colony polling_checkpoints:\n%s", colonyCheckpoints.Output)
+
+	// Extra colony deep dive: see raw spans to check correlation.
+	s.T().Log("--- colony beyla_traces raw detail ---")
+	rawSpans := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT trace_id, span_id, parent_span_id, service_name, span_kind, start_time "+
+			"FROM colony.beyla_traces WHERE service_name IN ('otel-app', 'cpu-app') ORDER BY start_time DESC LIMIT 20")
+	s.T().Logf("colony raw trace detail:\n%s", rawSpans.Output)
+
+	// Cross-service trace check in colony.
+	traceOverlap := duckdbEnv.Run(s.ctx, "duckdb", "query", "--colony",
+		"SELECT trace_id, count(distinct service_name) as distinct_services, group_concat(distinct service_name) as services "+
+			"FROM colony.beyla_traces GROUP BY 1 HAVING distinct_services > 1 LIMIT 10")
+	s.T().Logf("colony shared trace IDs:\n%s", traceOverlap.Output)
+
+	s.T().Log("=== END DEBUG beyla span ingestion state ===")
+
+}
+
+// ensureCrossServiceData drives traffic through otel-app's /chain endpoint.
+// That handler makes a plain HTTP call to cpu-app (no OTel SDK traceparent
+// injection) so Beyla's eBPF interceptor can own the traceparent header end-
+// to-end: it injects its own span_id on the outgoing side and the cpu-app
+// SERVER span records it as parent_span_id, giving MaterializeConnections a
+// consistent parent-child pair inside beyla_traces.
+func (s *CLIQuerySuite) ensureCrossServiceData() {
+	s.T().Log("Generating cross-service traffic (otel-app → cpu-app)...")
+
+	otelAppURL := "http://localhost:8082"
+
+	if err := helpers.WaitForHTTPEndpoint(s.ctx, otelAppURL+"/health", 10*time.Second); err != nil {
+		s.T().Log("otel-app not reachable, cross-service traffic generation skipped")
+		return
+	}
+
+	// Verify the /chain endpoint exists before generating traffic. A 404 means
+	// the otel-app image was not rebuilt after the /chain handler was added.
+	client := &http.Client{Timeout: 5 * time.Second}
+	probe, err := client.Get(otelAppURL + "/chain")
+	s.Require().NoError(err, "/chain probe request should succeed (is the otel-app image rebuilt?)")
+	_ = probe.Body.Close()
+	s.Require().Equal(http.StatusOK, probe.StatusCode,
+		"/chain returned %d — rebuild the otel-app Docker image to include the /chain handler", probe.StatusCode)
+
+	// Retry loop — Beyla may need a few seconds to attach uprobes after the process
+	// is first exercised by the probe request above. By making multiple batches
+	// spaced out over time, we ensure the eBPF uprobes are active for the later calls.
+	const (
+		batches       = 3
+		callsPerBatch = 5
+	)
+	calls := 0
+	for attempt := 1; attempt <= batches; attempt++ {
+		s.T().Logf("Traffic generation attempt %d/%d...", attempt, batches)
+		for i := 0; i < callsPerBatch; i++ {
+			resp, err := client.Get(otelAppURL + "/chain")
+			s.Require().NoError(err, "Traffic generation failed (otel-app endpoint unreachable)")
+			s.Require().Equal(http.StatusOK, resp.StatusCode, "Traffic generation failed (otel-app returned error)")
+			resp.Body.Close()
+			calls++
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		if attempt < batches {
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	// Allow time for Beyla to capture both span sides, the colony's Beyla poll
+	// (1s in e2e config) to forward them, and the first topology materialization
+	// to run. Ten seconds gives comfortable headroom across that pipeline.
+	s.T().Log("Waiting for cross-service spans to propagate to colony...")
+	time.Sleep(10 * time.Second)
+
+	s.T().Logf("Generated %d cross-service calls", calls)
+}
+
 // Helper: ensureTelemetryData generates telemetry data by sending requests to test apps.
 // This ensures query commands have data to work with.
 func (s *CLIQuerySuite) ensureTelemetryData() {
@@ -354,10 +705,11 @@ func (s *CLIQuerySuite) ensureTelemetryData() {
 
 // ensureServicesConnected ensures test services are connected to agent for query tests.
 func (s *CLIQuerySuite) ensureServicesConnected() {
-	// CLI query tests need otel-app for testing queries.
-	// This populates the services registry table via ConnectService API.
+	// CLI query tests need otel-app and cpu-app — the topology test requires
+	// both services to be connected so cross-service edges are materialized.
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
 		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
 	})
 }
 
@@ -365,5 +717,22 @@ func (s *CLIQuerySuite) ensureServicesConnected() {
 func (s *CLIQuerySuite) disconnectAllServices() {
 	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{
 		"otel-app",
+		"cpu-app",
 	})
+}
+
+// sanitizeAgentIDForSQL converts an agent ID to the DuckDB alias used when the
+// database is attached, matching the logic in internal/cli/duckdb/helpers.go.
+// Every character that is not a-z, A-Z, or 0-9 is replaced with an underscore.
+func sanitizeAgentIDForSQL(agentID string) string {
+	result := make([]byte, len(agentID))
+	for i := range agentID {
+		ch := agentID[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+			result[i] = ch
+		} else {
+			result[i] = '_'
+		}
+	}
+	return string(result)
 }

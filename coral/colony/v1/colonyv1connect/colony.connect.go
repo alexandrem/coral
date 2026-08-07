@@ -69,6 +69,9 @@ const (
 	// ColonyServiceExecuteQueryProcedure is the fully-qualified name of the ColonyService's
 	// ExecuteQuery RPC.
 	ColonyServiceExecuteQueryProcedure = "/coral.colony.v1.ColonyService/ExecuteQuery"
+	// ColonyServiceQueryTraceProfileProcedure is the fully-qualified name of the ColonyService's
+	// QueryTraceProfile RPC.
+	ColonyServiceQueryTraceProfileProcedure = "/coral.colony.v1.ColonyService/QueryTraceProfile"
 	// ColonyServiceCallToolProcedure is the fully-qualified name of the ColonyService's CallTool RPC.
 	ColonyServiceCallToolProcedure = "/coral.colony.v1.ColonyService/CallTool"
 	// ColonyServiceStreamToolProcedure is the fully-qualified name of the ColonyService's StreamTool
@@ -89,6 +92,9 @@ const (
 	ColonyServiceMeshPingProcedure = "/coral.colony.v1.ColonyService/MeshPing"
 	// ColonyServiceMeshAuditProcedure is the fully-qualified name of the ColonyService's MeshAudit RPC.
 	ColonyServiceMeshAuditProcedure = "/coral.colony.v1.ColonyService/MeshAudit"
+	// ColonyServiceReportConnectionsProcedure is the fully-qualified name of the ColonyService's
+	// ReportConnections RPC.
+	ColonyServiceReportConnectionsProcedure = "/coral.colony.v1.ColonyService/ReportConnections"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -110,6 +116,8 @@ type ColonyServiceClient interface {
 	GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error)
 	ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error)
 	ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error)
+	// Trace-driven profiling (RFD 078) - correlate CPU/memory profiles with trace spans.
+	QueryTraceProfile(context.Context, *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -128,6 +136,10 @@ type ColonyServiceClient interface {
 	// Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
 	// against agent-announced STUN endpoints at registration.
 	MeshAudit(context.Context, *connect.Request[v1.MeshAuditRequest]) (*connect.Response[v1.MeshAuditResponse], error)
+	// Stream observed L4 TCP connections from an agent to the colony (RFD 033).
+	// Agents send periodic batches of aggregated outbound connections; the colony
+	// correlates IP addresses against the agent registry and upserts the results.
+	ReportConnections(context.Context) *connect.ClientStreamForClient[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse]
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -213,6 +225,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("ExecuteQuery")),
 			connect.WithClientOptions(opts...),
 		),
+		queryTraceProfile: connect.NewClient[v1.QueryTraceProfileRequest, v1.QueryTraceProfileResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryTraceProfileProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryTraceProfile")),
+			connect.WithClientOptions(opts...),
+		),
 		callTool: connect.NewClient[v1.CallToolRequest, v1.CallToolResponse](
 			httpClient,
 			baseURL+ColonyServiceCallToolProcedure,
@@ -261,6 +279,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("MeshAudit")),
 			connect.WithClientOptions(opts...),
 		),
+		reportConnections: connect.NewClient[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse](
+			httpClient,
+			baseURL+ColonyServiceReportConnectionsProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("ReportConnections")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -278,6 +302,7 @@ type colonyServiceClient struct {
 	getServiceActivity  *connect.Client[v1.GetServiceActivityRequest, v1.GetServiceActivityResponse]
 	listServiceActivity *connect.Client[v1.ListServiceActivityRequest, v1.ListServiceActivityResponse]
 	executeQuery        *connect.Client[v1.ExecuteQueryRequest, v1.ExecuteQueryResponse]
+	queryTraceProfile   *connect.Client[v1.QueryTraceProfileRequest, v1.QueryTraceProfileResponse]
 	callTool            *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
 	streamTool          *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
 	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
@@ -286,6 +311,7 @@ type colonyServiceClient struct {
 	getCAStatus         *connect.Client[v1.GetCAStatusRequest, v1.GetCAStatusResponse]
 	meshPing            *connect.Client[v1.MeshPingRequest, v1.MeshPingResponse]
 	meshAudit           *connect.Client[v1.MeshAuditRequest, v1.MeshAuditResponse]
+	reportConnections   *connect.Client[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -348,6 +374,11 @@ func (c *colonyServiceClient) ExecuteQuery(ctx context.Context, req *connect.Req
 	return c.executeQuery.CallUnary(ctx, req)
 }
 
+// QueryTraceProfile calls coral.colony.v1.ColonyService.QueryTraceProfile.
+func (c *colonyServiceClient) QueryTraceProfile(ctx context.Context, req *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error) {
+	return c.queryTraceProfile.CallUnary(ctx, req)
+}
+
 // CallTool calls coral.colony.v1.ColonyService.CallTool.
 func (c *colonyServiceClient) CallTool(ctx context.Context, req *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
 	return c.callTool.CallUnary(ctx, req)
@@ -388,6 +419,11 @@ func (c *colonyServiceClient) MeshAudit(ctx context.Context, req *connect.Reques
 	return c.meshAudit.CallUnary(ctx, req)
 }
 
+// ReportConnections calls coral.colony.v1.ColonyService.ReportConnections.
+func (c *colonyServiceClient) ReportConnections(ctx context.Context) *connect.ClientStreamForClient[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse] {
+	return c.reportConnections.CallClientStream(ctx)
+}
+
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
 type ColonyServiceHandler interface {
 	// Get colony status and health.
@@ -407,6 +443,8 @@ type ColonyServiceHandler interface {
 	GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error)
 	ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error)
 	ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error)
+	// Trace-driven profiling (RFD 078) - correlate CPU/memory profiles with trace spans.
+	QueryTraceProfile(context.Context, *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -425,6 +463,10 @@ type ColonyServiceHandler interface {
 	// Audit the WireGuard mesh topology by comparing Colony's live UAPI observations
 	// against agent-announced STUN endpoints at registration.
 	MeshAudit(context.Context, *connect.Request[v1.MeshAuditRequest]) (*connect.Response[v1.MeshAuditResponse], error)
+	// Stream observed L4 TCP connections from an agent to the colony (RFD 033).
+	// Agents send periodic batches of aggregated outbound connections; the colony
+	// correlates IP addresses against the agent registry and upserts the results.
+	ReportConnections(context.Context, *connect.ClientStream[v1.ReportConnectionsRequest]) (*connect.Response[v1.ReportConnectionsResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -506,6 +548,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("ExecuteQuery")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceQueryTraceProfileHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryTraceProfileProcedure,
+		svc.QueryTraceProfile,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryTraceProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	colonyServiceCallToolHandler := connect.NewUnaryHandler(
 		ColonyServiceCallToolProcedure,
 		svc.CallTool,
@@ -554,6 +602,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("MeshAudit")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceReportConnectionsHandler := connect.NewClientStreamHandler(
+		ColonyServiceReportConnectionsProcedure,
+		svc.ReportConnections,
+		connect.WithSchema(colonyServiceMethods.ByName("ReportConnections")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyServiceGetStatusProcedure:
@@ -580,6 +634,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceListServiceActivityHandler.ServeHTTP(w, r)
 		case ColonyServiceExecuteQueryProcedure:
 			colonyServiceExecuteQueryHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryTraceProfileProcedure:
+			colonyServiceQueryTraceProfileHandler.ServeHTTP(w, r)
 		case ColonyServiceCallToolProcedure:
 			colonyServiceCallToolHandler.ServeHTTP(w, r)
 		case ColonyServiceStreamToolProcedure:
@@ -596,6 +652,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceMeshPingHandler.ServeHTTP(w, r)
 		case ColonyServiceMeshAuditProcedure:
 			colonyServiceMeshAuditHandler.ServeHTTP(w, r)
+		case ColonyServiceReportConnectionsProcedure:
+			colonyServiceReportConnectionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -653,6 +711,10 @@ func (UnimplementedColonyServiceHandler) ExecuteQuery(context.Context, *connect.
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ExecuteQuery is not implemented"))
 }
 
+func (UnimplementedColonyServiceHandler) QueryTraceProfile(context.Context, *connect.Request[v1.QueryTraceProfileRequest]) (*connect.Response[v1.QueryTraceProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryTraceProfile is not implemented"))
+}
+
 func (UnimplementedColonyServiceHandler) CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.CallTool is not implemented"))
 }
@@ -683,4 +745,8 @@ func (UnimplementedColonyServiceHandler) MeshPing(context.Context, *connect.Requ
 
 func (UnimplementedColonyServiceHandler) MeshAudit(context.Context, *connect.Request[v1.MeshAuditRequest]) (*connect.Response[v1.MeshAuditResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.MeshAudit is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) ReportConnections(context.Context, *connect.ClientStream[v1.ReportConnectionsRequest]) (*connect.Response[v1.ReportConnectionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ReportConnections is not implemented"))
 }

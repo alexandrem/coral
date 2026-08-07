@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -35,11 +36,25 @@ var (
 	requestCounter  metric.Int64Counter
 	requestDuration metric.Float64Histogram
 	activeRequests  metric.Int64UpDownCounter
+
+	// cpuAppURL is the URL of the cpu-app upstream service. Configurable via
+	// CPU_APP_URL for different deployment topologies; defaults to localhost
+	// since both apps share agent-0's network namespace in docker-compose.
+	cpuAppURL = func() string {
+		if u := os.Getenv("CPU_APP_URL"); u != "" {
+			return u
+		}
+		return "http://localhost:8080"
+	}()
 )
 
 func main() {
 	// Setup OpenTelemetry.
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log.Printf("otel-app starting (waiting 5s for Beyla uprobes)...")
+	time.Sleep(5 * time.Second)
 
 	// Get OTLP endpoint from environment or use default.
 	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -105,6 +120,7 @@ func main() {
 	mux.HandleFunc("/api/users", handleUsers)
 	mux.HandleFunc("/api/products", handleProducts)
 	mux.HandleFunc("/api/checkout", handleCheckout)
+	mux.HandleFunc("/chain", handleChain)
 	mux.HandleFunc("/health", handleHealth)
 
 	server := &http.Server{
@@ -165,6 +181,13 @@ func initOTel(ctx context.Context, endpoint string) (shutdown func(context.Conte
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 	otel.SetTracerProvider(tracerProvider)
+
+	// Register the W3C TraceContext propagator so outgoing HTTP requests carry
+	// the traceparent header, allowing Beyla to correlate cross-service spans.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	// Create OTLP metrics exporter.
 	metricExporter, err := otlpmetricgrpc.New(ctx,
@@ -365,6 +388,38 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status": "success", "order_id": "%d"}`, rand.Intn(10000))
+	})(w, r)
+}
+
+func handleChain(w http.ResponseWriter, r *http.Request) {
+	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Create the upstream request.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cpuAppURL+"/", nil)
+		if err != nil {
+			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
+			return
+		}
+
+		// Inject the current SDK span context into the outgoing request headers.
+		// This allows the downstream service (cpu-app) to participate in the same trace.
+		// Even if Beyla's eBPF uprobe fails to read this header on some kernels,
+		// the OTel SDK span (now routed to Beyla storage) serves as the parent atlas.
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "upstream call failed", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		log.Printf("[chain] upstream_status=%d", resp.StatusCode)
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","upstream_status":%d}`, resp.StatusCode)
 	})(w, r)
 }
 

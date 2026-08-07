@@ -682,7 +682,7 @@ func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
 // 6. Verify duration is within expected range (~50ms ±50%)
 // 7. Repeat for ValidateCard (multiple return paths, ~20ms)
 func (s *DebugSuite) TestUprobeReturnTracing() {
-	s.T().Log("Testing return-instruction uprobe tracing (RFD 073)...")
+	s.T().Log("Testing return-instruction uprobe tracing...")
 
 	fixture := s.fixture
 
@@ -817,7 +817,7 @@ func (s *DebugSuite) TestUprobeReturnTracing() {
 
 	s.Require().Greater(entryCount, 0, "Should capture entry events")
 	s.Require().Greater(returnCount, 0,
-		"Should capture return events (RFD 073 return-instruction uprobes)")
+		"Should capture return events (return-instruction uprobes)")
 
 	// Verify return events have correct duration (~50ms ±50%).
 	for _, event := range eventsResp.Events {

@@ -307,17 +307,17 @@ func TestExtractStatusCode(t *testing.T) {
 
 func TestBeylaConfig(t *testing.T) {
 	// Test that beylaConfig struct can be created and fields are accessible
-	config := beylaConfig{
+	config := BeylaConfig{
 		LogLevel: "info",
 	}
+	config.Ebpf.ContextPropagation = "all"
 
-	config.Discovery.Instrument = []struct {
-		OpenPorts string `yaml:"open_ports,omitempty"`
-		ExeName   string `yaml:"exe_name,omitempty"`
-	}{
+	config.Discovery.ExcludePorts = "4317,4318"
+	config.Discovery.Services = []InstrumentRule{
 		{
 			OpenPorts: "8080-9090",
-			ExeName:   "my-app",
+			ExePath:   "my-app",
+			Name:      "test-service",
 		},
 	}
 
@@ -327,12 +327,16 @@ func TestBeylaConfig(t *testing.T) {
 		t.Errorf("LogLevel = %q, want %q", config.LogLevel, "info")
 	}
 
-	if len(config.Discovery.Instrument) != 1 {
-		t.Errorf("Instrument count = %d, want 1", len(config.Discovery.Instrument))
+	if config.Ebpf.ContextPropagation != "all" {
+		t.Errorf("ContextPropagation = %q, want %q", config.Ebpf.ContextPropagation, "all")
 	}
 
-	if config.Discovery.Instrument[0].OpenPorts != "8080-9090" {
-		t.Errorf("OpenPorts = %q, want %q", config.Discovery.Instrument[0].OpenPorts, "8080-9090")
+	if len(config.Discovery.Services) != 1 {
+		t.Errorf("Services count = %d, want 1", len(config.Discovery.Services))
+	}
+
+	if config.Discovery.Services[0].OpenPorts != "8080-9090" {
+		t.Errorf("OpenPorts = %q, want %q", config.Discovery.Services[0].OpenPorts, "8080-9090")
 	}
 
 	if config.Attributes.Kubernetes.Enable != "true" {
@@ -341,7 +345,7 @@ func TestBeylaConfig(t *testing.T) {
 }
 
 func TestBeylaConfigWithExports(t *testing.T) {
-	config := beylaConfig{}
+	config := BeylaConfig{}
 
 	// Test OTEL traces export
 	config.OtelTracesExport = &struct {

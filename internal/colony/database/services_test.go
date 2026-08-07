@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ import (
 func TestUpsertService(t *testing.T) {
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -143,7 +144,7 @@ func TestUpsertService(t *testing.T) {
 func TestGetServiceByName(t *testing.T) {
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -220,7 +221,7 @@ func TestGetServiceByName(t *testing.T) {
 func TestListAllServices(t *testing.T) {
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -290,7 +291,7 @@ func TestListAllServices(t *testing.T) {
 func TestUpdateServiceLastSeen(t *testing.T) {
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -350,7 +351,7 @@ func TestServicePersistenceRegression(t *testing.T) {
 
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
-	db, err := New(tempDir, "test-colony-regression", logger)
+	db, err := New(tempDir, "test-colony-regression", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -395,7 +396,7 @@ func TestServicePersistenceRegression(t *testing.T) {
 func TestConcurrentServiceUpserts(t *testing.T) {
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "warn", Pretty: true}, "test")
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 

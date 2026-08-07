@@ -8,6 +8,7 @@ type streamChunkMsg struct {
 // toolStartMsg indicates a tool call has started.
 type toolStartMsg struct {
 	toolName string
+	command  string // full CLI command string in CLI dispatch mode (RFD 100)
 }
 
 // toolCompleteMsg indicates a tool call has completed.
@@ -29,6 +30,14 @@ type errorMsg struct {
 
 // conversationSavedMsg indicates conversation was saved successfully.
 type conversationSavedMsg struct{}
+
+// scriptReviewMsg asks the user to approve or reject a script before it is
+// written to disk.  reply receives true (approve) or false (reject).
+type scriptReviewMsg struct {
+	name    string
+	content string
+	reply   chan bool
+}
 
 // LoadConversationMsg asks the model to switch to a different conversation.
 // History contains pre-loaded messages; ConversationID is the new ID.

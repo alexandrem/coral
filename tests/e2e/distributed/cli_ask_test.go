@@ -77,9 +77,9 @@ func (s *CLIAskSuite) TestAskBasicFlow() {
 func (s *CLIAskSuite) TestAskWithTools() {
 	s.T().Log("Testing 'coral ask' with tools...")
 
-	// Create a mock script that simulates tool usage
+	// Create a mock script that simulates tool usage (post-RFD 100).
 	// 1. User asks to list services
-	// 2. Assistant calls coral_list_services
+	// 2. Assistant calls coral_cli with ["colony", "service", "list"]
 	// 3. System returns tool result
 	// 4. Assistant interprets result
 	script := llm.MockScript{
@@ -92,7 +92,7 @@ func (s *CLIAskSuite) TestAskWithTools() {
 				Response: llm.MockResponse{
 					Content: "", // Empty content when calling tool
 					ToolCalls: []llm.ToolCall{
-						{id("call_1"), "coral_list_services", "{}"},
+						{id("call_1"), "coral_cli", `{"args":["colony","service","list"]}`},
 					},
 				},
 			},
@@ -101,22 +101,16 @@ func (s *CLIAskSuite) TestAskWithTools() {
 				// We expect to see User message, Assistant (tool call), and Tool result in history
 				ExpectedMessages: []llm.Message{
 					{Role: "user", Content: "List all services"},
-					{Role: "assistant", Content: "", ToolResponses: nil}, // Previous step response
+					{Role: "assistant", Content: ""},
+					{Role: "tool", ToolResponses: []llm.ToolResponse{
+						{Name: "coral_cli", Content: ""},
+					}},
 				},
 				Response: llm.MockResponse{
 					Content: "There seem to be no services registered currently.",
 				},
 			},
 		},
-	}
-
-	// Adjust expectation for second interaction based on Agent implementation
-	script.Interactions[1].ExpectedMessages = []llm.Message{
-		{Role: "user", Content: "List all services"},
-		{Role: "assistant", Content: ""},
-		{Role: "tool", ToolResponses: []llm.ToolResponse{
-			{Name: "coral_list_services", Content: ""},
-		}},
 	}
 
 	scriptPath := s.createMockScript(script)
@@ -132,7 +126,7 @@ func (s *CLIAskSuite) TestAskWithTools() {
 
 	// Also ensure sources are printed
 	s.Require().Contains(result.Output, "Sources:")
-	s.Require().Contains(result.Output, "coral_list_services")
+	s.Require().Contains(result.Output, "coral_cli")
 }
 
 // TestAskContinuation tests multi-turn conversations.

@@ -54,6 +54,7 @@ type Manager struct {
 	configuredPorts  []int       // Currently configured discovery ports
 	debounceTimer    *time.Timer // Timer for debounced restarts
 	debounceInterval time.Duration
+	staticServiceMap map[int]string // Preservation of initial config file mappings (RFD 110).
 }
 
 // BeylaTrace represents a processed Beyla trace ready for Colony.
@@ -111,12 +112,18 @@ type DiscoveryConfig struct {
 	// Instrument processes listening on these ports.
 	OpenPorts []int
 
+	// Port to service name mapping (RFD 110, fixes topology missing edges in shared namespaces).
+	ServiceMap map[int]string
+
 	// Kubernetes-based discovery (for node agents).
 	K8sNamespaces []string
 	K8sPodLabels  map[string]string
 
 	// Process name patterns.
 	ProcessNames []string
+
+	// Network interfaces to monitor (default: all + lo).
+	NetworkInterfaces []string
 }
 
 // ProtocolsConfig enables/disables specific protocols.
@@ -154,6 +161,14 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		metricsCh:        make(chan *ebpfpb.EbpfEvent, 100),
 		configuredPorts:  append([]int{}, config.Discovery.OpenPorts...), // Copy initial ports (RFD 053)
 		debounceInterval: constants.DefaultBeylaDebounceInterval,         // Default debounce window (RFD 053)
+		staticServiceMap: make(map[int]string),
+	}
+
+	// Capture static mappings (RFD 110).
+	if config.Discovery.ServiceMap != nil {
+		for k, v := range config.Discovery.ServiceMap {
+			m.staticServiceMap[k] = v
+		}
 	}
 
 	// Initialize OTLP receiver storage (RFD 025).
@@ -433,6 +448,14 @@ func (m *Manager) startOTLPReceiver() error {
 	// Configure OTLP receiver for Beyla's output.
 	// Use ports 4319/4320 to avoid conflict with the shared OTLP receiver (4317/4318)
 	// which handles user application telemetry.
+	// Beyla already performs its own eBPF-level filtering; default to capturing
+	// 100% of spans so that normal-latency cross-service calls are never dropped
+	// by the OTLP receiver filter (required for topology materialisation).
+	sampleRate := m.config.SamplingRate
+	if sampleRate == 0 {
+		sampleRate = constants.DefaultBeylaSampleRate
+	}
+
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
 		GRPCEndpoint:          fmt.Sprintf("127.0.0.1:%d", constants.DefaultBeylaGRPCPort), // Beyla-specific gRPC port (avoids 4317 conflict).
@@ -441,10 +464,10 @@ func (m *Manager) startOTLPReceiver() error {
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,
-			SampleRate:             m.config.SamplingRate,
+			SampleRate:             sampleRate,
 		},
 		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
-		SpanHandler: m.handleBeylaSpan,
+		SpanHandler: m.HandleSpan,
 	}
 
 	// Create OTLP receiver (storage can be nil since we use SpanHandler).
@@ -479,8 +502,10 @@ func (m *Manager) startOTLPReceiver() error {
 	return nil
 }
 
-// handleBeylaSpan is the SpanHandler callback that routes Beyla traces to beyla_traces_local.
-func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) error {
+// HandleSpan is the SpanHandler callback that routes traces to beyla_traces_local.
+// It is used by both Beyla's internal OTLP receiver and the shared agent OTLP receiver
+// to ensure all raw traces are available for colony-side topology materialization.
+func (m *Manager) HandleSpan(ctx context.Context, span telemetry.Span) error {
 	// Convert duration from ms to microseconds.
 	durationUs := int64(span.DurationMs * 1000)
 
@@ -504,13 +529,14 @@ func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) erro
 		"", // agentID - not available from OTLP span, will be empty
 		span.TraceID,
 		span.SpanID,
-		"", // parentSpanID - not available from telemetry.Span
+		span.ParentSpanID,
 		span.ServiceName,
 		spanName,
 		span.SpanKind,
 		span.Timestamp,
 		durationUs,
 		statusCode,
+		span.ProcessPID,
 		span.Attributes,
 	)
 }
@@ -624,7 +650,9 @@ func (m *Manager) startBeyla() error {
 
 	// Force delta temporality to prevent duplicate cumulative metrics (RFD 032).
 	// Beyla defaults to cumulative, but our agent stores events, so we need deltas.
-	cmd.Env = append(os.Environ(), "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta")
+	cmd.Env = append(os.Environ(),
+		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta",
+	)
 
 	// Start Beyla process.
 	if err := cmd.Start(); err != nil {
@@ -649,52 +677,123 @@ func (m *Manager) startBeyla() error {
 
 // generateBeylaConfig creates a Beyla YAML config file and returns the path.
 func (m *Manager) generateBeylaConfig() (string, error) {
-	cfg := beylaConfig{
+	cfg := BeylaConfig{
 		LogLevel: "INFO",
+		Ebpf: struct {
+			ContextPropagation string `yaml:"context_propagation,omitempty"`
+		}{
+			ContextPropagation: "all",
+		},
 	}
 
-	// Discovery: open ports.
-	if len(m.config.Discovery.OpenPorts) > 0 {
-		ports := make([]string, len(m.config.Discovery.OpenPorts))
-		for i, port := range m.config.Discovery.OpenPorts {
-			ports[i] = strconv.Itoa(port)
+	// Ports to exclude from Beyla instrumentation to prevent feedback loops (RFD 032).
+	// Excluding OTLP receiver and gRPC ports ensures Beyla doesn't trace its
+	// own exporter traffic.
+	excludePorts := fmt.Sprintf("%d,%d,%d,%d,%d,%d",
+		constants.DefaultOTLPGRPCPort,
+		constants.DefaultOTLPHTTPPort,
+		constants.DefaultBeylaGRPCPort,
+		constants.DefaultBeylaHTTPPort,
+		constants.DefaultColonyPort,
+		constants.DefaultAgentPort,
+	)
+	cfg.Discovery.ExcludePorts = excludePorts
+	cfg.Discovery.ExcludeServices = []ExcludeService{
+		{ExePath: ".*coral-agent.*"},
+		{ExePath: ".*coral-colony.*"},
+		{ExePath: ".*beyla.*"},
+	}
+
+	// Discovery: open ports and service maps.
+	if len(m.config.Discovery.OpenPorts) > 0 || len(m.config.Discovery.ServiceMap) > 0 {
+		servicePorts := make(map[string][]string)
+		var unnamedPorts []string
+
+		// Process explicit OpenPorts list.
+		for _, port := range m.config.Discovery.OpenPorts {
+			portStr := strconv.Itoa(port)
+			if name, ok := m.config.Discovery.ServiceMap[port]; ok && name != "" && name != "-" {
+				servicePorts[name] = append(servicePorts[name], portStr)
+			} else {
+				unnamedPorts = append(unnamedPorts, portStr)
+			}
 		}
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-		}{OpenPorts: strings.Join(ports, ",")})
+
+		// Process any remaining ports in ServiceMap not in OpenPorts.
+		for port, name := range m.config.Discovery.ServiceMap {
+			var found bool
+			for _, p := range m.config.Discovery.OpenPorts {
+				if p == port {
+					found = true
+					break
+				}
+			}
+			if !found && name != "" && name != "-" {
+				servicePorts[name] = append(servicePorts[name], strconv.Itoa(port))
+			}
+		}
+
+		// Create rules for named services.
+		for name, ports := range servicePorts {
+			// Combining OpenPorts and ExePath ensures we instrument the whole process.
+			// OpenPorts handles incoming traffic on specific ports.
+			// ExePath ensures we instrument all outgoing calls regardless of port.
+			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
+				OpenPorts: strings.Join(ports, ","),
+				ExePath:   ".*" + name + ".*",
+				Name:      name,
+			})
+		}
+
+		// Create catch-all rules for unnamed ports.
+		if len(unnamedPorts) > 0 {
+			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
+				OpenPorts: strings.Join(unnamedPorts, ","),
+			})
+		}
+	}
+
+	// Discovery: network interfaces.
+	// We normally default to all interfaces, but loopback (lo) is critical for
+	// service-to-service calls in the same pod (E2E fixtures).
+	// Beyla 1.8+ handles this well if explicitly told or if it defaults to 'all'.
+	if len(m.config.Discovery.NetworkInterfaces) == 0 {
+		cfg.Discovery.NetworkInterfaces = []string{"all"}
+	} else {
+		cfg.Discovery.NetworkInterfaces = m.config.Discovery.NetworkInterfaces
 	}
 
 	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-		}{ExeName: name})
+		cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
+			ExePath: name,
+		})
 	}
 
-	// Default discovery: only use catch-all if MonitorAll is explicitly enabled (RFD 053).
-	// If no ports/processes are specified and MonitorAll is false, Beyla won't instrument anything.
-	if len(cfg.Discovery.Instrument) == 0 && m.config.MonitorAll {
-		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-		}{OpenPorts: "1-65535"})
-		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
+	// Add catch-all rule for container-shared mode if requested (RFD 053/084).
+	// IMPORTANT: We ONLY add this catch-all if NO other specific rules (ports or names)
+	// were added. If we mix named rules with the 1-65535 catch-all, Beyla attempts
+	// to attach probes to the same processes multiple times, leading to conflicts
+	// and failing to capture any spans.
+	if m.config.MonitorAll && len(cfg.Discovery.Services) == 0 {
+		cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
+			OpenPorts: "1-65535",
+		})
+		m.logger.Info().Msg("MonitorAll enabled and no specific rules provided - using catch-all discovery (ports 1-65535)")
 	}
 
-	// OTLP export endpoint (gRPC).
-	// Beyla exports to the Beyla-specific OTLP receiver on port 4319 (not the shared 4317).
-	// This avoids conflict with the shared OTLP receiver that handles user application telemetry.
-	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaGRPCPort)
+	// OTLP export endpoint (HTTP Protobuf).
+	// Beyla exports to the Beyla-specific OTLP receiver on port 4320 (HTTP).
+	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaHTTPPort)
 	cfg.OtelTracesExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
-	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "http/protobuf"}
+
 	cfg.OtelMetricsExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
-	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "http/protobuf"}
 
 	// Use wildcard route matching to capture all routes.
 	cfg.Routes = &struct {
@@ -729,7 +828,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	return configFile.Name(), nil
 }
 
-// monitorBeylaProcess monitors the Beyla process and logs when it exits.
+// monitorBeylaProcess monitors the Beyla process and restarts it on unexpected exit.
 func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 
@@ -741,22 +840,40 @@ func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	wasReplaced := m.beylaCmd != cmd
 	m.mu.RUnlock()
 
-	if err != nil && m.ctx.Err() == nil && !wasReplaced {
-		// Process exited unexpectedly (not due to restart or context cancellation).
-		m.logger.Error().
-			Err(err).
-			Int("pid", cmd.Process.Pid).
-			Msg("Beyla process exited unexpectedly")
-	} else if wasReplaced {
+	if wasReplaced {
 		// Expected exit during restart.
 		m.logger.Debug().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process stopped for restart")
-	} else {
-		// Normal shutdown.
+		return
+	}
+
+	if m.ctx.Err() != nil {
+		// Normal shutdown due to context cancellation.
 		m.logger.Info().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process exited")
+		return
+	}
+
+	// Unexpected exit: restart Beyla so trace capture resumes automatically.
+	// This can happen if Beyla crashes or if the eBPF subsystem encounters an error.
+	m.logger.Error().
+		Err(err).
+		Int("pid", cmd.Process.Pid).
+		Msg("Beyla process exited unexpectedly, restarting")
+
+	// Brief pause before restart to avoid tight restart loops.
+	time.Sleep(2 * time.Second)
+
+	if m.ctx.Err() != nil {
+		return
+	}
+
+	if err := m.restartBeyla(); err != nil {
+		m.logger.Error().Err(err).Msg("Failed to restart Beyla after unexpected exit")
+	} else {
+		m.logger.Info().Msg("Beyla restarted successfully after unexpected exit")
 	}
 }
 
@@ -787,34 +904,46 @@ func (w *beylaLogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// UpdateDiscovery updates the port discovery configuration (RFD 053).
-// If ports differ from current config, triggers debounced Beyla restart.
-// Thread-safe: can be called concurrently from multiple goroutines.
-func (m *Manager) UpdateDiscovery(ports []int) error {
-	if !m.config.Enabled {
-		m.logger.Debug().Msg("Beyla is disabled, ignoring discovery update")
-		return nil
-	}
-
+// UpdateDiscovery updates Beyla's discovery configuration dynamically (RFD 053/110).
+// If the list of ports or service names changes, Beyla is restarted with the new config.
+func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if ports have changed.
-	if portsEqual(m.configuredPorts, ports) {
-		m.logger.Debug().
-			Ints("ports", ports).
-			Msg("Discovery ports unchanged, skipping restart")
+	if !m.config.Enabled {
 		return nil
+	}
+
+	// Combine dynamic map with static mappings from config file (RFD 110).
+	mergedMap := make(map[int]string)
+	for k, v := range m.staticServiceMap {
+		mergedMap[k] = v
+	}
+	for k, v := range serviceMap {
+		mergedMap[k] = v
+	}
+
+	// Extract ports and check for changes.
+	ports := make([]int, 0, len(mergedMap))
+	for port := range mergedMap {
+		ports = append(ports, port)
+	}
+
+	mappingChanged := !mapsEqual(m.config.Discovery.ServiceMap, mergedMap)
+
+	if portsEqual(m.configuredPorts, ports) && !mappingChanged {
+		return nil // No changes needed
 	}
 
 	m.logger.Info().
 		Ints("old_ports", m.configuredPorts).
 		Ints("new_ports", ports).
-		Msg("Discovery ports changed, scheduling Beyla restart")
+		Int("mapping_size", len(mergedMap)).
+		Msg("Discovery configuration changed")
 
-	// Update configured ports.
-	m.configuredPorts = append([]int{}, ports...)
-	m.config.Discovery.OpenPorts = append([]int{}, ports...)
+	m.configuredPorts = ports
+	m.config.Discovery.OpenPorts = ports
+	m.config.Discovery.ServiceMap = mergedMap
 
 	// Cancel existing debounce timer if any.
 	if m.debounceTimer != nil {
@@ -900,5 +1029,18 @@ func portsEqual(a, b []int) bool {
 		}
 	}
 
+	return true
+}
+
+// mapsEqual checks if two maps are identical.
+func mapsEqual(a, b map[int]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
 	return true
 }

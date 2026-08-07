@@ -239,6 +239,11 @@ The dashboard is served at `http://localhost:<ephemeral-port>` and receives
 
 ## AI Queries
 
+Both `coral ask` and `coral terminal` use **CLI dispatch mode** (RFD 100):
+the agent issues standard coral CLI commands via `coral_cli` rather than MCP
+tool calls. Every agent action is a reproducible `coral <cmd> --format json`
+subprocess visible in the session log.
+
 ```bash
 # Configuration (first time)
 coral ask config
@@ -248,8 +253,8 @@ coral ask "<question>" [--format <format>] [--model <provider:model>] [--debug] 
 
 # Flags:
 #   --format <format>  Output format (table, json)
-#   --model <name>     Use specific model (e.g., anthropic:claude-3-5-sonnet-20241022)
-#   --debug            Show debug information (prompts, tool calls, etc.)
+#   --model <name>     Use specific model (e.g., anthropic:claude-sonnet-4-6)
+#   --debug            Show debug information (prompts, tool calls, CLI commands)
 #   --dry-run          Show what would be queried without executing
 
 # Examples:
@@ -279,11 +284,17 @@ coral query metrics [service] [--since <duration>] [--source ebpf|telemetry|all]
 # Application logs
 coral query logs [service] [--since <duration>] [--level debug|info|warn|error] [--search <text>] [--max-logs <n>]
 
+# Service topology (dependency graph — L7 traces + L4 TCP connections)
+coral query topology [--since <duration>] [--format table|json] [--include-l4]
+
 # Historical CPU profiles
 coral query cpu-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--format folded|svg]
 
 # Historical memory profiles
 coral query memory-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--show-growth] [--show-types] [--format summary|folded|svg]
+
+# Trace-driven CPU/memory profiling (RFD 078)
+coral query trace-profile <trace-id> [--service <name>] [--type cpu|memory] [--top <n>]
 
 # Time range options (all commands):
 #   --since <duration>     # Relative (5m, 1h, 30m, 24h, 1d, 1w)
@@ -309,11 +320,22 @@ coral query traces api --min-duration-ms 500         # Only slow traces (>500ms)
 coral query traces payments-api --since 30m          # Last 30 minutes
 coral query traces api --max-traces 5                # Limit results
 
+# Examples - Trace-Driven Profiling:
+coral query trace-profile abc123def456789            # Correlate CPU profile samples with a specific trace
+coral query trace-profile abc123def456789 --service payment-svc # Filter trace profile to payment service
+coral query trace-profile abc123def456789 --top 5    # Top 5 CPU hotspots per service
+
 # Examples - Logs:
 coral query logs api                                 # All logs for api service
 coral query logs api --level error                   # Only error logs
 coral query logs --search "timeout"                  # Search for specific text
 coral query logs api --since 30m --max-logs 50       # Last 30 minutes, limit 50
+
+# Examples - Topology:
+coral query topology                         # Dependency graph for the last hour (default)
+coral query topology --since 30m             # Last 30 minutes
+coral query topology --format json           # Machine-readable JSON output (includes layer field)
+coral query topology --include-l4=false      # Suppress L4-only edges, show trace-derived only
 
 # Examples - CPU Profiles:
 coral query cpu-profile --service api --since 1h                    # Last hour of CPU profiles
@@ -335,7 +357,9 @@ coral query memory-profile --service api --since 1h --format svg > memory.svg   
   from eBPF + OTLP
 - **Traces**: Distributed trace spans with parent-child relationships, source
   annotations (eBPF/OTLP)
+- **Trace Profiles**: Request-level CPU flame graphs correlated with specific trace IDs via `(process_pid, time_window)` join (RFD 078)
 - **Logs**: Application logs from OTLP with filtering and search
+- **Topology**: Live service dependency graph from two layers — L7 trace-derived edges (HTTP/gRPC spans via Beyla) merged with L4 network-observed edges (raw TCP connections); each connection carries a `LAYER` column (`L7`, `L4`, or `BOTH`)
 - **CPU Profiles**: Historical CPU profile data from continuous profiling
 - **Memory Profiles**: Historical memory allocation data with top allocators and type breakdown
 - **Automatic merging**: eBPF and OTLP data combined by default with source
@@ -368,6 +392,9 @@ coral query summary [service] [--since <duration>]
 
 # Percentile queries (precise DuckDB quantile calculations)
 coral query metrics <service> --metric <name> --percentile <0-100>
+
+# Service topology (dependency graph — L7 traces + L4 TCP connections)
+coral query topology [--since <duration>] [--format json] [--include-l4]
 
 # Raw SQL queries with safety guardrails
 coral query sql "<sql-query>" [--max-rows <n>]
@@ -595,15 +622,15 @@ coral debug attach <service> --function <name> [--duration <time>] [--capture-ar
 coral debug trace <service> --path <path> [--duration <time>]
 
 # Update kernel-level filter for an active session (without detaching)
-coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
+coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>] [--format text|json]
 
 # Manage debug sessions
 coral debug session list [--service <name>] [--status <status>] [--format text|json|csv]
 coral debug session get <session-id> [--format text|json|csv]
 coral debug session query <service> --function <name> [--since <duration>] [--format text|json|csv]
 coral debug session query <service> --session-id <id> [--format text|json|csv]
-coral debug session events <session-id> [--max <n>] [--follow] [--since <duration>]
-coral debug session stop <session-id>
+coral debug session events <session-id> [--max <n>] [--follow] [--since <duration>] [--format text|json]
+coral debug session stop <session-id> [--format text|json]
 
 # Examples - Attach with kernel-level filters:
 coral debug attach api --function processOrder              # Attach without filters (all events)

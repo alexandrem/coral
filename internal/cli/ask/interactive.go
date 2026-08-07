@@ -22,6 +22,10 @@ func NewUIAdapter(agent *Agent) ui.Agent {
 	return &agentAdapter{agent: agent}
 }
 
+func (a *agentAdapter) ResetConversation(conversationID string) {
+	a.agent.ResetConversation(conversationID)
+}
+
 func (a *agentAdapter) AskWithChannel(ctx any, question, conversationID string, dryRun bool, ch chan<- any) (any, error) {
 	// Create a typed channel for AgentEvent.
 	eventChan := make(chan AgentEvent, 100)
@@ -30,14 +34,23 @@ func (a *agentAdapter) AskWithChannel(ctx any, question, conversationID string, 
 	go func() {
 		defer close(ch)
 		for event := range eventChan {
-			ch <- ui.AgentEvent{
+			uiEvent := ui.AgentEvent{
 				Type:     event.Type,
 				Content:  event.Content,
 				ToolName: event.ToolName,
+				Command:  event.Command,
 				Duration: event.Duration,
 				Error:    event.Error,
 				Response: event.Response,
 			}
+			if event.ScriptApproval != nil {
+				uiEvent.ScriptApproval = &ui.UIScriptApproval{
+					Name:          event.ScriptApproval.Name,
+					Content:       event.ScriptApproval.Content,
+					ApprovalReply: event.ScriptApproval.ApprovalReply,
+				}
+			}
+			ch <- uiEvent
 		}
 	}()
 

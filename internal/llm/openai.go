@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
+
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // OpenAIProvider implements the Provider interface for OpenAI-compatible APIs.
@@ -138,27 +139,7 @@ func (p *OpenAIProvider) generateNonStreaming(ctx context.Context, params openai
 		return &GenerateResponse{FinishReason: "stop"}, nil
 	}
 
-	choice := completion.Choices[0]
-
-	var toolCalls []ToolCall
-	for _, tc := range choice.Message.ToolCalls {
-		toolCalls = append(toolCalls, ToolCall{
-			ID:        tc.ID,
-			Name:      tc.Function.Name,
-			Arguments: tc.Function.Arguments,
-		})
-	}
-
-	finishReason := choice.FinishReason
-	if finishReason == "" {
-		finishReason = "stop"
-	}
-
-	return &GenerateResponse{
-		Content:      choice.Message.Content,
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-	}, nil
+	return openAIChoiceToResponse(completion.Choices[0]), nil
 }
 
 // generateStreaming sends a streaming request.
@@ -191,8 +172,13 @@ func (p *OpenAIProvider) generateStreaming(ctx context.Context, params openai.Ch
 		return &GenerateResponse{FinishReason: "stop"}, nil
 	}
 
-	choice := acc.Choices[0]
+	return openAIChoiceToResponse(acc.Choices[0]), nil
+}
 
+// openAIChoiceToResponse converts an OpenAI chat completion choice to a
+// GenerateResponse. It normalises the finish reason and converts tool calls to
+// the provider-agnostic ToolCall format.
+func openAIChoiceToResponse(choice openai.ChatCompletionChoice) *GenerateResponse {
 	var toolCalls []ToolCall
 	for _, tc := range choice.Message.ToolCalls {
 		toolCalls = append(toolCalls, ToolCall{
@@ -211,7 +197,7 @@ func (p *OpenAIProvider) generateStreaming(ctx context.Context, params openai.Ch
 		Content:      choice.Message.Content,
 		ToolCalls:    toolCalls,
 		FinishReason: finishReason,
-	}, nil
+	}
 }
 
 // mcpToolToFunctionParameters converts an MCP tool's input schema to OpenAI
@@ -285,9 +271,13 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
+		baseURL := resolveProviderBaseURL(cfg, "openai", "OPENAI_BASE_URL")
 		if debug {
 			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
+			if baseURL != "" {
+				fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI base URL: %s\n", baseURL)
+			}
 		}
-		return NewOpenAIProvider(apiKey, modelID, "")
+		return NewOpenAIProvider(apiKey, modelID, baseURL)
 	})
 }

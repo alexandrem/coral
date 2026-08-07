@@ -21,7 +21,7 @@ func DefaultGlobalConfig() *GlobalConfig {
 			APIKeySource: "env",
 			Ask: AskConfig{
 				DefaultModel:   constants.DefaultAskModel,
-				FallbackModels: []string{"anthropic:claude-3-5-sonnet-20241022"},
+				FallbackModels: []string{"anthropic:claude-3-5-sonnet-20241022", "openai:gpt-4o-mini"},
 				APIKeys:        make(map[string]string),
 				Conversation: AskConversationConfig{
 					MaxTurns:      constants.DefaultAskMaxTurns,

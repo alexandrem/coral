@@ -103,8 +103,14 @@ func runTerminal(cmd *cobra.Command, colonyID, modelOverride string, debug, auto
 		displayModel = parts[1]
 	}
 
+	// CLI dispatch mode: the terminal uses coral subprocesses instead of MCP (RFD 100).
+	askCfg.Agent.DispatchMode = config.DispatchModeCLI
+
+	// Generate CLI reference from the Cobra command tree for the system prompt.
+	cliRef := ask.GenerateCLIReference(cmd.Root())
+
 	// Create the LLM agent.
-	agent, err := ask.NewAgent(askCfg, colonyCfg, debug)
+	agent, err := ask.NewAgentWithCLIReference(askCfg, colonyCfg, debug, cliRef)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}

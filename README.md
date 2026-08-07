@@ -140,8 +140,9 @@ it matters, near-zero storage cost everywhere else.
 
 ## Architecture
 
-Colony acts as an MCP server — any AI assistant can query your observability
-data in real-time.
+The `coral colony mcp proxy` command runs locally on your machine as an MCP
+server. Any AI assistant can query your observability data in real-time by
+calling the `coral_cli` tool, which dispatches to the Colony via gRPC.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -152,8 +153,14 @@ data in real-time.
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
 │         └─────────────────┴─────────────────┘                   │
 └──────────────────────────┬──────────────────────────────────────┘
-                           │ MCP Protocol
+                           │ MCP Protocol (stdio)
                            ▼
+                  ┌────────────────────┐
+                  │  coral mcp proxy   │  ← runs locally on your machine
+                  │  (coral_cli tool)  │
+                  └─────────┬──────────┘
+                            │ gRPC
+                            ▼
                   ┌────────────────────┐
                   │  Colony            │
                   │  (Control Plane)   │

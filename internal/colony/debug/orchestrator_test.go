@@ -17,6 +17,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // setupTestDB creates a file-based DuckDB database for testing to ensure isolation.
@@ -25,7 +26,7 @@ func setupTestDB(t *testing.T) *database.Database {
 	tmpDir := t.TempDir()
 	logger := zerolog.Nop()
 
-	db, err := database.New(tmpDir, "test-colony", logger)
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}

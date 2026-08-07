@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 )
 
 func TestInsertTelemetrySummaries(t *testing.T) {
 	// Create temporary database.
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestInsertTelemetrySummaries(t *testing.T) {
 
 func TestInsertTelemetrySummaries_Upsert(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestInsertTelemetrySummaries_Upsert(t *testing.T) {
 
 func TestCleanupOldTelemetry(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -239,7 +240,7 @@ func TestCleanupOldTelemetry(t *testing.T) {
 
 func TestQueryTelemetrySummaries_TimeRange(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -310,7 +311,7 @@ func TestQueryTelemetrySummaries_TimeRange(t *testing.T) {
 
 func TestQueryTelemetrySummaries_DifferentAgents(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}

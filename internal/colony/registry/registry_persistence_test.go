@@ -10,6 +10,7 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -21,7 +22,7 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		Pretty: true,
 	}, "test")
 
-	db, err := database.New(tempDir, "test-colony", logger)
+	db, err := database.New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -80,7 +81,7 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 	t.Run("register legacy component persists to database", func(t *testing.T) {
 		// Create a new database for this test
 		tempDir2 := t.TempDir()
-		db2, err := database.New(tempDir2, "test-colony-2", logger)
+		db2, err := database.New(tempDir2, "test-colony-2", constants.DefaultConnectionsCacheTTL, logger)
 		require.NoError(t, err)
 		defer db2.Close()
 
@@ -114,7 +115,7 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 	t.Run("LoadFromDatabase restores services", func(t *testing.T) {
 		// Create a new database and registry
 		tempDir3 := t.TempDir()
-		db3, err := database.New(tempDir3, "test-colony-3", logger)
+		db3, err := database.New(tempDir3, "test-colony-3", constants.DefaultConnectionsCacheTTL, logger)
 		require.NoError(t, err)
 		defer db3.Close()
 
@@ -158,7 +159,7 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		// Regression test: verify that services with zero LastSeen are skipped during load.
 		// This can happen if there was corrupt data from before the timestamp initialization fix.
 		tempDir4 := t.TempDir()
-		db4, err := database.New(tempDir4, "test-colony-4", logger)
+		db4, err := database.New(tempDir4, "test-colony-4", constants.DefaultConnectionsCacheTTL, logger)
 		require.NoError(t, err)
 		defer db4.Close()
 

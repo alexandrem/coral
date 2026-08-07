@@ -20,7 +20,6 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/debug"
 	"github.com/coral-mesh/coral/internal/colony/httpapi"
 	"github.com/coral-mesh/coral/internal/colony/jwks"
-	"github.com/coral-mesh/coral/internal/colony/mcp"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/server"
@@ -168,58 +167,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Initialize Debug Orchestrator (RFD 059 - Live Debugging, RFD 069 - Function Discovery).
 	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db, functionReg)
 
-	// Create MCP server if not disabled.
-	var mcpServer *mcp.Server
-	if !colonyConfig.MCP.Disabled {
-		// Resolve profiling enrichment config (RFD 074).
-		profilingEnrichmentDisabled := false
-		if colonyConfig.ContinuousProfiling.EnableSummaryEnrichment != nil {
-			profilingEnrichmentDisabled = !*colonyConfig.ContinuousProfiling.EnableSummaryEnrichment
-		}
-		profilingTopK := 5
-		if colonyConfig.ContinuousProfiling.TopKHotspots > 0 {
-			profilingTopK = colonyConfig.ContinuousProfiling.TopKHotspots
-		}
-
-		mcpConfig := mcp.Config{
-			ColonyID:                    cfg.ColonyID,
-			ApplicationName:             cfg.ApplicationName,
-			Environment:                 cfg.Environment,
-			Disabled:                    colonyConfig.MCP.Disabled,
-			EnabledTools:                colonyConfig.MCP.EnabledTools,
-			RequireRBACForActions:       colonyConfig.MCP.Security.RequireRBACForActions,
-			AuditEnabled:                colonyConfig.MCP.Security.AuditEnabled,
-			ProfilingEnrichmentDisabled: profilingEnrichmentDisabled,
-			ProfilingTopKHotspots:       profilingTopK,
-		}
-
-		var err error
-		mcpServer, err = mcp.New(
-			agentRegistry,
-			db,
-			debugOrchestrator,
-			mcpConfig,
-			logger.With().Str("component", "mcp-server").Logger(),
-		)
-		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to initialize MCP server, continuing without MCP support")
-		} else {
-			colonySvc.SetMCPServer(mcpServer)
-			logger.Info().
-				Int("tool_count", len(mcpServer.ListToolNames())).
-				Msg("MCP server initialized and attached to colony")
-
-			// Log all registered MCP tools.
-			toolNames := mcpServer.ListToolNames()
-			if len(toolNames) > 0 {
-				logger.Info().
-					Strs("tools", toolNames).
-					Msg("Registered MCP tools")
-			}
-		}
-	} else {
-		logger.Info().Msg("MCP server is disabled in configuration")
-	}
+	// MCP tool dispatch is handled locally by the proxy layer (RFD 100).
+	// The colony no longer hosts per-operation MCP tools.
 
 	// Initialize eBPF query service (RFD 035).
 	ebpfService := colony.NewEbpfQueryService(db, logger)
@@ -413,7 +362,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			ColonyHandler:           colonyHandler,
 			DebugPath:               debugPath,
 			DebugHandler:            debugHandler,
-			MCPServer:               mcpServer,
+			MCPServer:               nil, // Tool dispatch moved to proxy layer (RFD 100).
 			TokenStore:              tokenStore,
 			ColonyDir:               colonyDir,
 			TLSCertificate:          tlsCert,

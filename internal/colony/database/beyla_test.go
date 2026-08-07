@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 )
 
@@ -17,7 +18,7 @@ func TestInsertBeylaTraces(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestInsertBeylaTraces_Deduplication(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -176,7 +177,7 @@ func TestInsertBeylaTraces_AgentID(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -247,7 +248,7 @@ func TestCleanupOldBeylaTraces(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -327,7 +328,7 @@ func TestCleanupOldBeylaTraces_NoOldTraces(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -354,7 +355,7 @@ func TestBeylaTracesSchema(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}

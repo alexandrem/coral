@@ -296,18 +296,11 @@ details on inlining, goroutine migration, and duration tracing edge cases.
 | Manual investigation                  | LLM orchestrates where to probe                   |
 | **Requires code changes**             | **SDK mode or agentless (if binary has symbols)** |
 
-## MCP Integration
+## AI Integration
 
-The live debugging capability is exposed as MCP tools, so any AI assistant (
-Claude Desktop, Cursor, etc.) can trigger debugging sessions:
+AI assistants (Claude Desktop, Cursor, `coral terminal`) can trigger debugging
+sessions via the `coral_cli` tool:
 
 ```json
-{
-    "tool": "coral_profile_functions",
-    "arguments": {
-        "service": "payment",
-        "query": "checkout",
-        "duration": "60s"
-    }
-}
+["debug", "profile", "--service", "payment", "--query", "checkout", "--duration", "60s"]
 ```

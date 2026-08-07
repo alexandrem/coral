@@ -247,6 +247,9 @@ func (m *Manager) UpdateFilter(collectorID string, filter UprobeFilter) error {
 	return uc.UpdateFilter(filter)
 }
 
+// Start is a no-op; the manager is ready after NewManager.
+func (m *Manager) Start() error { return nil }
+
 // Stop stops all running collectors and shuts down the manager.
 func (m *Manager) Stop() error {
 	m.mu.Lock()

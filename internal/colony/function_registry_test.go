@@ -9,13 +9,14 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/pkg/embedding"
 )
 
 // TestStoreFunctions_Deduplication verifies same function updates rather than duplicates.
 func TestStoreFunctions_Deduplication(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestStoreFunctions_Deduplication(t *testing.T) {
 // TestQueryFunctions_ExactMatch tests exact function name matching.
 func TestQueryFunctions_ExactMatch(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestQueryFunctions_ExactMatch(t *testing.T) {
 // TestQueryFunctions_SemanticSimilarity tests related term matching.
 func TestQueryFunctions_SemanticSimilarity(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -238,7 +239,7 @@ func TestQueryFunctions_SemanticSimilarity(t *testing.T) {
 // TestQueryFunctions_ServiceFilter tests service name filtering.
 func TestQueryFunctions_ServiceFilter(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -308,7 +309,7 @@ func TestQueryFunctions_ServiceFilter(t *testing.T) {
 // TestQueryFunctions_Limit tests result limiting.
 func TestQueryFunctions_Limit(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -356,7 +357,7 @@ func TestQueryFunctions_Limit(t *testing.T) {
 // TestListFunctions_NoQuery tests fallback to list mode.
 func TestListFunctions_NoQuery(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -445,7 +446,7 @@ func BenchmarkGenerateFunctionEmbedding(b *testing.B) {
 // BenchmarkQueryFunctions_SmallDataset measures search latency with 100 functions.
 func BenchmarkQueryFunctions_SmallDataset(b *testing.B) {
 	tmpDir := b.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		b.Fatalf("Failed to create database: %v", err)
 	}
@@ -488,7 +489,7 @@ func BenchmarkQueryFunctions_SmallDataset(b *testing.B) {
 // BenchmarkQueryFunctions_LargeDataset measures search latency with 50K functions.
 func BenchmarkQueryFunctions_LargeDataset(b *testing.B) {
 	tmpDir := b.TempDir()
-	db, err := database.New(tmpDir, "test-colony", zerolog.Nop())
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	if err != nil {
 		b.Fatalf("Failed to create database: %v", err)
 	}

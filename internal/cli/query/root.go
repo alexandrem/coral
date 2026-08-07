@@ -22,6 +22,7 @@ Commands:
   cpu-profile    - Historical CPU profiles (RFD 072)
   memory-profile - Historical memory profiles (RFD 077 - coming soon)
   sql            - Execute raw SQL queries (RFD 076)
+  topology       - Service dependency graph (RFD 092)
 
 Examples:
   coral query summary                  # List all services with telemetry
@@ -32,6 +33,7 @@ Examples:
   coral query cpu-profile my-service --since 1h
   coral query memory-profile my-service --since 1h --show-growth
   coral query sql "SELECT service_name, COUNT(*) FROM beyla_http_metrics GROUP BY service_name"
+  coral query trace-profile <trace-id>      # CPU hotspots during a specific trace (RFD 078)
 `,
 	}
 
@@ -42,6 +44,8 @@ Examples:
 	cmd.AddCommand(NewCPUProfileCmd())
 	cmd.AddCommand(NewMemoryProfileCmd())
 	cmd.AddCommand(NewSQLCmd())
+	cmd.AddCommand(NewTopologyCmd())     // RFD 092: Service topology
+	cmd.AddCommand(NewTraceProfileCmd()) // RFD 078: Trace-driven profiling
 
 	return cmd
 }

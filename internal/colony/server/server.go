@@ -52,7 +52,6 @@ type Server struct {
 	registry         *registry.Registry
 	database         *database.Database
 	caManager        *ca.Manager // RFD 047 - certificate authority manager.
-	mcpServer        interface{} // *mcp.Server - using interface to avoid import cycle
 	ebpfService      interface{} // EbpfQueryService - using interface to avoid import cycle
 	config           Config
 	startTime        time.Time
@@ -261,7 +260,9 @@ func (s *Server) ListAgents(
 	return connect.NewResponse(resp), nil
 }
 
-// GetTopology handles topology request.
+// GetTopology handles topology request (RFD 092).
+// Returns all registered agents and the live service dependency graph derived
+// from observed trace data.
 func (s *Server) GetTopology(
 	ctx context.Context,
 	req *connect.Request[colonyv1.GetTopologyRequest],
@@ -291,18 +292,160 @@ func (s *Server) GetTopology(
 		agents = append(agents, agent)
 	}
 
-	// Return empty connections list for now (topology discovery is a future enhancement).
+	// Derive service connections from trace data (default 1h window).
+	since := time.Now().Add(-time.Hour)
+	serviceConns, err := s.database.GetServiceConnections(ctx, since)
+	if err != nil {
+		// Non-fatal: return agents without connections rather than failing.
+		s.logger.Warn().Err(err).Msg("Failed to fetch service connections for topology")
+		serviceConns = nil
+	}
+
+	// Build a set of L7 edges keyed by (source, target) for overlap detection.
+	type edgeKey struct{ src, dst string }
+	l7Edges := make(map[edgeKey]bool, len(serviceConns))
+
+	connections := make([]*colonyv1.Connection, 0, len(serviceConns))
+	for _, sc := range serviceConns {
+		connections = append(connections, &colonyv1.Connection{
+			SourceId:       sc.FromService,
+			TargetId:       sc.ToService,
+			ConnectionType: sc.Protocol,
+			EvidenceLayer:  colonyv1.EvidenceLayer_EVIDENCE_LAYER_L7_TRACE,
+		})
+		l7Edges[edgeKey{sc.FromService, sc.ToService}] = true
+	}
+
+	// Fetch L4 network connections and merge (RFD 033).
+	l4Conns, err := s.database.GetL4Connections(ctx, since)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to fetch L4 topology connections")
+		l4Conns = nil
+	}
+
+	for _, lc := range l4Conns {
+		// Determine the target identity: prefer agent ID, fall back to dest_ip:port.
+		target := lc.DestIP
+		if lc.DestAgentID != "" {
+			target = lc.DestAgentID
+		}
+
+		key := edgeKey{lc.SourceAgentID, target}
+		if l7Edges[key] {
+			// Edge already present from L7 data — promote to BOTH.
+			for _, c := range connections {
+				if c.SourceId == lc.SourceAgentID && c.TargetId == target {
+					c.EvidenceLayer = colonyv1.EvidenceLayer_EVIDENCE_LAYER_BOTH
+					break
+				}
+			}
+			continue
+		}
+
+		connections = append(connections, &colonyv1.Connection{
+			SourceId:       lc.SourceAgentID,
+			TargetId:       target,
+			ConnectionType: lc.Protocol,
+			EvidenceLayer:  colonyv1.EvidenceLayer_EVIDENCE_LAYER_L4_NETWORK,
+		})
+	}
+
 	resp := &colonyv1.GetTopologyResponse{
 		ColonyId:    s.config.ColonyID,
 		Agents:      agents,
-		Connections: []*colonyv1.Connection{},
+		Connections: connections,
 	}
 
 	s.logger.Debug().
 		Int("agent_count", len(agents)).
+		Int("connection_count", len(connections)).
 		Msg("Get topology response prepared")
 
 	return connect.NewResponse(resp), nil
+}
+
+// ReportConnections receives a stream of L4 connection batches from an agent,
+// correlates destination IPs against the agent registry, and upserts the results
+// into topology_connections (RFD 033).
+func (s *Server) ReportConnections(
+	ctx context.Context,
+	stream *connect.ClientStream[colonyv1.ReportConnectionsRequest],
+) (*connect.Response[colonyv1.ReportConnectionsResponse], error) {
+	var totalBatches, totalEntries int
+
+	for stream.Receive() {
+		msg := stream.Msg()
+
+		if msg.AgentId == "" {
+			s.logger.Warn().Msg("ReportConnections: received batch with empty agent_id, skipping")
+			continue
+		}
+
+		if len(msg.Connections) == 0 {
+			continue
+		}
+
+		entries := make([]database.TopologyConnection, 0, len(msg.Connections))
+		now := time.Now()
+
+		for _, lc := range msg.Connections {
+			if lc.RemoteIp == "" || lc.RemotePort == 0 {
+				continue
+			}
+
+			// Correlate dest IP to an agent ID if possible.
+			destAgentID := ""
+			if peer := s.registry.FindAgentByIP(lc.RemoteIp); peer != nil {
+				destAgentID = peer.AgentID
+			}
+
+			lastObserved := now
+			if lc.LastObserved != nil {
+				lastObserved = lc.LastObserved.AsTime()
+			}
+
+			entries = append(entries, database.TopologyConnection{
+				SourceAgentID: msg.AgentId,
+				DestAgentID:   destAgentID,
+				DestIP:        lc.RemoteIp,
+				DestPort:      int(lc.RemotePort),
+				Protocol:      lc.Protocol,
+				BytesSent:     lc.BytesSent,
+				BytesReceived: lc.BytesReceived,
+				Retransmits:   int(lc.Retransmits),
+				RTTUS:         int(lc.RttUs),
+				FirstObserved: lastObserved,
+				LastObserved:  lastObserved,
+			})
+		}
+
+		if err := s.database.UpsertTopologyConnections(ctx, entries); err != nil {
+			s.logger.Error().
+				Err(err).
+				Str("agent_id", msg.AgentId).
+				Msg("Failed to upsert topology connections")
+			// Continue processing subsequent batches rather than aborting the stream.
+			continue
+		}
+
+		totalBatches++
+		totalEntries += len(entries)
+	}
+
+	if err := stream.Err(); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Int("batches", totalBatches).
+			Msg("ReportConnections stream closed with error")
+		return nil, fmt.Errorf("stream error: %w", err)
+	}
+
+	s.logger.Debug().
+		Int("batches", totalBatches).
+		Int("entries", totalEntries).
+		Msg("ReportConnections stream completed")
+
+	return connect.NewResponse(&colonyv1.ReportConnectionsResponse{}), nil
 }
 
 // determineColonyStatus calculates overall colony status based on agent health.
@@ -320,29 +463,15 @@ func (s *Server) determineColonyStatus() string {
 // - QueryUnifiedMetrics for HTTP/gRPC/SQL metrics
 // - QueryUnifiedLogs for application logs
 
-// CallTool executes an MCP tool and returns the result (RFD 004).
+// CallTool is no longer supported on the colony server (RFD 100).
+// Tool dispatch is handled locally by the coral_cli proxy layer.
 func (s *Server) CallTool(
-	ctx context.Context,
+	_ context.Context,
 	req *connect.Request[colonyv1.CallToolRequest],
 ) (*connect.Response[colonyv1.CallToolResponse], error) {
-	s.logger.Info().
-		Str("tool", req.Msg.ToolName).
-		Msg("MCP tool call received via RPC")
-
-	// Execute the tool.
-	result, err := s.ExecuteTool(ctx, req.Msg.ToolName, req.Msg.ArgumentsJson)
-	if err != nil {
-		return connect.NewResponse(&colonyv1.CallToolResponse{
-			Result:  "",
-			Error:   err.Error(),
-			Success: false,
-		}), nil
-	}
-
 	return connect.NewResponse(&colonyv1.CallToolResponse{
-		Result:  result,
-		Error:   "",
-		Success: true,
+		Error:   "tool dispatch has moved to the proxy layer (RFD 100): use coral colony mcp proxy",
+		Success: false,
 	}), nil
 }
 
@@ -357,46 +486,13 @@ func (s *Server) StreamTool(
 	return fmt.Errorf("streaming tools not yet implemented")
 }
 
-// ListTools returns the list of available MCP tools (RFD 004).
+// ListTools is no longer supported on the colony server (RFD 100).
+// Tool listing is handled locally by the coral_cli proxy layer.
 func (s *Server) ListTools(
-	ctx context.Context,
-	req *connect.Request[colonyv1.ListToolsRequest],
+	_ context.Context,
+	_ *connect.Request[colonyv1.ListToolsRequest],
 ) (*connect.Response[colonyv1.ListToolsResponse], error) {
-	// Get tool metadata including schemas from the MCP server.
-	metadata, err := s.GetToolMetadata()
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to get tool metadata")
-		// Fallback to simple tool list without schemas.
-		toolNames := s.ListToolNames()
-		tools := make([]*colonyv1.ToolInfo, 0, len(toolNames))
-		for _, name := range toolNames {
-			enabled := s.IsToolEnabled(name)
-			tools = append(tools, &colonyv1.ToolInfo{
-				Name:            name,
-				Description:     "",
-				Enabled:         enabled,
-				InputSchemaJson: "{\"type\": \"object\", \"properties\": {}}",
-			})
-		}
-		return connect.NewResponse(&colonyv1.ListToolsResponse{
-			Tools: tools,
-		}), nil
-	}
-
-	// Convert metadata to ToolInfo proto messages.
-	tools := make([]*colonyv1.ToolInfo, 0, len(metadata))
-	for _, meta := range metadata {
-		tools = append(tools, &colonyv1.ToolInfo{
-			Name:            meta.Name,
-			Description:     meta.Description,
-			Enabled:         true, // Already filtered by GetToolMetadata
-			InputSchemaJson: meta.InputSchemaJSON,
-		})
-	}
-
-	return connect.NewResponse(&colonyv1.ListToolsResponse{
-		Tools: tools,
-	}), nil
+	return connect.NewResponse(&colonyv1.ListToolsResponse{Tools: nil}), nil
 }
 
 // RequestCertificate handles certificate issuance requests (RFD 047).

@@ -176,8 +176,7 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for all `coral config` commands.
 ## AI-Powered Debugging
 
 Coral integrates with your own LLM (OpenAI, Anthropic, or local Ollama) to
-provide
-natural language debugging queries.
+provide natural language debugging queries.
 
 **Setup:**
 
@@ -191,8 +190,7 @@ coral ask config
 **Privacy & Cost:**
 
 - Uses YOUR LLM API keys (never sent to Coral servers)
-- Runs locally as a Genkit agent on your workstation
-- Connects to Colony as MCP server for observability data
+- Runs locally as an agent on your workstation
 - You control model choice, costs, and data privacy
 
 **Example Workflows:**
@@ -215,7 +213,35 @@ coral ask "Are there any unhealthy services?"
 # → Checks agent status, service health
 ```
 
-See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` syntax.
+### CLI Dispatch Mode (RFD 100)
+
+`coral terminal` and `coral ask` use **CLI dispatch mode** by default. The
+agent runs standard coral CLI commands as subprocesses instead of routing
+through the MCP protocol. This means:
+
+- **One tool: `coral_cli`** — the agent composes coral commands the same way
+  a human operator does.
+- **Auditable session logs** — every agent action is a reproducible CLI
+  command (e.g. `$ coral query traces --service api --since 10m`).
+- **No MCP overhead** — the first-party client bypasses the MCP translation
+  layer.
+- **Auto-complete commands** — any new `coral` subcommand is immediately
+  available to the agent without additional registration.
+
+The agent uses `--format json` automatically (appended to every command).
+The LLM reads a compact `coral://cli/reference` listing before composing
+commands so it knows the available subcommands and flags.
+
+**Configuration:**
+
+```yaml
+# ~/.coral/config.yaml (or colony.yaml)
+ask:
+  dispatch_mode: cli   # default for TUI; "mcp" for external clients
+```
+
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` and
+`coral terminal` syntax.
 
 ---
 
@@ -692,7 +718,7 @@ needing to query different data sources separately.
 
 ```bash
 # Service discovery (dual-source: registry + telemetry)
-coral query services [--namespace <name>] [--since <duration>] [--source <type>]
+coral service list [--source <type>] [--format json]
 
 # Quick health overview (recommended first step)
 coral query summary [service] [--since <duration>]
@@ -705,6 +731,9 @@ coral query metrics [service] [--since <duration>]
 
 # Application logs (OTLP)
 coral query logs [service] [--since <duration>]
+
+# Service topology (call graph)
+coral query topology [--since <duration>] [--format json]
 ```
 
 ---
@@ -815,6 +844,84 @@ coral query summary api --since 10m    # Specific service metrics
 - Service is registered but health checks failing
 - Data is still queryable: `coral query summary <service>`
 - Reconnect if needed: `coral connect <service>:<port>`
+
+---
+
+### Service Topology
+
+Coral's service topology provides a **live dependency graph** of your
+distributed system derived from two complementary observation layers:
+
+- **L7 layer** — edges extracted from distributed trace spans captured by
+  Beyla's eBPF interceptor. High-fidelity with call counts and protocol
+  attribution; covers every service that produces HTTP/gRPC spans.
+- **L4 layer** (RFD 033) — edges from raw outbound TCP connections observed by
+  each agent via `ss`/`netstat` (eBPF probe planned). Covers databases,
+  external APIs, and any service that emits no traces at all.
+
+Each connection in the output carries a `LAYER` column (`L7`, `L4`, or `BOTH`)
+indicating its evidence source.
+
+**Key Features:**
+
+- **Two-Layer Coverage** - L7 trace-derived edges merged with L4 TCP-observed edges
+- **Protocol Detection** - HTTP, gRPC, SQL from traces; raw TCP from L4
+- **Real-Time** - L7 materialized with a 30-second TTL; L4 data streamed by agents
+- **Compact View** - Designed for rapid understanding and AI context injection
+
+**Commands:**
+
+```bash
+# Get the dependency graph for the last hour (default)
+coral query topology
+
+# Specify a custom time window
+coral query topology --since 30m
+
+# Suppress L4-only edges — show only trace-derived edges
+coral query topology --include-l4=false
+
+# Machine-readable output (includes layer field per connection)
+coral query topology --format json
+```
+
+**Example Output:**
+
+```
+Service Topology (last 1h, 4 connection(s)):
+
+FROM SERVICE    →  TO SERVICE       PROTOCOL  LAYER
+------------       ----------       --------  -----
+otel-app        →  cpu-app          HTTP      L7
+user-service    →  postgres         SQL       L7
+api-gateway     →  redis            TCP       L4
+api-gateway     →  user-service     HTTP      BOTH
+```
+
+**JSON Output:**
+
+```json
+{
+  "colony_id": "my-colony",
+  "connections": [
+    {"from": "api-gateway", "to": "redis",        "protocol": "TCP",  "layer": "L4"},
+    {"from": "api-gateway", "to": "user-service", "protocol": "HTTP", "layer": "BOTH"},
+    {"from": "otel-app",    "to": "cpu-app",       "protocol": "HTTP", "layer": "L7"}
+  ]
+}
+```
+
+**Common Use Cases:**
+
+- **Incident Investigation** - Understand which downstream services might be
+  causing issues
+- **Infrastructure Mapping** - Discover database and external API dependencies
+  that produce no traces (L4 edges)
+- **Architecture Validation** - Verify that services are only calling intended
+  dependencies
+- **Onboarding** - Quickly understand the layout of a complex microservices
+  environment
+- **AI Context** - Available on demand via `coral_cli` for smarter RCA
 
 ---
 

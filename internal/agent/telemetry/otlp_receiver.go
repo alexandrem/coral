@@ -205,6 +205,14 @@ func (r *OTLPReceiver) Stop() error {
 	return nil
 }
 
+// SetSpanHandler sets the function called for each span received.
+// This allows other components (like Beyla) to intercept and route spans.
+func (r *OTLPReceiver) SetSpanHandler(handler func(context.Context, Span) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.config.SpanHandler = handler
+}
+
 // Export implements the OTLP gRPC TraceService.Export method.
 func (w *traceServiceWrapper) Export(
 	ctx context.Context,
@@ -216,11 +224,13 @@ func (w *traceServiceWrapper) Export(
 
 	spansReceived := 0
 	spansFiltered := 0
+	spansProcessed := 0
 
 	// Process all resource spans.
 	for _, resourceSpans := range req.ResourceSpans {
-		// Extract service name from resource attributes.
+		// Extract service name and process PID from resource attributes.
 		serviceName := extractServiceName(resourceSpans.Resource)
+		processPID := extractProcessPID(resourceSpans.Resource)
 
 		// Process all scope spans.
 		for _, scopeSpans := range resourceSpans.ScopeSpans {
@@ -228,7 +238,7 @@ func (w *traceServiceWrapper) Export(
 				spansReceived++
 
 				// Convert OTLP span to internal format.
-				span := w.receiver.convertOTLPSpan(otlpSpan, serviceName)
+				span := w.receiver.convertOTLPSpan(otlpSpan, serviceName, processPID)
 
 				// Apply filtering.
 				if !w.receiver.filter.ShouldCapture(span) {
@@ -237,7 +247,6 @@ func (w *traceServiceWrapper) Export(
 				}
 
 				// Use custom handler if configured (e.g., Beyla routes to beyla_traces_local).
-				// Otherwise, store in default storage (otel_spans_local).
 				if w.receiver.config.SpanHandler != nil {
 					if err := w.receiver.config.SpanHandler(ctx, span); err != nil {
 						w.receiver.logger.Warn().
@@ -245,24 +254,29 @@ func (w *traceServiceWrapper) Export(
 							Str("trace_id", span.TraceID).
 							Msg("SpanHandler failed to process span")
 					}
+				}
+
+				// Always store in default local storage (otel_spans_local).
+				if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
+					w.receiver.logger.Warn().
+						Err(err).
+						Str("trace_id", span.TraceID).
+						Msg("Failed to store span")
 				} else {
-					// Store in local storage (default behavior).
-					if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
-						w.receiver.logger.Warn().
-							Err(err).
-							Str("trace_id", span.TraceID).
-							Msg("Failed to store span")
-					}
+					spansProcessed++
 				}
 			}
 		}
 	}
 
-	w.receiver.logger.Debug().
-		Int("received", spansReceived).
-		Int("filtered", spansFiltered).
-		Int("stored", spansReceived-spansFiltered).
-		Msg("Processed OTLP trace export")
+	if spansReceived > 0 {
+		w.receiver.logger.Debug().
+			Int("received", spansReceived).
+			Int("filtered", spansFiltered).
+			Int("processed", spansProcessed).
+			Str("service_name", extractServiceName(req.ResourceSpans[0].Resource)).
+			Msg("Processed OTLP spans export")
+	}
 
 	return &otlptracev1.ExportTraceServiceResponse{}, nil
 }
@@ -311,10 +325,19 @@ func (r *OTLPReceiver) handleHTTPTraces(w http.ResponseWriter, req *http.Request
 }
 
 // convertOTLPSpan converts an OTLP span to internal Span format.
-func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName string) Span {
+func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName string, processPID uint32) Span {
 	// Convert trace ID and span ID from bytes to hex strings.
 	traceID := hex.EncodeToString(otlpSpan.TraceId)
 	spanID := hex.EncodeToString(otlpSpan.SpanId)
+
+	parentSpanID := ""
+	if len(otlpSpan.ParentSpanId) > 0 {
+		parentSpanID = hex.EncodeToString(otlpSpan.ParentSpanId)
+		// If it's all zeros, treat as empty (root span).
+		if parentSpanID == "0000000000000000" {
+			parentSpanID = ""
+		}
+	}
 
 	// Calculate duration in milliseconds.
 	startTime := time.Unix(0, int64(otlpSpan.StartTimeUnixNano))
@@ -354,17 +377,19 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 	spanKind := spanKindToString(otlpSpan.Kind)
 
 	return Span{
-		Timestamp:   startTime,
-		TraceID:     traceID,
-		SpanID:      spanID,
-		ServiceName: serviceName,
-		SpanKind:    spanKind,
-		DurationMs:  durationMs,
-		IsError:     isError,
-		HTTPStatus:  httpStatus,
-		HTTPMethod:  httpMethod,
-		HTTPRoute:   httpRoute,
-		Attributes:  attributes,
+		Timestamp:    startTime,
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		ServiceName:  serviceName,
+		SpanKind:     spanKind,
+		DurationMs:   durationMs,
+		IsError:      isError,
+		HTTPStatus:   httpStatus,
+		HTTPMethod:   httpMethod,
+		HTTPRoute:    httpRoute,
+		Attributes:   attributes,
+		ProcessPID:   processPID,
 	}
 }
 
@@ -381,6 +406,26 @@ func extractServiceName(resource *otlpresource.Resource) string {
 	}
 
 	return "unknown"
+}
+
+// extractProcessPID extracts the process.pid resource attribute (RFD 078).
+// Returns 0 if not present.
+func extractProcessPID(resource *otlpresource.Resource) uint32 {
+	if resource == nil {
+		return 0
+	}
+
+	for _, attr := range resource.Attributes {
+		if attr.Key == "process.pid" {
+			if v := getAttributeValue(attr.Value); v != "" {
+				if pid, err := strconv.ParseUint(v, 10, 32); err == nil {
+					return uint32(pid) // #nosec G115
+				}
+			}
+		}
+	}
+
+	return 0
 }
 
 // getAttributeValue extracts the string value from an OTLP attribute.

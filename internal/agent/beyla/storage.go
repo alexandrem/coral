@@ -53,17 +53,18 @@ type beylaSQLMetricDB struct {
 }
 
 type beylaTraceDB struct {
-	TraceID      string    `duckdb:"trace_id,pk"`
-	SpanID       string    `duckdb:"span_id,pk"`
-	ParentSpanID string    `duckdb:"parent_span_id,immutable"`
-	AgentID      string    `duckdb:"agent_id,immutable"`
-	ServiceName  string    `duckdb:"service_name,immutable"`
-	SpanName     string    `duckdb:"span_name,immutable"`
-	SpanKind     string    `duckdb:"span_kind,immutable"`
-	StartTime    time.Time `duckdb:"start_time,immutable"`
-	DurationUs   int64     `duckdb:"duration_us,immutable"`
-	StatusCode   int       `duckdb:"status_code,immutable"`
-	Attributes   string    `duckdb:"attributes,immutable"`
+	TraceID      string    `duckdb:"trace_id"`
+	SpanID       string    `duckdb:"span_id"`
+	ParentSpanID string    `duckdb:"parent_span_id"`
+	AgentID      string    `duckdb:"agent_id"`
+	ServiceName  string    `duckdb:"service_name"`
+	SpanName     string    `duckdb:"span_name"`
+	SpanKind     string    `duckdb:"span_kind"`
+	StartTime    time.Time `duckdb:"start_time"`
+	DurationUs   int64     `duckdb:"duration_us"`
+	StatusCode   int       `duckdb:"status_code"`
+	ProcessPID   int32     `duckdb:"process_pid"` // OS process ID for trace-profile join (RFD 078). Zero if not available.
+	Attributes   string    `duckdb:"attributes"`
 	CreatedAt    time.Time `duckdb:"created_at,immutable"`
 }
 
@@ -201,7 +202,7 @@ func (s *BeylaStorage) initSchema() error {
 	// Beyla distributed traces (RFD 036).
 	tracesSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_traces_local (
-			seq_id         UBIGINT DEFAULT nextval('seq_beyla_traces'),
+			seq_id         UBIGINT PRIMARY KEY DEFAULT nextval('seq_beyla_traces'),
 			trace_id       VARCHAR(32) NOT NULL,
 			span_id        VARCHAR(16) NOT NULL,
 			parent_span_id VARCHAR(16),
@@ -212,9 +213,9 @@ func (s *BeylaStorage) initSchema() error {
 			start_time     TIMESTAMP NOT NULL,
 			duration_us    BIGINT NOT NULL,
 			status_code    SMALLINT,
+			process_pid    INTEGER NOT NULL DEFAULT 0,
 			attributes     JSON,
-			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (trace_id, span_id)
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time
@@ -231,6 +232,9 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_seq_id
 		ON beyla_traces_local(seq_id);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_process_pid
+		ON beyla_traces_local(process_pid, start_time DESC);
 	`
 	if _, err := s.db.Exec(tracesSchema); err != nil {
 		return fmt.Errorf("failed to create traces schema: %w", err)
@@ -469,12 +473,13 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 		StartTime:    startTime,
 		DurationUs:   durationUs,
 		StatusCode:   int(traceSpan.StatusCode),
+		ProcessPID:   int32(traceSpan.ProcessPid), // #nosec G115 - PIDs are always positive.
 		Attributes:   string(attributesJSON),
 		CreatedAt:    time.Now(),
 	}
 
-	if err := s.tracesTable.Upsert(ctx, item); err != nil {
-		return fmt.Errorf("failed to upsert trace span: %w", err)
+	if err := s.tracesTable.Insert(ctx, item); err != nil {
+		return fmt.Errorf("failed to insert trace span: %w", err)
 	}
 
 	return nil
@@ -483,7 +488,7 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 // StoreOTLPSpan stores a span from the OTLP receiver into beyla_traces_local.
 // This is used by the Beyla manager's SpanHandler to route Beyla traces
 // to the correct table instead of otel_spans_local.
-func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceID, spanID, parentSpanID, serviceName, spanName, spanKind string, startTime time.Time, durationUs int64, statusCode int, attributes map[string]string) error {
+func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceID, spanID, parentSpanID, serviceName, spanName, spanKind string, startTime time.Time, durationUs int64, statusCode int, processPID uint32, attributes map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -504,12 +509,13 @@ func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceI
 		StartTime:    startTime,
 		DurationUs:   durationUs,
 		StatusCode:   statusCode,
+		ProcessPID:   int32(processPID), // #nosec G115 - PIDs are always positive.
 		Attributes:   string(attributesJSON),
 		CreatedAt:    time.Now(),
 	}
 
-	if err := s.tracesTable.Upsert(ctx, item); err != nil {
-		return fmt.Errorf("failed to upsert OTLP span: %w", err)
+	if err := s.tracesTable.Insert(ctx, item); err != nil {
+		return fmt.Errorf("failed to insert OTLP span: %w", err)
 	}
 
 	return nil
@@ -798,14 +804,14 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 	defer s.mu.RUnlock()
 
 	if maxRecords <= 0 {
-		maxRecords = 1000
+		maxRecords = 10000 // Match DefaultColonyQueryMaxRecords
 	} else if maxRecords > 50000 {
 		maxRecords = 50000
 	}
 
 	query := `
 		SELECT seq_id, trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
-		       start_time, duration_us, status_code, attributes::VARCHAR as attributes
+		       start_time, duration_us, status_code, process_pid, attributes::VARCHAR as attributes
 		FROM beyla_traces_local
 		WHERE seq_id > ?
 	`
@@ -838,20 +844,27 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 
 	for rows.Next() {
 		var seqID uint64
-		var traceID, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var traceID, spanID, serviceName, spanName, spanKind string
+		var parentSpanIDNull sql.NullString
 		var startTime time.Time
 		var durationUs int64
 		var statusCode int32
+		var processPID int32
 		var attributesJSON string
 
-		err := rows.Scan(&seqID, &traceID, &spanID, &parentSpanID, &serviceName, &spanName,
-			&spanKind, &startTime, &durationUs, &statusCode, &attributesJSON)
+		err := rows.Scan(&seqID, &traceID, &spanID, &parentSpanIDNull, &serviceName, &spanName,
+			&spanKind, &startTime, &durationUs, &statusCode, &processPID, &attributesJSON)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		if seqID > maxSeqID {
 			maxSeqID = seqID
+		}
+
+		parentSpanID := ""
+		if parentSpanIDNull.Valid {
+			parentSpanID = parentSpanIDNull.String
 		}
 
 		var attrs map[string]string
@@ -870,6 +883,8 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 			StartTime:    timestamppb.New(startTime),
 			Duration:     durationpb.New(duration),
 			StatusCode:   uint32(statusCode), // #nosec G115
+			ProcessPid:   uint32(processPID), // #nosec G115
+			SeqId:        seqID,
 			Attributes:   attrs,
 		}
 		spans = append(spans, span)
@@ -885,7 +900,7 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 
 	query := `
 		SELECT trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
-		       start_time, duration_us, status_code, attributes::VARCHAR as attributes
+		       start_time, duration_us, status_code, process_pid, attributes::VARCHAR as attributes
 		FROM beyla_traces_local
 		WHERE trace_id = ?
 		ORDER BY start_time DESC
@@ -900,26 +915,34 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
 
 	for rows.Next() {
-		var tid, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var tid, spanID, serviceName, spanName, spanKind string
+		var parentSpanIDNull sql.NullString
 		var startTime time.Time
 		var durationUs int64
 		var statusCode int32
+		var processPID int32
 		var attributesJSON string
 
 		err := rows.Scan(
 			&tid,
 			&spanID,
-			&parentSpanID,
+			&parentSpanIDNull,
 			&serviceName,
 			&spanName,
 			&spanKind,
 			&startTime,
 			&durationUs,
 			&statusCode,
+			&processPID,
 			&attributesJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		parentSpanID := ""
+		if parentSpanIDNull.Valid {
+			parentSpanID = parentSpanIDNull.String
 		}
 
 		var attrs map[string]string
@@ -939,7 +962,8 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 			SpanKind:     spanKind,
 			StartTime:    timestamppb.New(startTime),
 			Duration:     durationpb.New(duration),
-			StatusCode:   uint32(statusCode), // #nosec G115 - Status codes are always positive
+			StatusCode:   uint32(statusCode), // #nosec G115 - Status codes are always positive.
+			ProcessPid:   uint32(processPID), // #nosec G115 - PIDs are always positive.
 			Attributes:   attrs,
 		}
 

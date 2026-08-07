@@ -13,13 +13,14 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func setupGapRecoveryTestDB(t *testing.T) *database.Database {
 	t.Helper()
 	tempDir := t.TempDir()
 	logger := zerolog.Nop()
-	db, err := database.New(tempDir, "test-gap-recovery", logger)
+	db, err := database.New(tempDir, "test-gap-recovery", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db

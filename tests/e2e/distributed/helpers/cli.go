@@ -585,17 +585,17 @@ func AgentStatusJSON(ctx context.Context, env *CLITestEnv, agentID string) (map[
 	return status, nil
 }
 
-// QueryServices executes `coral query services` and returns the output.
+// QueryServices executes `coral colony service list` and returns the output.
 func QueryServices(ctx context.Context, env *CLITestEnv) *CLIResult {
-	return env.Run(ctx, "query", "services")
+	return env.Run(ctx, "colony", "service", "list")
 }
 
-// QueryServicesJSON executes `coral query services --format json` and parses the output.
+// QueryServicesJSON executes `coral colony service list --format json` and parses the output.
 func QueryServicesJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
-	result := env.Run(ctx, "query", "services", "--format", "json")
+	result := env.Run(ctx, "colony", "service", "list", "--format", "json")
 
 	if result.Err != nil {
-		return nil, fmt.Errorf("query services failed: %w\nOutput: %s", result.Err, result.Output)
+		return nil, fmt.Errorf("colony service list failed: %w\nOutput: %s", result.Err, result.Output)
 	}
 
 	var services []map[string]interface{}

@@ -27,16 +27,38 @@ const (
 	AgentStatusUnhealthy AgentStatus = "unhealthy"
 )
 
+// Lifecycle is implemented by any component the agent starts and stops.
+type Lifecycle interface {
+	Start() error
+	Stop() error
+}
+
+// cpuProfiler is the subset of profiler.ContinuousCPUProfiler used by the agent.
+// Defined as an interface to support Linux/non-Linux builds without import cycles.
+type cpuProfiler interface {
+	AddService(serviceID string, pid int, binaryPath string)
+	RemoveService(serviceID string)
+	Stop()
+}
+
+// memProfiler is the subset of profiler.ContinuousMemoryProfiler used by the agent.
+type memProfiler interface {
+	AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
+	RemoveService(serviceID string)
+	Stop()
+}
+
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
 	id                       string
 	monitors                 map[string]*ServiceMonitor
+	components               []Lifecycle // Ordered list of managed components; stopped in reverse.
 	ebpfManager              *ebpf.Manager
 	beylaManager             *beyla.Manager
 	debugManager             *debug.SessionManager
 	correlationEngine        *correlation.Engine // RFD 091: probe correlation.
-	continuousProfiler       interface{}         // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds).
-	continuousMemoryProfiler interface{}         // RFD 077: Continuous memory profiler.
+	continuousProfiler       cpuProfiler         // RFD 072: Continuous CPU profiler.
+	continuousMemoryProfiler memProfiler         // RFD 077: Continuous memory profiler.
 	functionCache            *FunctionCache      // RFD 063: Function discovery cache
 	logger                   zerolog.Logger
 	mu                       sync.RWMutex
@@ -71,9 +93,18 @@ func New(config Config) (*Agent, error) {
 		Logger: config.Logger,
 	})
 
-	// Initialize Beyla manager (RFD 032).
+	// Initialize Beyla manager (RFD 032/110).
 	var beylaManager *beyla.Manager
 	if config.BeylaConfig != nil {
+		// Populate initial service map from provided services.
+		if config.BeylaConfig.Discovery.ServiceMap == nil {
+			config.BeylaConfig.Discovery.ServiceMap = make(map[int]string)
+		}
+		for _, svc := range config.Services {
+			config.BeylaConfig.Discovery.ServiceMap[int(svc.Port)] = svc.Name
+			config.BeylaConfig.Discovery.OpenPorts = append(config.BeylaConfig.Discovery.OpenPorts, int(svc.Port))
+		}
+
 		var err error
 		beylaManager, err = beyla.NewManager(ctx, config.BeylaConfig, config.Logger)
 		if err != nil {
@@ -85,9 +116,17 @@ func New(config Config) (*Agent, error) {
 	// Initialize correlation engine (RFD 091).
 	corrEngine := correlation.NewEngine(config.AgentID, config.Logger)
 
+	// Build the ordered component list. ebpfManager starts first so it is
+	// available to collectors before Beyla (RFD 032) begins discovery.
+	components := []Lifecycle{ebpfManager}
+	if beylaManager != nil {
+		components = append(components, beylaManager)
+	}
+
 	agent := &Agent{
 		id:                config.AgentID,
 		monitors:          make(map[string]*ServiceMonitor),
+		components:        components,
 		ebpfManager:       ebpfManager,
 		beylaManager:      beylaManager,
 		correlationEngine: corrEngine,
@@ -121,20 +160,20 @@ func (a *Agent) Start() error {
 		Int("service_count", len(a.monitors)).
 		Msg("Starting agent")
 
-	// Start Beyla manager (RFD 032).
-	if a.beylaManager != nil {
-		if err := a.beylaManager.Start(); err != nil {
-			a.logger.Error().Err(err).Msg("Failed to start Beyla manager")
-			// Continue even if Beyla fails - it's supplementary to core monitoring
-		} else {
-			a.logger.Info().Msg("Beyla manager started successfully")
+	// Start managed components. Failures are logged but non-fatal; components
+	// such as Beyla are supplementary to core monitoring.
+	for _, c := range a.components {
+		if err := c.Start(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to start component")
 		}
 	}
 
 	// Start all service monitors.
 	for name, monitor := range a.monitors {
 		a.logger.Debug().Str("service", name).Msg("Starting service monitor")
-		monitor.Start()
+		if err := monitor.Start(); err != nil {
+			a.logger.Error().Err(err).Str("service", name).Msg("Failed to start service monitor")
+		}
 	}
 
 	return nil
@@ -144,37 +183,28 @@ func (a *Agent) Start() error {
 func (a *Agent) Stop() error {
 	a.logger.Info().Msg("Stopping agent")
 
-	// Stop all service monitors.
+	// Stop all service monitors first.
 	for _, monitor := range a.monitors {
-		monitor.Stop()
-	}
-
-	// Stop Beyla manager (RFD 032).
-	if a.beylaManager != nil {
-		if err := a.beylaManager.Stop(); err != nil {
-			a.logger.Error().Err(err).Msg("Failed to stop Beyla manager")
+		if err := monitor.Stop(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to stop service monitor")
 		}
 	}
 
-	// Stop eBPF manager.
-	if a.ebpfManager != nil {
-		if err := a.ebpfManager.Stop(); err != nil {
-			a.logger.Error().Err(err).Msg("Failed to stop eBPF manager")
+	// Stop managed components in reverse start order (LIFO).
+	for i := len(a.components) - 1; i >= 0; i-- {
+		if err := a.components[i].Stop(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to stop component")
 		}
 	}
 
 	// Stop continuous profiler (RFD 072).
 	if a.continuousProfiler != nil {
-		if profiler, ok := a.continuousProfiler.(interface{ Stop() }); ok {
-			profiler.Stop()
-		}
+		a.continuousProfiler.Stop()
 	}
 
 	// Stop continuous memory profiler (RFD 077).
 	if a.continuousMemoryProfiler != nil {
-		if profiler, ok := a.continuousMemoryProfiler.(interface{ Stop() }); ok {
-			profiler.Stop()
-		}
+		a.continuousMemoryProfiler.Stop()
 	}
 
 	a.cancel()
@@ -182,14 +212,14 @@ func (a *Agent) Stop() error {
 }
 
 // SetContinuousProfiler sets the continuous CPU profiler (RFD 072).
-func (a *Agent) SetContinuousProfiler(profiler interface{}) {
+func (a *Agent) SetContinuousProfiler(profiler cpuProfiler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousProfiler = profiler
 }
 
 // SetContinuousMemoryProfiler sets the continuous memory profiler (RFD 077).
-func (a *Agent) SetContinuousMemoryProfiler(profiler interface{}) {
+func (a *Agent) SetContinuousMemoryProfiler(profiler memProfiler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousMemoryProfiler = profiler
@@ -206,20 +236,13 @@ func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath st
 		return
 	}
 
-	// Type assert to get the AddService method.
-	type profilerWithAddService interface {
-		AddService(serviceID string, pid int, binaryPath string)
-	}
+	a.logger.Info().
+		Str("service", serviceName).
+		Int32("pid", pid).
+		Str("binary", binaryPath).
+		Msg("Adding service to continuous CPU profiling")
 
-	if p, ok := profiler.(profilerWithAddService); ok {
-		a.logger.Info().
-			Str("service", serviceName).
-			Int32("pid", pid).
-			Str("binary", binaryPath).
-			Msg("Adding service to continuous CPU profiling")
-
-		p.AddService(serviceName, int(pid), binaryPath)
-	}
+	profiler.AddService(serviceName, int(pid), binaryPath)
 }
 
 // onSDKDiscovered is called when a service's SDK capabilities are set (RFD 077).
@@ -233,20 +256,13 @@ func (a *Agent) onSDKDiscovered(serviceName string, pid int32, sdkAddr string) {
 		return
 	}
 
-	// Type assert to get the AddService method.
-	type memProfilerWithAddService interface {
-		AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
-	}
+	a.logger.Info().
+		Str("service", serviceName).
+		Int32("pid", pid).
+		Str("sdk_addr", sdkAddr).
+		Msg("Adding service to continuous memory profiling")
 
-	if p, ok := memProfiler.(memProfilerWithAddService); ok {
-		a.logger.Info().
-			Str("service", serviceName).
-			Int32("pid", pid).
-			Str("sdk_addr", sdkAddr).
-			Msg("Adding service to continuous memory profiling")
-
-		p.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
-	}
+	memProfiler.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
 }
 
 // GetContext returns the agent's context.
@@ -334,7 +350,9 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	// Set callbacks for continuous profiling (RFD 072, RFD 077).
 	monitor.onProcessDiscovered = a.onProcessDiscovered
 	monitor.onSDKDiscovered = a.onSDKDiscovered
-	monitor.Start()
+	if err := monitor.Start(); err != nil {
+		return fmt.Errorf("failed to start monitor for service %s: %w", service.Name, err)
+	}
 
 	a.monitors[service.Name] = monitor
 
@@ -343,10 +361,10 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 		Int32("port", service.Port).
 		Msg("Service connected")
 
-	// Update Beyla discovery with new port (RFD 053).
+	// Update Beyla discovery with new port (RFD 053/110).
 	if a.beylaManager != nil {
-		ports := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(ports); err != nil {
+		portMap := a.collectPortsLocked()
+		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service connect")
@@ -368,17 +386,26 @@ func (a *Agent) DisconnectService(serviceName string) error {
 	}
 
 	// Stop monitoring.
-	monitor.Stop()
+	if err := monitor.Stop(); err != nil {
+		a.logger.Error().Err(err).Str("service", serviceName).Msg("Failed to stop service monitor")
+	}
 	delete(a.monitors, serviceName)
+
+	if a.continuousProfiler != nil {
+		a.continuousProfiler.RemoveService(serviceName)
+	}
+	if a.continuousMemoryProfiler != nil {
+		a.continuousMemoryProfiler.RemoveService(serviceName)
+	}
 
 	a.logger.Info().
 		Str("service", serviceName).
 		Msg("Service disconnected")
 
-	// Update Beyla discovery with remaining ports (RFD 053).
+	// Update Beyla discovery with remaining ports (RFD 053/110).
 	if a.beylaManager != nil {
-		ports := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(ports); err != nil {
+		portMap := a.collectPortsLocked()
+		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service disconnect")
@@ -399,14 +426,14 @@ func (a *Agent) GetBeylaManager() *beyla.Manager {
 	return a.beylaManager
 }
 
-// collectPortsLocked collects all service ports from monitors (RFD 053).
+// collectPortsLocked collects all service port-to-name mappings from monitors (RFD 053/110).
 // Caller must hold a.mu lock.
-func (a *Agent) collectPortsLocked() []int {
-	ports := make([]int, 0, len(a.monitors))
-	for _, monitor := range a.monitors {
-		ports = append(ports, int(monitor.service.Port))
+func (a *Agent) collectPortsLocked() map[int]string {
+	portMap := make(map[int]string)
+	for name, monitor := range a.monitors {
+		portMap[int(monitor.service.Port)] = name
 	}
-	return ports
+	return portMap
 }
 
 // Resolve resolves service name to address (ServiceResolver interface).

@@ -177,6 +177,16 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 				Msg("Stopping continuous profiling for service")
 			return
 		case <-ticker.C:
+			p.activeServicesMu.Lock()
+			_, active := p.activeServices[service.ServiceID]
+			p.activeServicesMu.Unlock()
+			if !active {
+				p.logger.Info().
+					Str("service_id", service.ServiceID).
+					Msg("Stopping continuous profiling for service (removed)")
+				return
+			}
+
 			if err := p.drainAndStore(session, service); err != nil {
 				p.logger.Error().
 					Err(err).
@@ -274,6 +284,7 @@ func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, 
 			StackHash:     computeStackHash(frameIDs),
 			StackFrameIDs: frameIDs,
 			SampleCount:   sampleCount,
+			TGID:          uint32(service.PID), // OS process ID (TGID) for trace correlation (RFD 078).
 		})
 	}
 
@@ -315,10 +326,11 @@ func (p *ContinuousCPUProfiler) AddService(serviceID string, pid int, binaryPath
 }
 
 // RemoveService removes a service from continuous profiling.
-// Note: This is a placeholder - actual implementation would need service tracking.
 func (p *ContinuousCPUProfiler) RemoveService(serviceID string) {
-	p.logger.Info().Str("service_id", serviceID).Msg("Service removal requested (not yet implemented)")
-	// TODO: Implement service tracking and removal.
+	p.activeServicesMu.Lock()
+	delete(p.activeServices, serviceID)
+	p.activeServicesMu.Unlock()
+	p.logger.Info().Str("service_id", serviceID).Msg("Service removed from continuous CPU profiling")
 }
 
 // GetStorage returns the profiler's storage instance.

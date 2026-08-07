@@ -22,6 +22,9 @@ var (
 
 	hintStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
+
+	reviewStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("14"))
 )
 
 // View renders the UI (Bubbletea interface).
@@ -44,7 +47,13 @@ func (m Model) View() string {
 	// Render current state.
 	switch m.currentState {
 	case stateQuerying:
-		if m.currentTool != "" {
+		if m.currentCommand != "" {
+			// CLI dispatch mode: show the full command string (RFD 100).
+			b.WriteString(fmt.Sprintf("\n%s %s $ %s\n",
+				m.spinner.View(),
+				toolStyle.Render("⚙"),
+				m.currentCommand))
+		} else if m.currentTool != "" {
 			b.WriteString(fmt.Sprintf("\n%s %s Executing tool: %s...\n",
 				m.spinner.View(),
 				toolStyle.Render("⚙"),
@@ -62,6 +71,19 @@ func (m Model) View() string {
 				b.WriteString(rendered)
 			}
 		}
+
+	case stateScriptReview:
+		sep := strings.Repeat("─", m.width)
+		b.WriteString("\n")
+		b.WriteString(reviewStyle.Render(fmt.Sprintf("Script: %s", m.reviewName)))
+		b.WriteString("\n")
+		b.WriteString(sep)
+		b.WriteString("\n")
+		b.WriteString(m.reviewContent)
+		b.WriteString("\n")
+		b.WriteString(sep)
+		b.WriteString("\n")
+		b.WriteString(promptStyle.Render("Write to ~/.coral/scripts/ ? (y/n) "))
 
 	case stateError:
 		b.WriteString(errorStyle.Render(fmt.Sprintf("\n✗ Error: %v\n", m.lastError)))

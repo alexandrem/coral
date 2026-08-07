@@ -40,6 +40,7 @@ type AskConfig struct {
 	DefaultModel   string                `yaml:"default_model,omitempty" env:"CORAL_ASK_MODEL"` // Primary model (e.g., "openai:gpt-4o-mini")
 	FallbackModels []string              `yaml:"fallback_models,omitempty"`                     // Fallback models in order
 	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`                            // Provider API keys (env:// references)
+	BaseURLs       map[string]string     `yaml:"base_urls,omitempty"`                           // Custom base URLs per provider (e.g., openai-compatible endpoints)
 	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`                        // Conversation settings
 	Agent          AskAgentConfig        `yaml:"agent,omitempty"`                               // Agent deployment settings
 }
@@ -56,7 +57,19 @@ type AskAgentConfig struct {
 	Mode         string        `yaml:"mode,omitempty"`          // "embedded", "daemon", "ephemeral"
 	DaemonSocket string        `yaml:"daemon_socket,omitempty"` // Unix socket for daemon mode
 	IdleTimeout  time.Duration `yaml:"idle_timeout,omitempty"`  // Daemon idle timeout
+	DispatchMode string        `yaml:"dispatch_mode,omitempty"` // "mcp" (default) or "cli" (RFD 100)
 }
+
+// Dispatch mode constants for AskAgentConfig.DispatchMode (RFD 100).
+const (
+	// DispatchModeMCP routes agent tool calls through the MCP protocol.
+	// Default for coral ask and external integrations.
+	DispatchModeMCP = "mcp"
+
+	// DispatchModeCLI routes agent tool calls through coral CLI subprocesses.
+	// Used by coral terminal for auditable, reproducible session logs.
+	DispatchModeCLI = "cli"
+)
 
 // Preferences contains user preferences.
 type Preferences struct {
@@ -276,6 +289,9 @@ type BeylaPollerConfig struct {
 	// PollInterval is how often to poll agents for Beyla data.
 	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_BEYLA_POLL_INTERVAL"`
 
+	// ConnectionsCacheTTL is the TTL for materialized connections cache (RFD 092).
+	ConnectionsCacheTTL time.Duration `yaml:"connections_cache_ttl,omitempty" env:"CORAL_CONNECTIONS_CACHE_TTL"`
+
 	// Retention settings for different data types.
 	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
 }
@@ -393,7 +409,8 @@ type BeylaConfig struct {
 
 // BeylaDiscoveryConfig specifies which processes to instrument.
 type BeylaDiscoveryConfig struct {
-	Services []BeylaServiceConfig `yaml:"services,omitempty"`
+	Services          []BeylaServiceConfig `yaml:"services,omitempty"`
+	NetworkInterfaces []string             `yaml:"network_interfaces,omitempty"`
 }
 
 // BeylaServiceConfig defines a service to instrument.

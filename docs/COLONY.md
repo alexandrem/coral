@@ -88,7 +88,10 @@ coral-colony query metrics my-service --metric http.server.duration --percentile
 coral-colony query logs my-service --level error
 coral-colony query logs my-service --since 30m
 
-# Historical CPU profiles
+# Service topology (call graph)
+coral-colony query topology [--since 1h]
+
+# Historical CPU profiles (folded stack format, pipe to flamegraph.pl)
 coral-colony query cpu-profile my-service --since 1h
 coral-colony query cpu-profile my-service --since 5m --format svg > cpu.svg
 
@@ -231,16 +234,10 @@ The colony exposes observability and debugging tools via the Model Context
 Protocol (MCP) for AI assistant integration.
 
 ```bash
-# List available MCP tools
-coral-colony mcp list-tools
-
-# Test a tool locally
-coral-colony mcp test-tool coral_get_service_health
-
 # Generate Claude Desktop configuration
 coral-colony mcp generate-config
 
-# Start MCP server proxy (used by Claude Desktop)
+# Start MCP proxy (used by Claude Desktop)
 coral-colony mcp proxy
 ```
 

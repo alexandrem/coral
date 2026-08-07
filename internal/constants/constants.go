@@ -167,6 +167,9 @@ const (
 
 	// DefaultBeylaMetricsPollInterval is how often the agent polls the local Beyla OTLP receiver.
 	DefaultBeylaMetricsPollInterval = 5 * time.Second
+
+	// DefaultConnectionsCacheTTL is the default TTL for materialized connections cache.
+	DefaultConnectionsCacheTTL = 30 * time.Second
 )
 
 // Retention Periods.
@@ -289,7 +292,7 @@ const (
 // Ask LLM Configuration.
 const (
 	// DefaultAskModel is the default LLM model for coral ask.
-	DefaultAskModel = "openai:gpt-4o-mini"
+	DefaultAskModel = "anthropic:claude-sonnet-4-6"
 
 	// DefaultAskMaxTurns is the default maximum conversation turns.
 	DefaultAskMaxTurns = 10
@@ -326,7 +329,7 @@ const (
 	DefaultDebugEventBufferSize = 1000
 
 	// DefaultColonyQueryMaxRecords is the default limit for data queries.
-	DefaultColonyQueryMaxRecords = 10000
+	DefaultColonyQueryMaxRecords = 50000
 
 	// DefaultColonyDebugQueryMaxRecords is the default limit for debug queries.
 	DefaultColonyDebugQueryMaxRecords = 5000

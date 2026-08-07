@@ -141,6 +141,12 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	pushRenderEvent(&stdoutBuf, filepath.Base(scriptPath))
 
 	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			// Subprocess failed with non-zero exit code.
+			// It already printed its error to os.Stderr via the pipe.
+			// Exit with the same code to stay silent but propagate failure.
+			os.Exit(exitErr.ExitCode())
+		}
 		return fmt.Errorf("script execution failed: %w", runErr)
 	}
 

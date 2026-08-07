@@ -139,8 +139,8 @@ observability data.
 | ------------- | ------------------------------------------------------------ | ---------------- | ----------- | ---------------- | ------------ |
 | **Google**    | `gemini-3-fast`                                              | Yes              | Cloud       | ✅ Full          | ✅ Supported |
 | **OpenAI**    | `gpt-4o`, `gpt-4o-mini`                                      | Yes              | Cloud       | ✅ Full          | ✅ Supported |
-| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
-| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
+| **Anthropic** | `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001` | Yes         | Cloud       | ✅ Full          | ✅ Supported |
+| **Ollama**    | `llama3.2`, `qwen2.5-coder`, `mistral`, `codellama`          | No               | Local       | ✅ Full          | ✅ Supported |
 | **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 
 > **Important:** `coral ask` requires MCP tool calling to access observability
@@ -148,20 +148,21 @@ observability data.
 >
 > **Currently Supported:**
 >
+> - **Anthropic**: Full MCP tool calling support. Claude Sonnet 4.6, Opus 4.6, Haiku 4.5.
 > - **Google Gemini**: Uses direct SDK integration with full MCP tool calling support.
 > - **OpenAI**: Uses official SDK with full MCP tool calling support. Compatible
 >   with any OpenAI-compatible API.
+> - **Ollama**: No API key, runs locally — ideal for air-gapped environments
 >
 > **Planned Providers:**
 >
-> - **Anthropic**: Native tool calling support available, implementation planned
-> - **Ollama**: For air-gapped/offline deployments
 > - **Grok**: Evaluate tool calling support and implement if viable
 >
 > **Recommendation:**
 >
-> - `google:gemini-3-fast` (fast, recommended)
-> - `openai:gpt-4o` (high quality)
+> - `anthropic:claude-sonnet-4-6` (balanced, recommended default)
+> - `anthropic:claude-opus-4-6` (highest quality)
+> - `google:gemini-2.0-flash` (fast, cost-effective)
 > - `openai:gpt-4o-mini` (fast, cost-effective)
 >
 > See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
@@ -173,6 +174,7 @@ observability data.
 | `ai.ask.default_model`               | string   | -          | Default model (format: `provider:model-id`)      |
 | `ai.ask.fallback_models`             | []string | `[]`       | Fallback models if primary fails                 |
 | `ai.ask.api_keys`                    | map      | `{}`       | API keys (use `env://VAR_NAME` format)           |
+| `ai.ask.base_urls`                   | map      | `{}`       | Custom base URLs per provider (OpenAI-compatible endpoints) |
 | `ai.ask.conversation.max_turns`      | int      | `10`       | Maximum conversation turns to keep               |
 | `ai.ask.conversation.context_window` | int      | `8192`     | Maximum tokens for context                       |
 | `ai.ask.conversation.auto_prune`     | bool     | `true`     | Auto-prune old messages when limit reached       |
@@ -191,11 +193,17 @@ Models are specified as `provider:model-id`:
 - `openai:gpt-4o` - GPT-4o (high quality)
 - `openai:gpt-4o-mini` - GPT-4o-mini (fast, cost-effective)
 
-**Planned Providers (Not Yet Implemented):**
+**Anthropic:**
 
-- `anthropic:claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (planned)
-- `ollama:llama3.2` - Local Llama 3.2 (planned for air-gapped deployments)
-- `ollama:mistral` - Local Mistral (planned)
+- `anthropic:claude-sonnet-4-6` - Claude Sonnet 4.6 (balanced, recommended)
+- `anthropic:claude-opus-4-6` - Claude Opus 4.6 (highest quality)
+- `anthropic:claude-haiku-4-5-20251001` - Claude Haiku 4.5 (fastest)
+
+**Ollama (local):**
+
+- `ollama:llama3.2` - Meta's Llama 3.2 (recommended for local)
+- `ollama:qwen2.5-coder` - Alibaba's code-focused model
+- `ollama:mistral` - Mistral 7B
 
 #### API Key Configuration
 
@@ -228,6 +236,31 @@ coral ask "your question"
 - **OpenAI**: https://platform.openai.com/api-keys
 - **Google AI**: https://aistudio.google.com/app/apikey
 - **Ollama**: No API key needed (runs locally)
+
+#### Custom Base URLs (OpenAI-compatible endpoints)
+
+The OpenAI provider supports any OpenAI-compatible API endpoint via
+`base_urls.openai`. This enables use of self-hosted models (e.g., vLLM,
+LocalAI, Azure OpenAI) or third-party compatible APIs (e.g., Groq, Together).
+
+```yaml
+ai:
+    ask:
+        default_model: "openai:llama-3.1-8b-instant"
+        api_keys:
+            openai: "env://GROQ_API_KEY"
+        base_urls:
+            openai: "https://api.groq.com/openai/v1"
+```
+
+The base URL can also be set via the `OPENAI_BASE_URL` environment variable
+(config takes precedence):
+
+```bash
+export OPENAI_BASE_URL=https://my-vllm-endpoint.internal/v1
+export OPENAI_API_KEY=my-key
+coral ask "why is my service slow?" --model openai:llama-3.1-8b-instant
+```
 
 #### Per-Colony Overrides
 
@@ -1704,8 +1737,7 @@ coral ask "list unhealthy services" --json
   pruning
 - **Per-Colony Models:** Use faster models for dev, more capable for production
 
-**Future Support:** Anthropic and Ollama providers are planned but not yet
-implemented. See `docs/PROVIDERS.md` for implementation status.
+See `docs/PROVIDERS.md` for full provider details and configuration options.
 
 ### Validation Rules
 
