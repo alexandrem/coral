@@ -127,8 +127,8 @@ Examples:
 					if len(s.FrameNames) == 0 {
 						continue
 					}
-					// Reverse frames: response has root-to-leaf, but we re-reverse
-					// to match the convention used by cpuSamplesToFolded.
+					// Reverse frames: decoded from storage in the raw eBPF order
+					// (innermost first), same convention as cpuSamplesToFolded.
 					frames := make([]string, len(s.FrameNames))
 					for i, f := range s.FrameNames {
 						frames[len(s.FrameNames)-1-i] = f
