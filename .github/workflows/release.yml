@@ -34,7 +34,7 @@ jobs:
             os: linux-amd64
             goos: linux
             goarch: amd64
-          - runner: macos-15          # Intel
+          - runner: macos-15          # arm64 hardware; amd64 built via GOARCH cross-compile (clang is universal)
             os: darwin-amd64
             goos: darwin
             goarch: amd64
@@ -67,6 +67,9 @@ jobs:
         run: make generate
 
       - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: make build
 
       - name: Stage binary
