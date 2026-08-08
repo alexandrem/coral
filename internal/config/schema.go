@@ -588,6 +588,23 @@ type BootstrapConfig struct {
 	// TotalTimeout is the total time allowed for bootstrap before giving up.
 	// Default: 30m.
 	TotalTimeout time.Duration `yaml:"total_timeout,omitempty" env:"CORAL_BOOTSTRAP_TIMEOUT"`
+
+	// BootstrapPublicEndpoint is this Agent's dialable ip:port, published via
+	// a PSK-encrypted rendezvous record so a NAT'd Colony (no inbound
+	// connectivity) can dial back and complete bootstrap (RFD 108). If
+	// unset, and direct dial to the colony fails, bootstrap fails fast
+	// instead of falling back to rendezvous.
+	BootstrapPublicEndpoint string `yaml:"bootstrap_public_endpoint,omitempty" env:"CORAL_BOOTSTRAP_PUBLIC_ENDPOINT"`
+
+	// VerifyBootstrapReachability opts into having Discovery synchronously
+	// TCP-probe BootstrapPublicEndpoint before accepting the rendezvous
+	// publish (RFD 108). An opt-in, quota-limited diagnostic, not a
+	// guarantee. Default: false.
+	VerifyBootstrapReachability bool `yaml:"verify_bootstrap_reachability,omitempty" env:"CORAL_VERIFY_BOOTSTRAP_REACHABILITY"`
+
+	// BootstrapListenPort overrides the local port the Agent's rendezvous
+	// listener binds to. Default: constants.DefaultAgentBootstrapPort (8444).
+	BootstrapListenPort int `yaml:"bootstrap_listen_port,omitempty" env:"CORAL_BOOTSTRAP_LISTEN_PORT"`
 }
 
 // DebugConfig contains debug session configuration (RFD 061).

@@ -334,3 +334,50 @@ const (
 	// DefaultColonyDebugQueryMaxRecords is the default limit for debug queries.
 	DefaultColonyDebugQueryMaxRecords = 5000
 )
+
+// PSK-Encrypted Rendezvous Bootstrap Configuration (RFD 108).
+const (
+	// DefaultAgentBootstrapPort is the default port for the Agent's single-use,
+	// short-lived TLS listener used during rendezvous bootstrap.
+	DefaultAgentBootstrapPort = 8444
+
+	// DefaultRendezvousRecordTTL is the default TTL Discovery assigns to a
+	// published rendezvous record.
+	DefaultRendezvousRecordTTL = 90 * time.Second
+
+	// DefaultRendezvousRepublishInterval is how often the Agent republishes
+	// its rendezvous record while waiting for the Colony to dial back.
+	DefaultRendezvousRepublishInterval = 30 * time.Second
+
+	// DefaultRendezvousWaitBudget is the total time the Agent waits for a
+	// dial-back before failing the rendezvous bootstrap attempt.
+	DefaultRendezvousWaitBudget = 120 * time.Second
+
+	// DefaultRendezvousPollWaitSeconds is the long-poll wait the Colony
+	// requests on each PollBootstrapRendezvous call.
+	DefaultRendezvousPollWaitSeconds = 25
+
+	// DefaultRendezvousHandshakeDeadline bounds how long the Agent's accept
+	// loop waits for a TLS handshake on an inbound connection before
+	// discarding it.
+	DefaultRendezvousHandshakeDeadline = 5 * time.Second
+
+	// DefaultRendezvousMaxConcurrentHandshakes bounds the number of
+	// concurrently in-flight TLS handshakes the Agent's accept loop processes.
+	DefaultRendezvousMaxConcurrentHandshakes = 8
+
+	// DefaultRendezvousBackoffInitial is the initial per-record_id backoff the
+	// Colony applies before re-attempting a failed dial/decrypt.
+	DefaultRendezvousBackoffInitial = 2 * time.Second
+
+	// DefaultRendezvousBackoffMax caps the exponential per-record_id backoff.
+	DefaultRendezvousBackoffMax = 15 * time.Second
+
+	// RendezvousHKDFInfo is the HKDF info string used to derive the rendezvous
+	// AEAD key from the Bootstrap PSK, distinct from any other PSK-derived key.
+	RendezvousHKDFInfo = "coral-bootstrap-rendezvous-v1"
+
+	// RendezvousNonceHeader is the HTTP header carrying the rendezvous session
+	// nonce on the RequestCertificate call made over a dial-back connection.
+	RendezvousNonceHeader = "Coral-Rendezvous-Nonce"
+)

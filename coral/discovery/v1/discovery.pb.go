@@ -7,13 +7,12 @@
 package discoveryv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -1633,6 +1632,496 @@ func (x *CreateBootstrapTokenResponse) GetExpiresAt() int64 {
 	return 0
 }
 
+// PublishBootstrapRendezvousRequest publishes (or republishes) an opaque,
+// PSK-encrypted rendezvous record for a mesh_id. Discovery never sees the
+// plaintext.
+type PublishBootstrapRendezvousRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Mesh/Colony ID this record is for.
+	MeshId string `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	// AES-256-GCM ciphertext of the rendezvous payload. Opaque to Discovery.
+	Ciphertext []byte `protobuf:"bytes,2,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	// AES-256-GCM nonce (12 bytes) used for THIS Seal() call. MUST be freshly
+	// random every time this RPC is called (including every republish of the
+	// same session) — never reuse a GCM nonce with the same derived key
+	// across different Seal() calls.
+	GcmNonce []byte `protobuf:"bytes,3,opt,name=gcm_nonce,json=gcmNonce,proto3" json:"gcm_nonce,omitempty"`
+	// Requested TTL in seconds (server may cap, e.g. max 90s).
+	TtlSeconds int32 `protobuf:"varint,4,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	// Plaintext dial target (ip:port) Discovery may TCP-probe before accepting
+	// the record, but only if verify_reachability=true. Ignored (may be left
+	// unset) when verify_reachability=false.
+	ProbeEndpoint string `protobuf:"bytes,5,opt,name=probe_endpoint,json=probeEndpoint,proto3" json:"probe_endpoint,omitempty"`
+	// Optional: the record_id returned by a prior PublishBootstrapRendezvous
+	// call for this same bootstrap attempt. When set, Discovery UPSERTs the
+	// existing row instead of inserting a new one. Left empty on the first
+	// publish of a session. When set, write_token below MUST match the hash
+	// stored for this record_id, or the request is rejected (PERMISSION_DENIED).
+	RecordId string `protobuf:"bytes,6,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
+	// Capability required to mutate this record. On first publish (record_id
+	// unset), the caller generates this client-side (crypto/rand, 32 bytes).
+	// Discovery persists only SHA-256(write_token), never the raw value, and
+	// never returns it in any response.
+	WriteToken []byte `protobuf:"bytes,7,opt,name=write_token,json=writeToken,proto3" json:"write_token,omitempty"`
+	// Opt-in: request Discovery to synchronously TCP-probe probe_endpoint
+	// before accepting the record. Defaults to false.
+	VerifyReachability bool `protobuf:"varint,8,opt,name=verify_reachability,json=verifyReachability,proto3" json:"verify_reachability,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PublishBootstrapRendezvousRequest) Reset() {
+	*x = PublishBootstrapRendezvousRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishBootstrapRendezvousRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishBootstrapRendezvousRequest) ProtoMessage() {}
+
+func (x *PublishBootstrapRendezvousRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishBootstrapRendezvousRequest.ProtoReflect.Descriptor instead.
+func (*PublishBootstrapRendezvousRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetCiphertext() []byte {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return nil
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetGcmNonce() []byte {
+	if x != nil {
+		return x.GcmNonce
+	}
+	return nil
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetTtlSeconds() int32 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetProbeEndpoint() string {
+	if x != nil {
+		return x.ProbeEndpoint
+	}
+	return ""
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetRecordId() string {
+	if x != nil {
+		return x.RecordId
+	}
+	return ""
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetWriteToken() []byte {
+	if x != nil {
+		return x.WriteToken
+	}
+	return nil
+}
+
+func (x *PublishBootstrapRendezvousRequest) GetVerifyReachability() bool {
+	if x != nil {
+		return x.VerifyReachability
+	}
+	return false
+}
+
+// PublishBootstrapRendezvousResponse acknowledges a rendezvous publish.
+type PublishBootstrapRendezvousResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Success   bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Only meaningful when the request set verify_reachability=true. Set when
+	// success=false and the cause was a failed reachability probe.
+	ProbeFailed bool `protobuf:"varint,3,opt,name=probe_failed,json=probeFailed,proto3" json:"probe_failed,omitempty"`
+	// Server-assigned ID (ULID) on first publish. Stable across the whole
+	// bootstrap attempt.
+	RecordId      string `protobuf:"bytes,4,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishBootstrapRendezvousResponse) Reset() {
+	*x = PublishBootstrapRendezvousResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishBootstrapRendezvousResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishBootstrapRendezvousResponse) ProtoMessage() {}
+
+func (x *PublishBootstrapRendezvousResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishBootstrapRendezvousResponse.ProtoReflect.Descriptor instead.
+func (*PublishBootstrapRendezvousResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *PublishBootstrapRendezvousResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *PublishBootstrapRendezvousResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *PublishBootstrapRendezvousResponse) GetProbeFailed() bool {
+	if x != nil {
+		return x.ProbeFailed
+	}
+	return false
+}
+
+func (x *PublishBootstrapRendezvousResponse) GetRecordId() string {
+	if x != nil {
+		return x.RecordId
+	}
+	return ""
+}
+
+// PollBootstrapRendezvousRequest long-polls for rendezvous records.
+type PollBootstrapRendezvousRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	MeshId string                 `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	// Long-poll wait, in seconds. Server caps this (e.g. max 25s) independent
+	// of what the caller requests. Does NOT wait if a record already exists —
+	// an existing record is always returned immediately.
+	WaitSeconds   int32 `protobuf:"varint,2,opt,name=wait_seconds,json=waitSeconds,proto3" json:"wait_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PollBootstrapRendezvousRequest) Reset() {
+	*x = PollBootstrapRendezvousRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PollBootstrapRendezvousRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PollBootstrapRendezvousRequest) ProtoMessage() {}
+
+func (x *PollBootstrapRendezvousRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PollBootstrapRendezvousRequest.ProtoReflect.Descriptor instead.
+func (*PollBootstrapRendezvousRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *PollBootstrapRendezvousRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *PollBootstrapRendezvousRequest) GetWaitSeconds() int32 {
+	if x != nil {
+		return x.WaitSeconds
+	}
+	return 0
+}
+
+// PollBootstrapRendezvousResponse returns pending rendezvous records.
+type PollBootstrapRendezvousResponse struct {
+	state   protoimpl.MessageState       `protogen:"open.v1"`
+	Records []*BootstrapRendezvousRecord `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	// True if this response was a timeout (empty records) rather than an
+	// actual publish event.
+	TimedOut      bool `protobuf:"varint,2,opt,name=timed_out,json=timedOut,proto3" json:"timed_out,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PollBootstrapRendezvousResponse) Reset() {
+	*x = PollBootstrapRendezvousResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PollBootstrapRendezvousResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PollBootstrapRendezvousResponse) ProtoMessage() {}
+
+func (x *PollBootstrapRendezvousResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PollBootstrapRendezvousResponse.ProtoReflect.Descriptor instead.
+func (*PollBootstrapRendezvousResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *PollBootstrapRendezvousResponse) GetRecords() []*BootstrapRendezvousRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+func (x *PollBootstrapRendezvousResponse) GetTimedOut() bool {
+	if x != nil {
+		return x.TimedOut
+	}
+	return false
+}
+
+// BootstrapRendezvousRecord is an opaque rendezvous record. Never includes
+// write_token or its hash.
+type BootstrapRendezvousRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RecordId      string                 `protobuf:"bytes,1,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
+	Ciphertext    []byte                 `protobuf:"bytes,2,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	GcmNonce      []byte                 `protobuf:"bytes,3,opt,name=gcm_nonce,json=gcmNonce,proto3" json:"gcm_nonce,omitempty"`
+	PublishedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=published_at,json=publishedAt,proto3" json:"published_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BootstrapRendezvousRecord) Reset() {
+	*x = BootstrapRendezvousRecord{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapRendezvousRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapRendezvousRecord) ProtoMessage() {}
+
+func (x *BootstrapRendezvousRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapRendezvousRecord.ProtoReflect.Descriptor instead.
+func (*BootstrapRendezvousRecord) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *BootstrapRendezvousRecord) GetRecordId() string {
+	if x != nil {
+		return x.RecordId
+	}
+	return ""
+}
+
+func (x *BootstrapRendezvousRecord) GetCiphertext() []byte {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return nil
+}
+
+func (x *BootstrapRendezvousRecord) GetGcmNonce() []byte {
+	if x != nil {
+		return x.GcmNonce
+	}
+	return nil
+}
+
+func (x *BootstrapRendezvousRecord) GetPublishedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PublishedAt
+	}
+	return nil
+}
+
+// AckBootstrapRendezvousRequest retires a record after successful fulfillment.
+type AckBootstrapRendezvousRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	MeshId   string                 `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	RecordId string                 `protobuf:"bytes,2,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
+	// Required. Must hash (SHA-256) to the value stored for record_id, or the
+	// request is rejected (PERMISSION_DENIED) and the record is left untouched.
+	// Not checked when the record no longer exists (idempotent).
+	WriteToken    []byte `protobuf:"bytes,3,opt,name=write_token,json=writeToken,proto3" json:"write_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckBootstrapRendezvousRequest) Reset() {
+	*x = AckBootstrapRendezvousRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckBootstrapRendezvousRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckBootstrapRendezvousRequest) ProtoMessage() {}
+
+func (x *AckBootstrapRendezvousRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckBootstrapRendezvousRequest.ProtoReflect.Descriptor instead.
+func (*AckBootstrapRendezvousRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *AckBootstrapRendezvousRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *AckBootstrapRendezvousRequest) GetRecordId() string {
+	if x != nil {
+		return x.RecordId
+	}
+	return ""
+}
+
+func (x *AckBootstrapRendezvousRequest) GetWriteToken() []byte {
+	if x != nil {
+		return x.WriteToken
+	}
+	return nil
+}
+
+// AckBootstrapRendezvousResponse confirms rendezvous record retirement.
+type AckBootstrapRendezvousResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// True if the record was deleted (write_token matched), or was already
+	// gone (idempotent, not an error either way). False if the record still
+	// exists but write_token didn't match — this is a rejection, not a no-op.
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckBootstrapRendezvousResponse) Reset() {
+	*x = AckBootstrapRendezvousResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckBootstrapRendezvousResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckBootstrapRendezvousResponse) ProtoMessage() {}
+
+func (x *AckBootstrapRendezvousResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckBootstrapRendezvousResponse.ProtoReflect.Descriptor instead.
+func (*AckBootstrapRendezvousResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *AckBootstrapRendezvousResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_coral_discovery_v1_discovery_proto protoreflect.FileDescriptor
 
 const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
@@ -1765,7 +2254,46 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x1cCreateBootstrapTokenResponse\x12\x10\n" +
 	"\x03jwt\x18\x01 \x01(\tR\x03jwt\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\x03R\texpiresAt*O\n" +
+	"expires_at\x18\x02 \x01(\x03R\texpiresAt\"\xb0\x02\n" +
+	"!PublishBootstrapRendezvousRequest\x12\x17\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x02 \x01(\fR\n" +
+	"ciphertext\x12\x1b\n" +
+	"\tgcm_nonce\x18\x03 \x01(\fR\bgcmNonce\x12\x1f\n" +
+	"\vttl_seconds\x18\x04 \x01(\x05R\n" +
+	"ttlSeconds\x12%\n" +
+	"\x0eprobe_endpoint\x18\x05 \x01(\tR\rprobeEndpoint\x12\x1b\n" +
+	"\trecord_id\x18\x06 \x01(\tR\brecordId\x12\x1f\n" +
+	"\vwrite_token\x18\a \x01(\fR\n" +
+	"writeToken\x12/\n" +
+	"\x13verify_reachability\x18\b \x01(\bR\x12verifyReachability\"\xb9\x01\n" +
+	"\"PublishBootstrapRendezvousResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x129\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12!\n" +
+	"\fprobe_failed\x18\x03 \x01(\bR\vprobeFailed\x12\x1b\n" +
+	"\trecord_id\x18\x04 \x01(\tR\brecordId\"\\\n" +
+	"\x1ePollBootstrapRendezvousRequest\x12\x17\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12!\n" +
+	"\fwait_seconds\x18\x02 \x01(\x05R\vwaitSeconds\"\x87\x01\n" +
+	"\x1fPollBootstrapRendezvousResponse\x12G\n" +
+	"\arecords\x18\x01 \x03(\v2-.coral.discovery.v1.BootstrapRendezvousRecordR\arecords\x12\x1b\n" +
+	"\ttimed_out\x18\x02 \x01(\bR\btimedOut\"\xb4\x01\n" +
+	"\x19BootstrapRendezvousRecord\x12\x1b\n" +
+	"\trecord_id\x18\x01 \x01(\tR\brecordId\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x02 \x01(\fR\n" +
+	"ciphertext\x12\x1b\n" +
+	"\tgcm_nonce\x18\x03 \x01(\fR\bgcmNonce\x12=\n" +
+	"\fpublished_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vpublishedAt\"v\n" +
+	"\x1dAckBootstrapRendezvousRequest\x12\x17\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x1b\n" +
+	"\trecord_id\x18\x02 \x01(\tR\brecordId\x12\x1f\n" +
+	"\vwrite_token\x18\x03 \x01(\fR\n" +
+	"writeToken\":\n" +
+	"\x1eAckBootstrapRendezvousResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess*O\n" +
 	"\aNatHint\x12\x0f\n" +
 	"\vNAT_UNKNOWN\x10\x00\x12\f\n" +
 	"\bNAT_CONE\x10\x01\x12\x12\n" +
@@ -1773,7 +2301,7 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\rNAT_SYMMETRIC\x10\x03*_\n" +
 	"\x14FingerprintAlgorithm\x12%\n" +
 	"!FINGERPRINT_ALGORITHM_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cFINGERPRINT_ALGORITHM_SHA256\x10\x012\xb6\x06\n" +
+	"\x1cFINGERPRINT_ALGORITHM_SHA256\x10\x012\xca\t\n" +
 	"\x10DiscoveryService\x12g\n" +
 	"\x0eRegisterColony\x12).coral.discovery.v1.RegisterColonyRequest\x1a*.coral.discovery.v1.RegisterColonyResponse\x12a\n" +
 	"\fLookupColony\x12'.coral.discovery.v1.LookupColonyRequest\x1a(.coral.discovery.v1.LookupColonyResponse\x12d\n" +
@@ -1782,7 +2310,10 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\fRequestRelay\x12'.coral.discovery.v1.RequestRelayRequest\x1a(.coral.discovery.v1.RequestRelayResponse\x12a\n" +
 	"\fReleaseRelay\x12'.coral.discovery.v1.ReleaseRelayRequest\x1a(.coral.discovery.v1.ReleaseRelayResponse\x12O\n" +
 	"\x06Health\x12!.coral.discovery.v1.HealthRequest\x1a\".coral.discovery.v1.HealthResponse\x12y\n" +
-	"\x14CreateBootstrapToken\x12/.coral.discovery.v1.CreateBootstrapTokenRequest\x1a0.coral.discovery.v1.CreateBootstrapTokenResponseB\xce\x01\n" +
+	"\x14CreateBootstrapToken\x12/.coral.discovery.v1.CreateBootstrapTokenRequest\x1a0.coral.discovery.v1.CreateBootstrapTokenResponse\x12\x8b\x01\n" +
+	"\x1aPublishBootstrapRendezvous\x125.coral.discovery.v1.PublishBootstrapRendezvousRequest\x1a6.coral.discovery.v1.PublishBootstrapRendezvousResponse\x12\x82\x01\n" +
+	"\x17PollBootstrapRendezvous\x122.coral.discovery.v1.PollBootstrapRendezvousRequest\x1a3.coral.discovery.v1.PollBootstrapRendezvousResponse\x12\x7f\n" +
+	"\x16AckBootstrapRendezvous\x121.coral.discovery.v1.AckBootstrapRendezvousRequest\x1a2.coral.discovery.v1.AckBootstrapRendezvousResponseB\xce\x01\n" +
 	"\x16com.coral.discovery.v1B\x0eDiscoveryProtoP\x01Z:github.com/coral-mesh/coral/coral/discovery/v1;discoveryv1\xa2\x02\x03CDX\xaa\x02\x12Coral.Discovery.V1\xca\x02\x12Coral\\Discovery\\V1\xe2\x02\x1eCoral\\Discovery\\V1\\GPBMetadata\xea\x02\x14Coral::Discovery::V1b\x06proto3"
 
 var (
@@ -1798,83 +2329,99 @@ func file_coral_discovery_v1_discovery_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_discovery_v1_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_coral_discovery_v1_discovery_proto_goTypes = []any{
-	(NatHint)(0),                         // 0: coral.discovery.v1.NatHint
-	(FingerprintAlgorithm)(0),            // 1: coral.discovery.v1.FingerprintAlgorithm
-	(*RegisterColonyRequest)(nil),        // 2: coral.discovery.v1.RegisterColonyRequest
-	(*RegisterColonyResponse)(nil),       // 3: coral.discovery.v1.RegisterColonyResponse
-	(*LookupColonyRequest)(nil),          // 4: coral.discovery.v1.LookupColonyRequest
-	(*LookupColonyResponse)(nil),         // 5: coral.discovery.v1.LookupColonyResponse
-	(*HealthRequest)(nil),                // 6: coral.discovery.v1.HealthRequest
-	(*HealthResponse)(nil),               // 7: coral.discovery.v1.HealthResponse
-	(*Endpoint)(nil),                     // 8: coral.discovery.v1.Endpoint
-	(*RelayOption)(nil),                  // 9: coral.discovery.v1.RelayOption
-	(*RequestRelayRequest)(nil),          // 10: coral.discovery.v1.RequestRelayRequest
-	(*RequestRelayResponse)(nil),         // 11: coral.discovery.v1.RequestRelayResponse
-	(*ReleaseRelayRequest)(nil),          // 12: coral.discovery.v1.ReleaseRelayRequest
-	(*ReleaseRelayResponse)(nil),         // 13: coral.discovery.v1.ReleaseRelayResponse
-	(*RegisterAgentRequest)(nil),         // 14: coral.discovery.v1.RegisterAgentRequest
-	(*RegisterAgentResponse)(nil),        // 15: coral.discovery.v1.RegisterAgentResponse
-	(*LookupAgentRequest)(nil),           // 16: coral.discovery.v1.LookupAgentRequest
-	(*LookupAgentResponse)(nil),          // 17: coral.discovery.v1.LookupAgentResponse
-	(*PublicEndpointInfo)(nil),           // 18: coral.discovery.v1.PublicEndpointInfo
-	(*CertificateFingerprint)(nil),       // 19: coral.discovery.v1.CertificateFingerprint
-	(*CreateBootstrapTokenRequest)(nil),  // 20: coral.discovery.v1.CreateBootstrapTokenRequest
-	(*CreateBootstrapTokenResponse)(nil), // 21: coral.discovery.v1.CreateBootstrapTokenResponse
-	nil,                                  // 22: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
-	nil,                                  // 23: coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	nil,                                  // 24: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
-	nil,                                  // 25: coral.discovery.v1.LookupAgentResponse.MetadataEntry
-	(*timestamppb.Timestamp)(nil),        // 26: google.protobuf.Timestamp
+	(NatHint)(0),                               // 0: coral.discovery.v1.NatHint
+	(FingerprintAlgorithm)(0),                  // 1: coral.discovery.v1.FingerprintAlgorithm
+	(*RegisterColonyRequest)(nil),              // 2: coral.discovery.v1.RegisterColonyRequest
+	(*RegisterColonyResponse)(nil),             // 3: coral.discovery.v1.RegisterColonyResponse
+	(*LookupColonyRequest)(nil),                // 4: coral.discovery.v1.LookupColonyRequest
+	(*LookupColonyResponse)(nil),               // 5: coral.discovery.v1.LookupColonyResponse
+	(*HealthRequest)(nil),                      // 6: coral.discovery.v1.HealthRequest
+	(*HealthResponse)(nil),                     // 7: coral.discovery.v1.HealthResponse
+	(*Endpoint)(nil),                           // 8: coral.discovery.v1.Endpoint
+	(*RelayOption)(nil),                        // 9: coral.discovery.v1.RelayOption
+	(*RequestRelayRequest)(nil),                // 10: coral.discovery.v1.RequestRelayRequest
+	(*RequestRelayResponse)(nil),               // 11: coral.discovery.v1.RequestRelayResponse
+	(*ReleaseRelayRequest)(nil),                // 12: coral.discovery.v1.ReleaseRelayRequest
+	(*ReleaseRelayResponse)(nil),               // 13: coral.discovery.v1.ReleaseRelayResponse
+	(*RegisterAgentRequest)(nil),               // 14: coral.discovery.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),              // 15: coral.discovery.v1.RegisterAgentResponse
+	(*LookupAgentRequest)(nil),                 // 16: coral.discovery.v1.LookupAgentRequest
+	(*LookupAgentResponse)(nil),                // 17: coral.discovery.v1.LookupAgentResponse
+	(*PublicEndpointInfo)(nil),                 // 18: coral.discovery.v1.PublicEndpointInfo
+	(*CertificateFingerprint)(nil),             // 19: coral.discovery.v1.CertificateFingerprint
+	(*CreateBootstrapTokenRequest)(nil),        // 20: coral.discovery.v1.CreateBootstrapTokenRequest
+	(*CreateBootstrapTokenResponse)(nil),       // 21: coral.discovery.v1.CreateBootstrapTokenResponse
+	(*PublishBootstrapRendezvousRequest)(nil),  // 22: coral.discovery.v1.PublishBootstrapRendezvousRequest
+	(*PublishBootstrapRendezvousResponse)(nil), // 23: coral.discovery.v1.PublishBootstrapRendezvousResponse
+	(*PollBootstrapRendezvousRequest)(nil),     // 24: coral.discovery.v1.PollBootstrapRendezvousRequest
+	(*PollBootstrapRendezvousResponse)(nil),    // 25: coral.discovery.v1.PollBootstrapRendezvousResponse
+	(*BootstrapRendezvousRecord)(nil),          // 26: coral.discovery.v1.BootstrapRendezvousRecord
+	(*AckBootstrapRendezvousRequest)(nil),      // 27: coral.discovery.v1.AckBootstrapRendezvousRequest
+	(*AckBootstrapRendezvousResponse)(nil),     // 28: coral.discovery.v1.AckBootstrapRendezvousResponse
+	nil,                                        // 29: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	nil,                                        // 30: coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	nil,                                        // 31: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	nil,                                        // 32: coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	(*timestamppb.Timestamp)(nil),              // 33: google.protobuf.Timestamp
 }
 var file_coral_discovery_v1_discovery_proto_depIdxs = []int32{
-	22, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	29, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
 	8,  // 1: coral.discovery.v1.RegisterColonyRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
 	18, // 2: coral.discovery.v1.RegisterColonyRequest.public_endpoint:type_name -> coral.discovery.v1.PublicEndpointInfo
-	26, // 3: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
+	33, // 3: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
 	8,  // 4: coral.discovery.v1.RegisterColonyResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	23, // 5: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	26, // 6: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
+	30, // 5: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	33, // 6: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
 	8,  // 7: coral.discovery.v1.LookupColonyResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
 	0,  // 8: coral.discovery.v1.LookupColonyResponse.nat:type_name -> coral.discovery.v1.NatHint
 	9,  // 9: coral.discovery.v1.LookupColonyResponse.relays:type_name -> coral.discovery.v1.RelayOption
 	18, // 10: coral.discovery.v1.LookupColonyResponse.public_endpoint:type_name -> coral.discovery.v1.PublicEndpointInfo
 	8,  // 11: coral.discovery.v1.RelayOption.endpoint:type_name -> coral.discovery.v1.Endpoint
 	8,  // 12: coral.discovery.v1.RequestRelayResponse.relay_endpoint:type_name -> coral.discovery.v1.Endpoint
-	26, // 13: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
+	33, // 13: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
 	8,  // 14: coral.discovery.v1.RegisterAgentRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	24, // 15: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
-	26, // 16: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	31, // 15: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	33, // 16: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
 	8,  // 17: coral.discovery.v1.RegisterAgentResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
 	8,  // 18: coral.discovery.v1.LookupAgentResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
 	0,  // 19: coral.discovery.v1.LookupAgentResponse.nat:type_name -> coral.discovery.v1.NatHint
-	25, // 20: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
-	26, // 21: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
+	32, // 20: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	33, // 21: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
 	19, // 22: coral.discovery.v1.PublicEndpointInfo.ca_fingerprint:type_name -> coral.discovery.v1.CertificateFingerprint
-	26, // 23: coral.discovery.v1.PublicEndpointInfo.updated_at:type_name -> google.protobuf.Timestamp
+	33, // 23: coral.discovery.v1.PublicEndpointInfo.updated_at:type_name -> google.protobuf.Timestamp
 	1,  // 24: coral.discovery.v1.CertificateFingerprint.algorithm:type_name -> coral.discovery.v1.FingerprintAlgorithm
-	2,  // 25: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
-	4,  // 26: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
-	14, // 27: coral.discovery.v1.DiscoveryService.RegisterAgent:input_type -> coral.discovery.v1.RegisterAgentRequest
-	16, // 28: coral.discovery.v1.DiscoveryService.LookupAgent:input_type -> coral.discovery.v1.LookupAgentRequest
-	10, // 29: coral.discovery.v1.DiscoveryService.RequestRelay:input_type -> coral.discovery.v1.RequestRelayRequest
-	12, // 30: coral.discovery.v1.DiscoveryService.ReleaseRelay:input_type -> coral.discovery.v1.ReleaseRelayRequest
-	6,  // 31: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
-	20, // 32: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:input_type -> coral.discovery.v1.CreateBootstrapTokenRequest
-	3,  // 33: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
-	5,  // 34: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
-	15, // 35: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
-	17, // 36: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
-	11, // 37: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
-	13, // 38: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
-	7,  // 39: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
-	21, // 40: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:output_type -> coral.discovery.v1.CreateBootstrapTokenResponse
-	33, // [33:41] is the sub-list for method output_type
-	25, // [25:33] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	33, // 25: coral.discovery.v1.PublishBootstrapRendezvousResponse.expires_at:type_name -> google.protobuf.Timestamp
+	26, // 26: coral.discovery.v1.PollBootstrapRendezvousResponse.records:type_name -> coral.discovery.v1.BootstrapRendezvousRecord
+	33, // 27: coral.discovery.v1.BootstrapRendezvousRecord.published_at:type_name -> google.protobuf.Timestamp
+	2,  // 28: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
+	4,  // 29: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
+	14, // 30: coral.discovery.v1.DiscoveryService.RegisterAgent:input_type -> coral.discovery.v1.RegisterAgentRequest
+	16, // 31: coral.discovery.v1.DiscoveryService.LookupAgent:input_type -> coral.discovery.v1.LookupAgentRequest
+	10, // 32: coral.discovery.v1.DiscoveryService.RequestRelay:input_type -> coral.discovery.v1.RequestRelayRequest
+	12, // 33: coral.discovery.v1.DiscoveryService.ReleaseRelay:input_type -> coral.discovery.v1.ReleaseRelayRequest
+	6,  // 34: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
+	20, // 35: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:input_type -> coral.discovery.v1.CreateBootstrapTokenRequest
+	22, // 36: coral.discovery.v1.DiscoveryService.PublishBootstrapRendezvous:input_type -> coral.discovery.v1.PublishBootstrapRendezvousRequest
+	24, // 37: coral.discovery.v1.DiscoveryService.PollBootstrapRendezvous:input_type -> coral.discovery.v1.PollBootstrapRendezvousRequest
+	27, // 38: coral.discovery.v1.DiscoveryService.AckBootstrapRendezvous:input_type -> coral.discovery.v1.AckBootstrapRendezvousRequest
+	3,  // 39: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
+	5,  // 40: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
+	15, // 41: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
+	17, // 42: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
+	11, // 43: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
+	13, // 44: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
+	7,  // 45: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
+	21, // 46: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:output_type -> coral.discovery.v1.CreateBootstrapTokenResponse
+	23, // 47: coral.discovery.v1.DiscoveryService.PublishBootstrapRendezvous:output_type -> coral.discovery.v1.PublishBootstrapRendezvousResponse
+	25, // 48: coral.discovery.v1.DiscoveryService.PollBootstrapRendezvous:output_type -> coral.discovery.v1.PollBootstrapRendezvousResponse
+	28, // 49: coral.discovery.v1.DiscoveryService.AckBootstrapRendezvous:output_type -> coral.discovery.v1.AckBootstrapRendezvousResponse
+	39, // [39:50] is the sub-list for method output_type
+	28, // [28:39] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_coral_discovery_v1_discovery_proto_init() }
@@ -1888,7 +2435,7 @@ func file_coral_discovery_v1_discovery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_discovery_v1_discovery_proto_rawDesc), len(file_coral_discovery_v1_discovery_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   24,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

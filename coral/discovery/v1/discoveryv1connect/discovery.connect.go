@@ -5,13 +5,12 @@
 package discoveryv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/coral-mesh/coral/coral/discovery/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/coral-mesh/coral/coral/discovery/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -57,6 +56,15 @@ const (
 	// DiscoveryServiceCreateBootstrapTokenProcedure is the fully-qualified name of the
 	// DiscoveryService's CreateBootstrapToken RPC.
 	DiscoveryServiceCreateBootstrapTokenProcedure = "/coral.discovery.v1.DiscoveryService/CreateBootstrapToken"
+	// DiscoveryServicePublishBootstrapRendezvousProcedure is the fully-qualified name of the
+	// DiscoveryService's PublishBootstrapRendezvous RPC.
+	DiscoveryServicePublishBootstrapRendezvousProcedure = "/coral.discovery.v1.DiscoveryService/PublishBootstrapRendezvous"
+	// DiscoveryServicePollBootstrapRendezvousProcedure is the fully-qualified name of the
+	// DiscoveryService's PollBootstrapRendezvous RPC.
+	DiscoveryServicePollBootstrapRendezvousProcedure = "/coral.discovery.v1.DiscoveryService/PollBootstrapRendezvous"
+	// DiscoveryServiceAckBootstrapRendezvousProcedure is the fully-qualified name of the
+	// DiscoveryService's AckBootstrapRendezvous RPC.
+	DiscoveryServiceAckBootstrapRendezvousProcedure = "/coral.discovery.v1.DiscoveryService/AckBootstrapRendezvous"
 )
 
 // DiscoveryServiceClient is a client for the coral.discovery.v1.DiscoveryService service.
@@ -77,6 +85,12 @@ type DiscoveryServiceClient interface {
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
 	// Create a single-use bootstrap token for agent certificate issuance (RFD 047/049).
 	CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error)
+	// Publish a PSK-encrypted rendezvous record so a peer can locate this side (RFD 108).
+	PublishBootstrapRendezvous(context.Context, *connect.Request[v1.PublishBootstrapRendezvousRequest]) (*connect.Response[v1.PublishBootstrapRendezvousResponse], error)
+	// Poll for pending rendezvous records published for this mesh_id (RFD 108).
+	PollBootstrapRendezvous(context.Context, *connect.Request[v1.PollBootstrapRendezvousRequest]) (*connect.Response[v1.PollBootstrapRendezvousResponse], error)
+	// Delete a rendezvous record after successful fulfillment (RFD 108).
+	AckBootstrapRendezvous(context.Context, *connect.Request[v1.AckBootstrapRendezvousRequest]) (*connect.Response[v1.AckBootstrapRendezvousResponse], error)
 }
 
 // NewDiscoveryServiceClient constructs a client for the coral.discovery.v1.DiscoveryService
@@ -138,19 +152,40 @@ func NewDiscoveryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(discoveryServiceMethods.ByName("CreateBootstrapToken")),
 			connect.WithClientOptions(opts...),
 		),
+		publishBootstrapRendezvous: connect.NewClient[v1.PublishBootstrapRendezvousRequest, v1.PublishBootstrapRendezvousResponse](
+			httpClient,
+			baseURL+DiscoveryServicePublishBootstrapRendezvousProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("PublishBootstrapRendezvous")),
+			connect.WithClientOptions(opts...),
+		),
+		pollBootstrapRendezvous: connect.NewClient[v1.PollBootstrapRendezvousRequest, v1.PollBootstrapRendezvousResponse](
+			httpClient,
+			baseURL+DiscoveryServicePollBootstrapRendezvousProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("PollBootstrapRendezvous")),
+			connect.WithClientOptions(opts...),
+		),
+		ackBootstrapRendezvous: connect.NewClient[v1.AckBootstrapRendezvousRequest, v1.AckBootstrapRendezvousResponse](
+			httpClient,
+			baseURL+DiscoveryServiceAckBootstrapRendezvousProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("AckBootstrapRendezvous")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // discoveryServiceClient implements DiscoveryServiceClient.
 type discoveryServiceClient struct {
-	registerColony       *connect.Client[v1.RegisterColonyRequest, v1.RegisterColonyResponse]
-	lookupColony         *connect.Client[v1.LookupColonyRequest, v1.LookupColonyResponse]
-	registerAgent        *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
-	lookupAgent          *connect.Client[v1.LookupAgentRequest, v1.LookupAgentResponse]
-	requestRelay         *connect.Client[v1.RequestRelayRequest, v1.RequestRelayResponse]
-	releaseRelay         *connect.Client[v1.ReleaseRelayRequest, v1.ReleaseRelayResponse]
-	health               *connect.Client[v1.HealthRequest, v1.HealthResponse]
-	createBootstrapToken *connect.Client[v1.CreateBootstrapTokenRequest, v1.CreateBootstrapTokenResponse]
+	registerColony             *connect.Client[v1.RegisterColonyRequest, v1.RegisterColonyResponse]
+	lookupColony               *connect.Client[v1.LookupColonyRequest, v1.LookupColonyResponse]
+	registerAgent              *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
+	lookupAgent                *connect.Client[v1.LookupAgentRequest, v1.LookupAgentResponse]
+	requestRelay               *connect.Client[v1.RequestRelayRequest, v1.RequestRelayResponse]
+	releaseRelay               *connect.Client[v1.ReleaseRelayRequest, v1.ReleaseRelayResponse]
+	health                     *connect.Client[v1.HealthRequest, v1.HealthResponse]
+	createBootstrapToken       *connect.Client[v1.CreateBootstrapTokenRequest, v1.CreateBootstrapTokenResponse]
+	publishBootstrapRendezvous *connect.Client[v1.PublishBootstrapRendezvousRequest, v1.PublishBootstrapRendezvousResponse]
+	pollBootstrapRendezvous    *connect.Client[v1.PollBootstrapRendezvousRequest, v1.PollBootstrapRendezvousResponse]
+	ackBootstrapRendezvous     *connect.Client[v1.AckBootstrapRendezvousRequest, v1.AckBootstrapRendezvousResponse]
 }
 
 // RegisterColony calls coral.discovery.v1.DiscoveryService.RegisterColony.
@@ -193,6 +228,21 @@ func (c *discoveryServiceClient) CreateBootstrapToken(ctx context.Context, req *
 	return c.createBootstrapToken.CallUnary(ctx, req)
 }
 
+// PublishBootstrapRendezvous calls coral.discovery.v1.DiscoveryService.PublishBootstrapRendezvous.
+func (c *discoveryServiceClient) PublishBootstrapRendezvous(ctx context.Context, req *connect.Request[v1.PublishBootstrapRendezvousRequest]) (*connect.Response[v1.PublishBootstrapRendezvousResponse], error) {
+	return c.publishBootstrapRendezvous.CallUnary(ctx, req)
+}
+
+// PollBootstrapRendezvous calls coral.discovery.v1.DiscoveryService.PollBootstrapRendezvous.
+func (c *discoveryServiceClient) PollBootstrapRendezvous(ctx context.Context, req *connect.Request[v1.PollBootstrapRendezvousRequest]) (*connect.Response[v1.PollBootstrapRendezvousResponse], error) {
+	return c.pollBootstrapRendezvous.CallUnary(ctx, req)
+}
+
+// AckBootstrapRendezvous calls coral.discovery.v1.DiscoveryService.AckBootstrapRendezvous.
+func (c *discoveryServiceClient) AckBootstrapRendezvous(ctx context.Context, req *connect.Request[v1.AckBootstrapRendezvousRequest]) (*connect.Response[v1.AckBootstrapRendezvousResponse], error) {
+	return c.ackBootstrapRendezvous.CallUnary(ctx, req)
+}
+
 // DiscoveryServiceHandler is an implementation of the coral.discovery.v1.DiscoveryService service.
 type DiscoveryServiceHandler interface {
 	// Register or update a colony's information
@@ -211,6 +261,12 @@ type DiscoveryServiceHandler interface {
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
 	// Create a single-use bootstrap token for agent certificate issuance (RFD 047/049).
 	CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error)
+	// Publish a PSK-encrypted rendezvous record so a peer can locate this side (RFD 108).
+	PublishBootstrapRendezvous(context.Context, *connect.Request[v1.PublishBootstrapRendezvousRequest]) (*connect.Response[v1.PublishBootstrapRendezvousResponse], error)
+	// Poll for pending rendezvous records published for this mesh_id (RFD 108).
+	PollBootstrapRendezvous(context.Context, *connect.Request[v1.PollBootstrapRendezvousRequest]) (*connect.Response[v1.PollBootstrapRendezvousResponse], error)
+	// Delete a rendezvous record after successful fulfillment (RFD 108).
+	AckBootstrapRendezvous(context.Context, *connect.Request[v1.AckBootstrapRendezvousRequest]) (*connect.Response[v1.AckBootstrapRendezvousResponse], error)
 }
 
 // NewDiscoveryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -268,6 +324,24 @@ func NewDiscoveryServiceHandler(svc DiscoveryServiceHandler, opts ...connect.Han
 		connect.WithSchema(discoveryServiceMethods.ByName("CreateBootstrapToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	discoveryServicePublishBootstrapRendezvousHandler := connect.NewUnaryHandler(
+		DiscoveryServicePublishBootstrapRendezvousProcedure,
+		svc.PublishBootstrapRendezvous,
+		connect.WithSchema(discoveryServiceMethods.ByName("PublishBootstrapRendezvous")),
+		connect.WithHandlerOptions(opts...),
+	)
+	discoveryServicePollBootstrapRendezvousHandler := connect.NewUnaryHandler(
+		DiscoveryServicePollBootstrapRendezvousProcedure,
+		svc.PollBootstrapRendezvous,
+		connect.WithSchema(discoveryServiceMethods.ByName("PollBootstrapRendezvous")),
+		connect.WithHandlerOptions(opts...),
+	)
+	discoveryServiceAckBootstrapRendezvousHandler := connect.NewUnaryHandler(
+		DiscoveryServiceAckBootstrapRendezvousProcedure,
+		svc.AckBootstrapRendezvous,
+		connect.WithSchema(discoveryServiceMethods.ByName("AckBootstrapRendezvous")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.discovery.v1.DiscoveryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DiscoveryServiceRegisterColonyProcedure:
@@ -286,6 +360,12 @@ func NewDiscoveryServiceHandler(svc DiscoveryServiceHandler, opts ...connect.Han
 			discoveryServiceHealthHandler.ServeHTTP(w, r)
 		case DiscoveryServiceCreateBootstrapTokenProcedure:
 			discoveryServiceCreateBootstrapTokenHandler.ServeHTTP(w, r)
+		case DiscoveryServicePublishBootstrapRendezvousProcedure:
+			discoveryServicePublishBootstrapRendezvousHandler.ServeHTTP(w, r)
+		case DiscoveryServicePollBootstrapRendezvousProcedure:
+			discoveryServicePollBootstrapRendezvousHandler.ServeHTTP(w, r)
+		case DiscoveryServiceAckBootstrapRendezvousProcedure:
+			discoveryServiceAckBootstrapRendezvousHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -325,4 +405,16 @@ func (UnimplementedDiscoveryServiceHandler) Health(context.Context, *connect.Req
 
 func (UnimplementedDiscoveryServiceHandler) CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.CreateBootstrapToken is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) PublishBootstrapRendezvous(context.Context, *connect.Request[v1.PublishBootstrapRendezvousRequest]) (*connect.Response[v1.PublishBootstrapRendezvousResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.PublishBootstrapRendezvous is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) PollBootstrapRendezvous(context.Context, *connect.Request[v1.PollBootstrapRendezvousRequest]) (*connect.Response[v1.PollBootstrapRendezvousResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.PollBootstrapRendezvous is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) AckBootstrapRendezvous(context.Context, *connect.Request[v1.AckBootstrapRendezvousRequest]) (*connect.Response[v1.AckBootstrapRendezvousResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.AckBootstrapRendezvous is not implemented"))
 }

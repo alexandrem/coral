@@ -16,12 +16,14 @@ import (
 
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
+	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/debug"
 	"github.com/coral-mesh/coral/internal/colony/httpapi"
 	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	colonyrendezvous "github.com/coral-mesh/coral/internal/colony/rendezvous"
 	"github.com/coral-mesh/coral/internal/colony/server"
 	colonywg "github.com/coral-mesh/coral/internal/colony/wireguard"
 	"github.com/coral-mesh/coral/internal/config"
@@ -47,6 +49,51 @@ func (r *registryAgentLookup) GetAgent(agentID string) (string, error) {
 		return "", fmt.Errorf("agent %s has no mesh IP", agentID)
 	}
 	return entry.MeshIPv4, nil
+}
+
+// startRendezvousDialer starts the Colony-side PSK-encrypted rendezvous
+// long-poll + dial-back loop (RFD 108). It issues a dedicated server
+// certificate from the colony CA so the Colony can present its identity as
+// the TLS server even on connections it dialed out itself.
+func startRendezvousDialer(
+	ctx context.Context,
+	colonyID string,
+	discoveryClient *discovery.Client,
+	caManager *ca.Manager,
+	colonyHandler http.Handler,
+	logger logging.Logger,
+) {
+	rzLogger := logger.With().Str("component", "rendezvous").Logger()
+
+	certPEM, keyPEM, err := caManager.IssueServerCertificate([]string{"localhost", colonyID})
+	if err != nil {
+		rzLogger.Warn().Err(err).Msg("Failed to issue rendezvous TLS certificate, rendezvous bootstrap disabled")
+		return
+	}
+	serverIntPEM := caManager.GetServerIntermediateCertPEM()
+	rootCAPEM := caManager.GetRootCertPEM()
+	fullChainPEM := append(certPEM, serverIntPEM...)
+	fullChainPEM = append(fullChainPEM, rootCAPEM...)
+
+	cert, err := tls.X509KeyPair(fullChainPEM, keyPEM)
+	if err != nil {
+		rzLogger.Warn().Err(err).Msg("Failed to load rendezvous TLS certificate, rendezvous bootstrap disabled")
+		return
+	}
+
+	dialer := colonyrendezvous.NewDialer(colonyrendezvous.Config{
+		MeshID: colonyID,
+		Client: discoveryClient,
+		PSKs:   caManager,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS13,
+		},
+		Handler: colonyHandler,
+		Logger:  rzLogger,
+	})
+	dialer.Start(ctx)
+	rzLogger.Info().Msg("PSK-encrypted rendezvous dial-back loop started (RFD 108)")
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
@@ -307,6 +354,16 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				Msg("Server error")
 		}
 	}()
+
+	// Start the PSK-encrypted rendezvous dial-back loop (RFD 108). This lets
+	// this Colony bootstrap trust with a dialable Agent even when the
+	// Colony itself has no inbound connectivity (e.g. a workstation behind
+	// NAT). It is independent of whether the public HTTPS endpoint below is
+	// enabled — the Colony doesn't need any inbound path to use it, only a
+	// certificate to present once it dials out.
+	if discoveryClient != nil && caManager != nil {
+		startRendezvousDialer(ctx, cfg.ColonyID, discoveryClient, caManager, colonyHandler, logger)
+	}
 
 	// Start public endpoint server if enabled (RFD 031).
 	var tokenStore *auth.TokenStore

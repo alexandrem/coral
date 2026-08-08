@@ -452,3 +452,134 @@ func (c *Client) LookupAgent(ctx context.Context, agentID, meshID string) (*Look
 		LastSeen:          lastSeen,
 	}, nil
 }
+
+// PSK-encrypted rendezvous (RFD 108 - NAT-Traversing Agent Bootstrap).
+//
+// Discovery only ever sees opaque AEAD ciphertext and, on write RPCs, the
+// raw write_token transiently (to hash-check it) — never the PSK, CSR,
+// referral ticket, or certificate.
+
+// PublishBootstrapRendezvousRequest publishes or republishes an encrypted
+// rendezvous record.
+type PublishBootstrapRendezvousRequest struct {
+	MeshID             string
+	Ciphertext         []byte
+	GCMNonce           []byte
+	TTLSeconds         int32
+	ProbeEndpoint      string
+	RecordID           string // Set on republish to upsert the existing record.
+	WriteToken         []byte
+	VerifyReachability bool
+}
+
+// PublishBootstrapRendezvousResponse is the response to a rendezvous publish.
+type PublishBootstrapRendezvousResponse struct {
+	Success     bool
+	ExpiresAt   time.Time
+	ProbeFailed bool
+	RecordID    string
+}
+
+// PublishBootstrapRendezvous publishes a PSK-encrypted rendezvous record so a
+// peer can locate this side (RFD 108).
+func (c *Client) PublishBootstrapRendezvous(ctx context.Context, req *PublishBootstrapRendezvousRequest) (*PublishBootstrapRendezvousResponse, error) {
+	protoReq := &discoveryv1.PublishBootstrapRendezvousRequest{
+		MeshId:             req.MeshID,
+		Ciphertext:         req.Ciphertext,
+		GcmNonce:           req.GCMNonce,
+		TtlSeconds:         req.TTLSeconds,
+		ProbeEndpoint:      req.ProbeEndpoint,
+		RecordId:           req.RecordID,
+		WriteToken:         req.WriteToken,
+		VerifyReachability: req.VerifyReachability,
+	}
+
+	resp, err := c.client.PublishBootstrapRendezvous(ctx, connect.NewRequest(protoReq))
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish bootstrap rendezvous: %w", err)
+	}
+
+	var expiresAt time.Time
+	if resp.Msg.ExpiresAt != nil {
+		expiresAt = resp.Msg.ExpiresAt.AsTime()
+	}
+
+	return &PublishBootstrapRendezvousResponse{
+		Success:     resp.Msg.Success,
+		ExpiresAt:   expiresAt,
+		ProbeFailed: resp.Msg.ProbeFailed,
+		RecordID:    resp.Msg.RecordId,
+	}, nil
+}
+
+// BootstrapRendezvousRecord is an opaque rendezvous record returned by a
+// poll. Never includes write_token or its hash.
+type BootstrapRendezvousRecord struct {
+	RecordID    string
+	Ciphertext  []byte
+	GCMNonce    []byte
+	PublishedAt time.Time
+}
+
+// PollBootstrapRendezvousResponse contains the records observed by a poll.
+type PollBootstrapRendezvousResponse struct {
+	Records  []BootstrapRendezvousRecord
+	TimedOut bool
+}
+
+// PollBootstrapRendezvous long-polls Discovery for pending rendezvous
+// records published for mesh_id (RFD 108). The caller is expected to pass a
+// context with a deadline somewhat longer than waitSeconds, since Discovery
+// may hold the request open for up to that long.
+func (c *Client) PollBootstrapRendezvous(ctx context.Context, meshID string, waitSeconds int32) (*PollBootstrapRendezvousResponse, error) {
+	protoReq := &discoveryv1.PollBootstrapRendezvousRequest{
+		MeshId:      meshID,
+		WaitSeconds: waitSeconds,
+	}
+
+	resp, err := c.client.PollBootstrapRendezvous(ctx, connect.NewRequest(protoReq))
+	if err != nil {
+		return nil, fmt.Errorf("failed to poll bootstrap rendezvous: %w", err)
+	}
+
+	records := make([]BootstrapRendezvousRecord, 0, len(resp.Msg.Records))
+	for _, r := range resp.Msg.Records {
+		if r == nil {
+			continue
+		}
+		var publishedAt time.Time
+		if r.PublishedAt != nil {
+			publishedAt = r.PublishedAt.AsTime()
+		}
+		records = append(records, BootstrapRendezvousRecord{
+			RecordID:    r.RecordId,
+			Ciphertext:  r.Ciphertext,
+			GCMNonce:    r.GcmNonce,
+			PublishedAt: publishedAt,
+		})
+	}
+
+	return &PollBootstrapRendezvousResponse{
+		Records:  records,
+		TimedOut: resp.Msg.TimedOut,
+	}, nil
+}
+
+// AckBootstrapRendezvous retires a rendezvous record after successful
+// fulfillment, presenting the write_token recovered by decrypting the
+// record (RFD 108). Idempotent: returns success=true if the record was
+// already gone.
+func (c *Client) AckBootstrapRendezvous(ctx context.Context, meshID, recordID string, writeToken []byte) (bool, error) {
+	protoReq := &discoveryv1.AckBootstrapRendezvousRequest{
+		MeshId:     meshID,
+		RecordId:   recordID,
+		WriteToken: writeToken,
+	}
+
+	resp, err := c.client.AckBootstrapRendezvous(ctx, connect.NewRequest(protoReq))
+	if err != nil {
+		return false, fmt.Errorf("failed to ack bootstrap rendezvous: %w", err)
+	}
+
+	return resp.Msg.Success, nil
+}
