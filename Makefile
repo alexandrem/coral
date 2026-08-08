@@ -48,7 +48,7 @@ generate: proto ## Generate eBPF, download Beyla and Deno binaries (run before f
 		echo "  Linux: sudo apt-get install clang llvm"; \
 		exit 1; \
 	fi; \
-	env -u GOOS -u GOARCH go generate ./...
+	env -u GOOS -u GOARCH -u CC go generate ./...
 	@echo "✓ Generated files ready"
 
 proto: ## Generate protobuf files using buf
