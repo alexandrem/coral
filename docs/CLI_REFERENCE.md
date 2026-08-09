@@ -84,7 +84,7 @@ coral colony stop
 
 # Agent (local observer)
 coral agent start [--config <file>] [--colony <id>] [--connect <service>...] [--monitor-all]
-coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...> [--agent <id>] [--discovery <url>] [--force]
+coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...> [--agent <id>] [--discovery <url>] [--force] [--bootstrap-public-endpoint <host:port>] [--bootstrap-listen-port <port>] [--verify-bootstrap-reachability]
 coral agent cert status [--certs-dir <path>]
 coral agent cert renew --colony-endpoint <url> [--fingerprint <sha256:hex>] [--force]
 coral agent status [--format <format>]
@@ -746,6 +746,9 @@ coral exec web --container nginx cat /etc/nginx/nginx.conf
 | `CORAL_COLONY_ID`          | Override active colony ID                                              |
 | `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for agent bootstrap (sha256:hex)                   |
 | `CORAL_BOOTSTRAP_PSK`     | Bootstrap PSK for enrollment authorization                             |
+| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Agent public `host:port` for reverse-dial bootstrap when the Colony is not dialable |
+| `CORAL_BOOTSTRAP_LISTEN_PORT` | Local reverse-dial listener port (default: `8444`)                 |
+| `CORAL_VERIFY_BOOTSTRAP_REACHABILITY` | Opt in to Discovery's quota-limited TCP reachability diagnostic |
 | `CORAL_CONFIG`             | Override config directory (default: `~/.coral`)                        |
 | `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL override                                         |
 

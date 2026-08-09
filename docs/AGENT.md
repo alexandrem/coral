@@ -698,6 +698,9 @@ or can be triggered manually.
 - **CA Fingerprint Validation**: Prevents MITM attacks by validating the colony's Root CA
 - **Bootstrap PSK**: Pre-shared key authorization prevents unauthorized enrollment (RFD 088)
 - **Automatic Renewal**: Certificates are renewed before expiry without Discovery
+- **NAT fallback**: When the Colony cannot accept inbound HTTPS, the Agent can
+  publish an encrypted rendezvous record and accept the Colony's dial-back
+  (RFD 108).
 
 ### Bootstrap Flow
 
@@ -745,7 +748,19 @@ agent:
     ca_fingerprint: "sha256:abc123..."
 
     # Bootstrap PSK for enrollment authorization (required)
-    psk: "coral-psk:f1e2d3c4b5a6..."
+    bootstrap_psk: "coral-psk:f1e2d3c4b5a6..."
+
+    # Public TCP endpoint on this Agent for a Colony behind NAT to dial back.
+    # Required only when the normal direct bootstrap path cannot reach Colony.
+    bootstrap_public_endpoint: "agent.example.com:8444"
+
+    # Local listener used for the temporary reverse-dial bootstrap connection.
+    # Default: 8444. Open/forward this TCP port to the Agent when configured.
+    bootstrap_listen_port: 8444
+
+    # Optional diagnostic: ask Discovery to probe the public endpoint before
+    # publishing. It is quota-limited and disabled by default.
+    verify_bootstrap_reachability: false
 
     # Directory for storing certificates (default: ~/.coral/certs/)
     certs_dir: "/etc/coral/certs"
@@ -762,6 +777,9 @@ agent:
 |----------|-------------|
 | `CORAL_CA_FINGERPRINT` | Root CA fingerprint (sha256:hex) |
 | `CORAL_BOOTSTRAP_PSK` | Bootstrap PSK for enrollment authorization |
+| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Public Agent `host:port` for reverse-dial bootstrap |
+| `CORAL_BOOTSTRAP_LISTEN_PORT` | Reverse-dial listener port (default: `8444`) |
+| `CORAL_VERIFY_BOOTSTRAP_REACHABILITY` | Enable the optional Discovery reachability probe |
 | `CORAL_CERTS_DIR` | Certificate storage directory |
 | `CORAL_BOOTSTRAP_ENABLED` | Enable/disable bootstrap |
 
@@ -776,9 +794,22 @@ coral agent bootstrap \
   --fingerprint sha256:abc123... \
   --psk coral-psk:f1e2d3c4b5a6...
 
+# Colony is behind NAT: expose TCP 8444 on the Agent and let the Colony dial back
+coral agent bootstrap \
+  --colony my-app-prod \
+  --fingerprint sha256:abc123... \
+  --psk coral-psk:f1e2d3c4b5a6... \
+  --bootstrap-public-endpoint agent.example.com:8444
+
 # Check bootstrap status
 coral agent cert status
 ```
+
+The `--bootstrap-public-endpoint` value must resolve to an endpoint that the
+Colony can reach. The temporary listener binds to TCP `8444` by default; use
+`--bootstrap-listen-port` if the externally forwarded port maps to a different
+local port. This fallback is not needed when the Agent can directly reach the
+Colony, and it cannot help when neither side has an inbound path.
 
 ### Certificate Renewal
 

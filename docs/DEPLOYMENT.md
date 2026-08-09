@@ -38,6 +38,34 @@ Default behavior:
 - Agents connect via localhost
 - ✅ Works out of the box
 
+### Colony Behind NAT: Reverse-Dial Agent Bootstrap
+
+When a remote Agent cannot directly reach the Colony's HTTPS bootstrap endpoint,
+RFD 108 lets the Colony dial the Agent instead. Configure a public TCP endpoint
+on the **Agent**; this is separate from the Colony's WireGuard UDP endpoint and
+must be reachable from the Colony.
+
+```bash
+# On the dialable Agent host: allow/forward TCP 8444, then bootstrap.
+coral agent bootstrap \
+  --colony my-app-prod \
+  --fingerprint sha256:abc123... \
+  --psk coral-psk:f1e2d3c4b5a6... \
+  --bootstrap-public-endpoint agent.example.com:8444
+```
+
+The Agent opens a temporary listener on TCP `8444` by default, publishes an
+encrypted rendezvous record to Discovery, and waits for the Colony to dial
+back. If a load balancer or NAT forwards another external port, set the public
+address with `--bootstrap-public-endpoint` and the local bind port separately
+with `--bootstrap-listen-port` (or `CORAL_BOOTSTRAP_LISTEN_PORT`).
+
+Allow inbound TCP `8444` only on Agent hosts that need this fallback. The port
+is used only during certificate bootstrap; it is not a Colony service port or
+a WireGuard data-plane port. Discovery reachability probing is optional and
+disabled by default; enable `--verify-bootstrap-reachability` only as a
+configuration diagnostic.
+
 ### Production Deployment
 
 For production where colony and agents are on different machines, you **MUST**
@@ -230,8 +258,10 @@ WARN No WireGuard endpoints could be constructed
 
 ### Security Considerations
 
-1. **Endpoint exposure**: Only the WireGuard port (41580/UDP) needs to be
-   publicly accessible
+1. **Endpoint exposure**: WireGuard requires `41580/UDP`. In the reverse-dial
+   bootstrap topology, the dialable Agent also requires its configured
+   bootstrap listener (default `8444/TCP`) to be publicly reachable during
+   bootstrap.
 2. **Service ports**: gRPC/Connect (9000) only accessible via WireGuard mesh
 3. **Encryption**: All traffic encrypted by WireGuard (ChaCha20-Poly1305)
 4. **Authentication**: Agent must have valid colony secret to join mesh
@@ -252,6 +282,11 @@ WARN No WireGuard endpoints could be constructed
 ```bash
 # Required for production
 CORAL_PUBLIC_ENDPOINT=colony.example.com:41580
+
+# On the Agent, only when a NAT-bound Colony must dial it during bootstrap
+CORAL_BOOTSTRAP_PUBLIC_ENDPOINT=agent.example.com:8444
+# Optional if the listener should bind somewhere other than 8444
+CORAL_BOOTSTRAP_LISTEN_PORT=8444
 
 # Optional overrides
 CORAL_COLONY_ID=my-app-prod              # Colony to start

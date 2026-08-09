@@ -78,6 +78,74 @@ Web Key Set)** endpoint (managed at `/.well-known/jwks.json`). This allows for:
   the local EdDSA signature verification and ensures the `agent_id` in the
   ticket matches the identity requested in the CSR.
 
+## 3. PSK-Encrypted Bootstrap Rendezvous
+
+Discovery is ordinarily a directory: an Agent retrieves Colony endpoints and
+dials the Colony directly. RFD 108 adds a narrow fallback for when that direct
+HTTPS path is unavailable because the Colony is behind NAT. It does not turn
+Discovery into a certificate relay.
+
+1. After direct dialing fails, an Agent with an explicitly configured public
+   bootstrap endpoint opens a short-lived TLS listener and publishes an opaque
+   rendezvous record under the `mesh_id`.
+2. The record contains the Agent endpoint, a session nonce, a write capability,
+   and an expiry. `internal/rendezvous` encrypts and authenticates it with an
+   AES-GCM key derived from the Bootstrap PSK using HKDF-SHA256, salted by
+   `mesh_id` and domain-separated with `coral-bootstrap-rendezvous-v1`.
+3. `internal/colony/rendezvous.Dialer` long-polls
+   `PollBootstrapRendezvous`, attempts to decrypt each record with the active
+   Bootstrap PSK (and grace PSK during rotation), and dials only a valid
+   endpoint.
+4. The Colony is still the TLS server over that outbound TCP connection. The
+   Agent performs the normal fingerprint and SPIFFE-SAN checks, then uses the
+   existing `RequestCertificate` RPC with its CSR, referral ticket, and PSK.
+5. Once the connection-scoped nonce matches and enrollment succeeds, the
+   Colony acknowledges the record. This removes it immediately rather than
+   waiting for its TTL.
+
+Discovery exposes `PublishBootstrapRendezvous`, `PollBootstrapRendezvous`, and
+`AckBootstrapRendezvous` for this lifecycle. It stores ciphertext and a
+SHA-256 hash of the per-record write token, never the token itself at rest.
+The raw write token transits Discovery only so it can authorize a republish or
+acknowledgement; it is neither a Bootstrap PSK nor a certificate-issuance
+credential.
+
+### Record Lifecycle and Bounded Work
+
+Rendezvous records have a 90-second default TTL. An Agent republishes the same
+record every 30 seconds while it waits, retaining a stable server-assigned
+`record_id` and write token; each encryption uses a fresh GCM nonce. The Agent
+waits up to 120 seconds for the dial-back.
+
+The Colony polls for up to 25 seconds per request in a loop independent of
+`RegisterColony`. Failed records are retried with per-`record_id` exponential
+backoff (2 seconds, 4 seconds, 8 seconds, capped at 15 seconds). This matters
+because polling returns an existing unacknowledged record immediately: without
+backoff, a bad endpoint would cause a tight poll-and-dial loop.
+
+The Agent listener continues accepting connections with bounded concurrent TLS
+handshakes and a short handshake deadline. A scanner or an optional Discovery
+reachability probe therefore cannot occupy the one connection the Colony needs
+to complete enrollment.
+
+### Discovery's Deliberate Boundary
+
+Discovery cannot decrypt or forge a valid rendezvous payload without the
+Bootstrap PSK. It also never sees the CSR, referral ticket, or certificate.
+It may see the plaintext endpoint only when the publisher asks it to perform
+the optional `verify_reachability` diagnostic. Probing is disabled by default:
+an unauthenticated endpoint probe would otherwise be a public port-scanning
+primitive. When enabled, it is separately quota- and concurrency-limited, and
+failure is an actionable configuration signal rather than an enrollment
+authorization decision.
+
+The fallback requires an explicitly configured, dialable Agent endpoint
+(`CORAL_BOOTSTRAP_PUBLIC_ENDPOINT`). It does not perform automatic TCP NAT
+discovery and does not solve a topology in which both peers lack an inbound
+path.
+
+## 4. Discovery Service Characteristics
+
 To maintain high performance and minimize security surface area, the Discovery
 service is designed to be **thin and ephemeral**, leveraging Cloudflare's global
 edge:
@@ -94,7 +162,7 @@ edge:
   It issues Referral Tickets based on real-time policy evaluation (e.g.,
   checking if the Agent's source IP or ID matches an allowlist).
 
-## 4. Discovery Bypassing (Operator Overrides)
+## 5. Discovery Bypassing (Operator Overrides)
 
 While Discovery is essential for automated scaling, it is designed to be
 **non-blocking** in disaster recovery or air-gapped scenarios:
@@ -111,7 +179,7 @@ Advanced users can manually configure the Agent with a static Colony endpoint.
 In this mode, the Agent skips the "Lookup" phase and proceeds directly to the
 Fingerprint Handshake, relying on the hardcoded IP/DNS provided by the operator.
 
-## 5. Security Analysis
+## 6. Security Analysis
 
 | Potential Attack            | Coral Defense                                                                                                                                                                                                                          |
 |-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -119,6 +187,9 @@ Fingerprint Handshake, relying on the hardcoded IP/DNS provided by the operator.
 | **Referral Ticket Forgery** | Tickets are signed using Ed25519 keys rotated daily. Even a leaked key only grants a window to _attempt_ enrollment; it does not grant access to the data mesh.                                                                        |
 | **Denial of Service**       | Discovery implements aggressive rate-limiting on ticket issuance and lookups to prevent it from being used as an amplification vector against Colonies.                                                                                |
 | **Endpoint Spoofing**       | Colonies sign their endpoint updates, ensuring that an attacker cannot redirect legitimate traffic away from a valid Colony.                                                                                                           |
+| **Forged rendezvous record** | AEAD validation with a PSK-derived key makes unauthenticated ciphertext unusable; failed decryptions do not reach certificate issuance. |
+| **Rendezvous record takeover** | `record_id` is public identity, while an independently random write token authorizes republish and acknowledgement; Discovery stores only its hash. |
+| **Probe abuse** | Reachability probing is opt-in and separately rate-, target-, and concurrency-limited. |
 
 ## Future Engineering Notes
 
@@ -132,9 +203,15 @@ Fingerprint Handshake, relying on the hardcoded IP/DNS provided by the operator.
 - **Sequence-Based Checkpoints for Registry**: Implement a polling checkpoint
   mechanism for Discovery, allowing Colonies to "see" if their current
   registration is out of sync without performing a full write heartbeat.
+- **NAT Discovery Beyond Rendezvous**: RFD 108 intentionally requires a
+  configured public TCP endpoint. Automatic mapping discovery, NAT-PMP/UPnP,
+  and a solution for two non-dialable peers require a distinct security and
+  connectivity design.
 
 ## Related Design Documents (RFDs)
 
 - **[RFD 001](../../RFDs/001-discovery-service.md)**: Discovery Service (Prototype).
 - **[RFD 049](../../RFDs/049-discovery-authorization.md)**: Discovery-Based Agent Authorization.
 - **[RFD 086](../../RFDs/086-discovery-policy-enforcement.md)**: Advanced Discovery Policy Enforcement.
+- **[RFD 088](../../RFDs/088-bootstrap-psk.md)**: Bootstrap PSK authorization and rotation.
+- **[RFD 108](../../RFDs/108-psk-rendezvous-agent-bootstrap.md)**: PSK-encrypted rendezvous for NAT-traversing Agent bootstrap.

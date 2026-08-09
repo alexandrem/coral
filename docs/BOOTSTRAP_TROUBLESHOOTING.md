@@ -11,6 +11,7 @@ This guide covers common issues and solutions for agent certificate bootstrap.
     - [Discovery Connection Failed](#discovery-connection-failed)
     - [Certificate Expired](#certificate-expired)
     - [Permission Denied](#permission-denied)
+    - [Reverse-Dial Rendezvous Fails](#reverse-dial-rendezvous-fails)
     - [Timeout During Bootstrap](#timeout-during-bootstrap)
     - [Invalid Bootstrap PSK](#invalid-bootstrap-psk)
 - [Advanced Diagnostics](#advanced-diagnostics)
@@ -312,6 +313,50 @@ Error: bootstrap failed: missing bootstrap PSK
    grace period (default 24h), both old and new PSKs are accepted.
 
 ---
+
+### Reverse-Dial Rendezvous Fails
+
+This path is used only after direct bootstrap dialing cannot reach the Colony,
+typically when the Colony is behind NAT. The Colony then dials the Agent's
+temporary TCP listener instead.
+
+**Symptoms:**
+
+```
+... set --bootstrap-public-endpoint/CORAL_BOOTSTRAP_PUBLIC_ENDPOINT so a NAT'd colony can dial back ...
+rendezvous bootstrap timed out after 2m waiting for colony dial-back
+configured endpoint agent.example.com:8444 is not reachable from the internet
+```
+
+**Solutions:**
+
+1. Configure the Agent's public address explicitly. It must be an externally
+   reachable `host:port`, not a mesh or private address:
+
+   ```bash
+   coral agent bootstrap ... \
+     --bootstrap-public-endpoint agent.example.com:8444
+   ```
+
+2. Permit and, where required, forward inbound **TCP 8444** to the Agent. If
+   the local listener uses another port, set it with
+   `--bootstrap-listen-port` / `CORAL_BOOTSTRAP_LISTEN_PORT` and ensure the
+   public endpoint routes to that listener.
+
+3. Check the endpoint from a network that can reach the Agent, not from the
+   Agent itself:
+
+   ```bash
+   nc -zv agent.example.com 8444
+   ```
+
+4. For a direct, early validation, retry with
+   `--verify-bootstrap-reachability`. This asks Discovery to perform a
+   quota-limited TCP probe; it is a diagnostic, not a guarantee that the
+   Colony will complete enrollment.
+
+5. Verify that the Colony is running and can reach Discovery. RFD 108 does not
+   solve a topology where neither the Colony nor the Agent has an inbound path.
 
 ### Timeout During Bootstrap
 

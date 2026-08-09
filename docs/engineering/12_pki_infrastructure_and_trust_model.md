@@ -72,6 +72,26 @@ bootstrap.
    a short-lived **Referral Ticket** obtained from the Discovery service (which
    implements policy-based authorization).
 
+### NAT-Traversing Bootstrap Transport
+
+RFD 108 changes only how the initial TCP connection is established when a
+Colony cannot accept inbound connections. After ordinary direct dialing fails,
+the Agent publishes an AEAD-encrypted rendezvous payload to Discovery and
+opens a short-lived listener. The Colony decrypts the payload with a key
+derived from the Bootstrap PSK, then dials the Agent back while continuing to
+present the Colony TLS certificate as the server.
+
+The certificate protocol is intentionally unchanged. The Agent still validates
+the configured Root CA fingerprint and Colony SPIFFE SAN before it sends its
+CSR, referral ticket, and Bootstrap PSK through `RequestCertificate`. A
+connection-scoped rendezvous nonce binds that request to the record that caused
+the dial-back. Discovery never receives the PSK, CSR, referral ticket, or
+issued certificate.
+
+This preserves the distinction between **reachability** and **authorization**:
+decrypting a record is not sufficient to obtain a certificate, and changing
+dial direction is not sufficient to impersonate the Colony.
+
 ## 4. Operational Zero-Trust (mTLS)
 
 Once the bootstrap is complete, all subsequent communication uses **Mutual TLS (
@@ -136,3 +156,5 @@ short-lived.
 
 - **[RFD 047](../../RFDs/047-colony-ca-infrastructure.md)**: Colony CA Infrastructure & Policy Signing.
 - **[RFD 048](../../RFDs/048-agent-certificate-bootstrap.md)**: Agent Certificate Bootstrap mechanism.
+- **[RFD 088](../../RFDs/088-bootstrap-psk.md)**: Bootstrap PSK authorization and rotation.
+- **[RFD 108](../../RFDs/108-psk-rendezvous-agent-bootstrap.md)**: PSK-encrypted rendezvous transport for NAT-traversing bootstrap.
