@@ -111,7 +111,7 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 	}
 
 	// Create context for background operations.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancellation is retained in ServicesResult and called by AgentServer.Stop.
 	result.Context = ctx
 	result.CancelFunc = cancel
 

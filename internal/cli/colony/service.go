@@ -354,13 +354,13 @@ func statusIndicator(status string) string {
 // serviceNotFoundError returns a formatted error when a service is not found.
 func serviceNotFoundError(serviceName string, availableServices []string) error {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Error: Service '%s' not found in colony\n", serviceName))
+	fmt.Fprintf(&sb, "Error: Service '%s' not found in colony\n", serviceName)
 
 	if len(availableServices) > 0 {
-		sb.WriteString(fmt.Sprintf("\nAvailable services (%d):\n", len(availableServices)))
+		fmt.Fprintf(&sb, "\nAvailable services (%d):\n", len(availableServices))
 		sort.Strings(availableServices)
 		for _, name := range availableServices {
-			sb.WriteString(fmt.Sprintf("  • %s\n", name))
+			fmt.Fprintf(&sb, "  • %s\n", name)
 		}
 		sb.WriteString("\nUse 'coral service list' to see all services with their agents.")
 	} else {

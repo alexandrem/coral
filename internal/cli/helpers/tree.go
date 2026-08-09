@@ -51,7 +51,7 @@ func renderTreeNode(node TreeNode, prefix string, isLast bool, totalDuration tim
 	}
 
 	// Render current node
-	buf.WriteString(fmt.Sprintf("%s%s %s (%s, %d calls, %.1f%%)%s\n",
+	fmt.Fprintf(&buf, "%s%s %s (%s, %d calls, %.1f%%)%s\n",
 		prefix,
 		connector,
 		node.GetName(),
@@ -59,7 +59,7 @@ func renderTreeNode(node TreeNode, prefix string, isLast bool, totalDuration tim
 		node.GetCallCount(),
 		percentage,
 		slowMarker,
-	))
+	)
 
 	// Prepare prefix for children
 	childPrefix := prefix

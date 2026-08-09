@@ -84,6 +84,7 @@ func performPreflightChecks(logger logging.Logger) error {
 	}
 
 	// Check if the binary exists and is executable.
+	//nolint:gosec // G703: CORAL_TUN_HELPER_PATH is an explicit operator-provided helper path.
 	if _, err := os.Stat(binaryPath); err != nil {
 		return fmt.Errorf("coral binary not found at %s: %w", binaryPath, err)
 	}

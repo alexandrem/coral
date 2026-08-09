@@ -444,10 +444,10 @@ func (d *Device) configure() error {
 
 	// Build UAPI configuration
 	uapiConfig := strings.Builder{}
-	uapiConfig.WriteString(fmt.Sprintf("private_key=%s\n", privateKeyHex))
+	fmt.Fprintf(&uapiConfig, "private_key=%s\n", privateKeyHex)
 
 	if d.cfg.Port > 0 {
-		uapiConfig.WriteString(fmt.Sprintf("listen_port=%d\n", d.cfg.Port))
+		fmt.Fprintf(&uapiConfig, "listen_port=%d\n", d.cfg.Port)
 	}
 
 	// Apply configuration
@@ -470,21 +470,21 @@ func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) string {
 	}
 	pubKeyHex := fmt.Sprintf("%x", pubKeyBytes)
 
-	uapiConfig.WriteString(fmt.Sprintf("public_key=%s\n", pubKeyHex))
+	fmt.Fprintf(&uapiConfig, "public_key=%s\n", pubKeyHex)
 
 	// Add endpoint if provided
 	if peerConfig.Endpoint != "" {
-		uapiConfig.WriteString(fmt.Sprintf("endpoint=%s\n", peerConfig.Endpoint))
+		fmt.Fprintf(&uapiConfig, "endpoint=%s\n", peerConfig.Endpoint)
 	}
 
 	// Add allowed IPs
 	for _, allowedIP := range peerConfig.AllowedIPs {
-		uapiConfig.WriteString(fmt.Sprintf("allowed_ip=%s\n", allowedIP))
+		fmt.Fprintf(&uapiConfig, "allowed_ip=%s\n", allowedIP)
 	}
 
 	// Add persistent keepalive
 	if peerConfig.PersistentKeepalive > 0 {
-		uapiConfig.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive))
+		fmt.Fprintf(&uapiConfig, "persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive)
 	}
 
 	return uapiConfig.String()
@@ -519,24 +519,24 @@ func wrapPermissionError(err error) error {
 	}
 
 	var helpMsg strings.Builder
-	helpMsg.WriteString(fmt.Sprintf("Failed to create TUN device: %v\n\n", err))
+	fmt.Fprintf(&helpMsg, "Failed to create TUN device: %v\n\n", err)
 	helpMsg.WriteString("TUN device creation requires elevated privileges. Choose one of:\n\n")
 
 	if runtime.GOOS == "linux" {
 		helpMsg.WriteString("  1. Install capabilities (Linux only, recommended):\n")
-		helpMsg.WriteString(fmt.Sprintf("     sudo setcap cap_net_admin+ep %s\n\n", binaryPath))
+		fmt.Fprintf(&helpMsg, "     sudo setcap cap_net_admin+ep %s\n\n", binaryPath)
 		helpMsg.WriteString("  2. Run with sudo:\n")
 		helpMsg.WriteString("     sudo coral colony start\n\n")
 		helpMsg.WriteString("  3. Make binary setuid (use with caution):\n")
-		helpMsg.WriteString(fmt.Sprintf("     sudo chown root:root %s\n", binaryPath))
-		helpMsg.WriteString(fmt.Sprintf("     sudo chmod u+s %s\n\n", binaryPath))
+		fmt.Fprintf(&helpMsg, "     sudo chown root:root %s\n", binaryPath)
+		fmt.Fprintf(&helpMsg, "     sudo chmod u+s %s\n\n", binaryPath)
 	} else {
 		// macOS and other platforms.
 		helpMsg.WriteString("  1. Run with sudo:\n")
 		helpMsg.WriteString("     sudo coral colony start\n\n")
 		helpMsg.WriteString("  2. Make binary setuid (use with caution):\n")
-		helpMsg.WriteString(fmt.Sprintf("     sudo chown root:root %s\n", binaryPath))
-		helpMsg.WriteString(fmt.Sprintf("     sudo chmod u+s %s\n\n", binaryPath))
+		fmt.Fprintf(&helpMsg, "     sudo chown root:root %s\n", binaryPath)
+		fmt.Fprintf(&helpMsg, "     sudo chmod u+s %s\n\n", binaryPath)
 	}
 
 	helpMsg.WriteString("For more information, see: docs/INSTALLATION.md")

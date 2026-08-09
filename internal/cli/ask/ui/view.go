@@ -49,17 +49,17 @@ func (m Model) View() string {
 	case stateQuerying:
 		if m.currentCommand != "" {
 			// CLI dispatch mode: show the full command string (RFD 100).
-			b.WriteString(fmt.Sprintf("\n%s %s $ %s\n",
+			fmt.Fprintf(&b, "\n%s %s $ %s\n",
 				m.spinner.View(),
 				toolStyle.Render("⚙"),
-				m.currentCommand))
+				m.currentCommand)
 		} else if m.currentTool != "" {
-			b.WriteString(fmt.Sprintf("\n%s %s Executing tool: %s...\n",
+			fmt.Fprintf(&b, "\n%s %s Executing tool: %s...\n",
 				m.spinner.View(),
 				toolStyle.Render("⚙"),
-				m.currentTool))
+				m.currentTool)
 		} else {
-			b.WriteString(fmt.Sprintf("\n%s Thinking...\n", m.spinner.View()))
+			fmt.Fprintf(&b, "\n%s Thinking...\n", m.spinner.View())
 		}
 
 	case stateStreaming:

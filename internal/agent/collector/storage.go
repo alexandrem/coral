@@ -207,6 +207,7 @@ func (s *Storage) QueryMetricsBySeqID(ctx context.Context, startSeqID uint64, ma
 	if len(metricNames) > 0 {
 		inPlaceholders := strings.Repeat("?,", len(metricNames))
 		inPlaceholders = inPlaceholders[:len(inPlaceholders)-1]
+		// #nosec G202 -- inPlaceholders contains only generated question-mark parameters.
 		query += " AND metric_name IN (" + inPlaceholders + ")"
 		for _, name := range metricNames {
 			args = append(args, name)

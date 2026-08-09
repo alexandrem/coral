@@ -590,13 +590,13 @@ func (h *ServiceHandler) tryUpdateCacheIfNeeded(ctx context.Context, serviceName
 		}
 
 		// Trigger async discovery (don't block the RPC).
-		go func() {
-			if err := h.functionCache.DiscoverAndCache(context.Background(), serviceName, status.BinaryPath, sdkAddr); err != nil {
+		go func(ctx context.Context) {
+			if err := h.functionCache.DiscoverAndCache(ctx, serviceName, status.BinaryPath, sdkAddr); err != nil {
 				h.agent.logger.Error().
 					Err(err).
 					Str("service", serviceName).
 					Msg("Failed to discover and cache functions")
 			}
-		}()
+		}(ctx)
 	}
 }

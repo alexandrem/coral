@@ -124,7 +124,7 @@ func formatAvailableAgents(agents []*colonyv1.Agent) string {
 
 	var result strings.Builder
 	for _, agent := range agents {
-		result.WriteString(fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.AgentId, agent.MeshIpv4))
+		fmt.Fprintf(&result, "  - %s (mesh IP: %s)\n", agent.AgentId, agent.MeshIpv4)
 	}
 	return result.String()
 }
@@ -140,13 +140,13 @@ func formatAvailableServices(agents []*colonyv1.Agent) string {
 	for _, agent := range agents {
 		for _, svc := range agent.Services {
 			if !seen[svc.Name] {
-				result.WriteString(fmt.Sprintf("  - %s (agent: %s, mesh IP: %s)\n", svc.Name, agent.AgentId, agent.MeshIpv4))
+				fmt.Fprintf(&result, "  - %s (agent: %s, mesh IP: %s)\n", svc.Name, agent.AgentId, agent.MeshIpv4)
 				seen[svc.Name] = true
 			}
 		}
 		// Include deprecated ComponentName field.
 		if agent.ComponentName != "" && !seen[agent.ComponentName] {
-			result.WriteString(fmt.Sprintf("  - %s (agent: %s, mesh IP: %s)\n", agent.ComponentName, agent.AgentId, agent.MeshIpv4))
+			fmt.Fprintf(&result, "  - %s (agent: %s, mesh IP: %s)\n", agent.ComponentName, agent.AgentId, agent.MeshIpv4)
 			seen[agent.ComponentName] = true
 		}
 	}

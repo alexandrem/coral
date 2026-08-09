@@ -45,6 +45,7 @@ func extractBeylaBinary() (string, error) {
 func getBeylaBinaryPath() (string, error) {
 	// 1. Check for BEYLA_PATH environment variable.
 	if envPath := os.Getenv("BEYLA_PATH"); envPath != "" {
+		//nolint:gosec // G703: BEYLA_PATH is an explicit operator-provided executable path.
 		if _, err := os.Stat(envPath); err == nil {
 			return envPath, nil
 		}
@@ -69,7 +70,9 @@ func findBeylaInPath() (string, error) {
 	locations := []string{
 		"/usr/local/bin/beyla",
 		"/usr/bin/beyla",
-		filepath.Join(os.Getenv("HOME"), ".local/bin/beyla"),
+	}
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		locations = append(locations, filepath.Join(homeDir, ".local/bin/beyla"))
 	}
 
 	for _, loc := range locations {
