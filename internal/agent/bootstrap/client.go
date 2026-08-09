@@ -38,6 +38,21 @@ type Config struct {
 	// BootstrapPSK is the pre-shared key for bootstrap authorization (RFD 088).
 	BootstrapPSK string
 
+	// BootstrapPublicEndpoint is this Agent's dialable ip:port. When direct
+	// dial to the colony fails (e.g. loopback/private endpoints only), and
+	// this is set, the client falls back to publishing a PSK-encrypted
+	// rendezvous record so a NAT'd colony can dial back (RFD 108).
+	BootstrapPublicEndpoint string
+
+	// VerifyBootstrapReachability opts into Discovery TCP-probing
+	// BootstrapPublicEndpoint before accepting the rendezvous publish.
+	// Default: false.
+	VerifyBootstrapReachability bool
+
+	// BootstrapListenPort overrides the local port the rendezvous listener
+	// binds to. Default: constants.DefaultAgentBootstrapPort.
+	BootstrapListenPort int
+
 	ReefID string
 	Logger zerolog.Logger
 }
@@ -81,7 +96,11 @@ func (c *Client) Bootstrap(ctx context.Context) (*Result, error) {
 
 	endpoint, err := c.findValidColonyEndpoint(ctx)
 	if err != nil {
-		return nil, err
+		if c.cfg.BootstrapPublicEndpoint == "" {
+			return nil, fmt.Errorf("%w (set --bootstrap-public-endpoint/CORAL_BOOTSTRAP_PUBLIC_ENDPOINT so a NAT'd colony can dial back via PSK-encrypted rendezvous, RFD 108)", err)
+		}
+		c.logger.Warn().Err(err).Msg("Direct dial to colony failed; falling back to PSK-encrypted rendezvous bootstrap (RFD 108)")
+		return c.rendezvousBootstrap(ctx, token)
 	}
 
 	// Use standard transport for bootstrap (validates server via fingerprint)

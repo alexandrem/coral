@@ -140,13 +140,16 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	bootstrapPSK := bootstrapCfg.BootstrapPSK
 
 	client := bootstrap.NewClient(bootstrap.Config{
-		AgentID:           bp.agentID,
-		ColonyID:          bp.colonyID,
-		CAFingerprint:     fingerprint,
-		BootstrapPSK:      bootstrapPSK,
-		DiscoveryEndpoint: discoveryURL,
-		ColonyEndpoint:    bootstrapCfg.ColonyEndpoint,
-		Logger:            bp.logger,
+		AgentID:                     bp.agentID,
+		ColonyID:                    bp.colonyID,
+		CAFingerprint:               fingerprint,
+		BootstrapPSK:                bootstrapPSK,
+		DiscoveryEndpoint:           discoveryURL,
+		ColonyEndpoint:              bootstrapCfg.ColonyEndpoint,
+		BootstrapPublicEndpoint:     bootstrapCfg.BootstrapPublicEndpoint,
+		VerifyBootstrapReachability: bootstrapCfg.VerifyBootstrapReachability,
+		BootstrapListenPort:         bootstrapCfg.BootstrapListenPort,
+		Logger:                      bp.logger,
 	})
 
 	// Apply timeout from config.

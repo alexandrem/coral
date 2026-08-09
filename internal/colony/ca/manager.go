@@ -903,6 +903,59 @@ func (m *Manager) ValidateBootstrapPSK(ctx context.Context, psk string) error {
 	return nil
 }
 
+// ListValidPSKs returns all currently valid Bootstrap PSKs (decrypted) —
+// the active PSK and, during a rotation grace period, the prior PSK too.
+// Used by the RFD 108 rendezvous dialer, which must derive candidate
+// decryption keys the same way RFD 088 already dual-accepts PSKs on
+// RequestCertificate during a grace period.
+func (m *Manager) ListValidPSKs(ctx context.Context) ([]string, error) {
+	// Lazy cleanup of expired grace PSKs, matching ValidateBootstrapPSK.
+	_, _ = m.db.ExecContext(ctx,
+		`UPDATE bootstrap_psks SET status = 'revoked', revoked_at = ?
+		 WHERE status = 'grace' AND grace_expires_at IS NOT NULL AND grace_expires_at < ?`,
+		time.Now(), time.Now())
+
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT encrypted_psk, encryption_nonce FROM bootstrap_psks
+		 WHERE status IN ('active', 'grace')
+		 AND (grace_expires_at IS NULL OR grace_expires_at > ?)`,
+		time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query PSKs: %w", err)
+	}
+	defer safe.Close(rows, m.logger, "failed to close rows")
+
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	encKey, err := DeriveEncryptionKey(rootKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	var psks []string
+	for rows.Next() {
+		var ciphertext, nonce []byte
+		if err := rows.Scan(&ciphertext, &nonce); err != nil {
+			return nil, fmt.Errorf("failed to scan PSK row: %w", err)
+		}
+		stored, err := DecryptPSK(ciphertext, nonce, encKey)
+		if err != nil {
+			continue // Skip corrupted entries.
+		}
+		psks = append(psks, stored)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating PSK rows: %w", err)
+	}
+	if len(psks) == 0 {
+		return nil, fmt.Errorf("no valid bootstrap PSKs found")
+	}
+	return psks, nil
+}
+
 // RotatePSK generates a new PSK and moves the current active PSK to grace status.
 func (m *Manager) RotatePSK(ctx context.Context, gracePeriod time.Duration) (string, error) {
 	newPSK, err := GeneratePSK()
