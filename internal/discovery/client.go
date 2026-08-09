@@ -36,9 +36,10 @@ func WithHTTPClient(httpClient *http.Client) Option {
 
 // Client wraps the discovery service client.
 type Client struct {
-	client     discoveryv1connect.DiscoveryServiceClient
-	timeout    time.Duration
-	httpClient *http.Client
+	client         discoveryv1connect.DiscoveryServiceClient
+	longPollClient discoveryv1connect.DiscoveryServiceClient
+	timeout        time.Duration
+	httpClient     *http.Client
 }
 
 // NewClient creates a raw Connect client for the discovery service.
@@ -60,6 +61,19 @@ func NewClient(endpoint string, opts ...Option) *Client {
 
 	c.client = discoveryv1connect.NewDiscoveryServiceClient(
 		c.httpClient,
+		endpoint,
+		connect.WithProtoJSON(),
+	)
+
+	// http.Client.Timeout is a whole-request deadline, which makes it
+	// unsuitable for long polling: it would silently override the longer
+	// context deadline supplied by PollBootstrapRendezvous. Reuse all of the
+	// caller's transport settings, but let the PollBootstrapRendezvous context
+	// own the deadline.
+	longPollHTTPClient := *c.httpClient
+	longPollHTTPClient.Timeout = 0
+	c.longPollClient = discoveryv1connect.NewDiscoveryServiceClient(
+		&longPollHTTPClient,
 		endpoint,
 		connect.WithProtoJSON(),
 	)
@@ -537,7 +551,7 @@ func (c *Client) PollBootstrapRendezvous(ctx context.Context, meshID string, wai
 		WaitSeconds: waitSeconds,
 	}
 
-	resp, err := c.client.PollBootstrapRendezvous(ctx, connect.NewRequest(protoReq))
+	resp, err := c.longPollClient.PollBootstrapRendezvous(ctx, connect.NewRequest(protoReq))
 	if err != nil {
 		return nil, fmt.Errorf("failed to poll bootstrap rendezvous: %w", err)
 	}
