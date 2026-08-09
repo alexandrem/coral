@@ -63,6 +63,13 @@ Agents expose a `session_id` (typically a UUID generated at startup).
 - **Conflict Resolution**: Colony detects the mismatch and resets its local
   checkpoint to 0, preventing "sequence ID from the future" errors.
 
+## Future Engineering Note: Multi-Chunk Bucket Accumulation & Agent Pre-Aggregation
+
+To handle high-volume traffic spikes exceeding the single-query batch limit (e.g. >50k records/min per agent):
+- **Multi-Chunk Poller Drain**: The poller can drain all consecutive chunks for a `session_id` within a single polling cycle before flushing to summary tables, ensuring bucket rollups encompass the complete minute.
+- **Additive & Histogram Upserts**: Summary tables should utilize additive SQL updates for totals (`total_spans = otel_summaries.total_spans + EXCLUDED.total_spans`) or logarithmic latency histograms to merge multi-chunk rollups without losing earlier data.
+- **Agent Pre-Aggregation & Tail Sampling**: Moving rollup computations to agent-side DuckDB reduces gRPC transmission bandwidth by >99%, streaming raw spans only for error traces and topology exemplars.
+
 ## Related Design Documents (RFDs)
 
 - [**RFD 089**: Sequence Based Polling Checkpoints](../../RFDs/089-sequence-based-polling-checkpoints.md)

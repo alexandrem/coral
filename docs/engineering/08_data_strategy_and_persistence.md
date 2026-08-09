@@ -72,6 +72,13 @@ For long-term analysis, a "Ship to Object Storage" (S3/GCS) pipeline for the
 edge DuckDB files could provide infinite retention without bloating the live
 Colony database.
 
+## Future Engineering Note: Agent-Side Pre-Aggregation & Tail Sampling
+
+To minimize network bandwidth while maintaining observability depth, the telemetry pipeline can evolve toward **Agent-Side Pre-Aggregation with Tail Sampling**:
+- **Agent-Side Rollups**: Agents run 1-minute rollup SQL queries locally in DuckDB to calculate percentiles (`p50`, `p95`, `p99`) and totals, transmitting only lightweight summary rows (~1 KB/min) over gRPC to reduce network bandwidth by >99%.
+- **Tail Sampling & Exemplars**: Stream 100% of error traces and a 1–5% sample of normal spans to the Colony for distributed trace flamegraphs, topology graph materialization (`service_connections`), and click-through exemplar debugging.
+- **Additive & Multi-Chunk Upserts**: To handle extreme traffic surges (>50k records/min), the Colony aggregation pipeline can drain all streaming chunks within a poll window before committing summaries, or use additive SQL upserts (`total_spans = otel_summaries.total_spans + EXCLUDED.total_spans`) and logarithmic latency histogram bins to prevent overwriting bucket rollups.
+
 ## Related Design Documents (RFDs)
 
 - [**RFD 010**: DuckDB Storage Initialization](../../RFDs/010-duckdb-storage-initialization.md)
