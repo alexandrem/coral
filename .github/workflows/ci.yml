@@ -76,10 +76,11 @@ jobs:
       - name: Generated files cache key
         id: generated
         run: |
-          # Cache key based on deno version and proto files
+          # Invalidate generated output when any generator input or tool version changes.
           DENO_VERSION=$(grep "DENO_VERSION=" scripts/download-deno.sh | cut -d= -f2 | tr -d '"' || echo "2.0.6")
           PROTO_HASH=${{ hashFiles('proto/**/*.proto', 'scripts/download-deno.sh') }}
-          echo "cache-key=generated-v2-${{ runner.os }}-${DENO_VERSION}-${PROTO_HASH}" >> $GITHUB_OUTPUT
+          GENERATOR_HASH=${{ hashFiles('buf.yaml', 'buf.gen.yaml', 'Makefile', 'go.mod', 'go.sum') }}
+          echo "cache-key=generated-v3-${{ runner.os }}-${DENO_VERSION}-${PROTO_HASH}-${GENERATOR_HASH}" >> $GITHUB_OUTPUT
 
       - name: Cache generated files
         id: cache-generated
@@ -91,10 +92,11 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           key: ${{ steps.generated.outputs.cache-key }}
           restore-keys: |
-            generated-v2-${{ runner.os }}-
+            generated-v3-${{ runner.os }}-
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -148,7 +150,8 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           fail-on-cache-miss: true
 
       - name: Setup Go
@@ -223,7 +226,8 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           fail-on-cache-miss: true
 
       - name: Setup Go
@@ -273,7 +277,8 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           fail-on-cache-miss: true
 
       - name: Setup Go
@@ -339,7 +344,8 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           fail-on-cache-miss: true
 
       - name: Setup Go
@@ -385,7 +391,8 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           fail-on-cache-miss: true
 
       - name: Set up Docker Buildx
@@ -460,7 +467,8 @@ jobs:
             internal/agent/ebpf/bpf_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
-            pkg/api/proto/**/*.pb.go
+            coral/**/*.pb.go
+            coral/**/*.connect.go
           fail-on-cache-miss: true
 
       - name: Setup Go

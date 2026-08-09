@@ -269,7 +269,7 @@ install-tools: ## Install development tools
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
 	go install github.com/bufbuild/buf/cmd/buf@v1.61.0
-	go install golang.org/x/tools/cmd/goimports@latest
+	go install golang.org/x/tools/cmd/goimports@v0.41.0
 	@echo "✓ Development tools installed to $(shell go env GOPATH)/bin"
 
 lint: ## Run linter
