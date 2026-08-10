@@ -8,7 +8,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Let an in-progress test run finish; newer runs for the same ref wait.
+  cancel-in-progress: false
 
 permissions:
   contents: read
