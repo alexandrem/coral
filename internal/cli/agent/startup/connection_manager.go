@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/heartbeat"
@@ -204,10 +205,7 @@ func (cm *ConnectionManager) AttemptDiscovery() (*discovery.LookupColonyResponse
 		return nil, fmt.Errorf("discovery lookup failed: %w", err)
 	}
 
-	// Update colony info with lock.
-	cm.colonyInfoMu.Lock()
-	cm.colonyInfo = colonyInfo
-	cm.colonyInfoMu.Unlock()
+	cm.SetColonyInfo(colonyInfo)
 
 	cm.logger.Info().
 		Str("colony_pubkey", colonyInfo.Pubkey).
@@ -227,6 +225,13 @@ func (cm *ConnectionManager) GetColonyInfo() *discovery.LookupColonyResponse {
 	cm.colonyInfoMu.RLock()
 	defer cm.colonyInfoMu.RUnlock()
 	return cm.colonyInfo
+}
+
+// SetColonyInfo updates the discovered Colony information.
+func (cm *ConnectionManager) SetColonyInfo(colonyInfo *discovery.LookupColonyResponse) {
+	cm.colonyInfoMu.Lock()
+	defer cm.colonyInfoMu.Unlock()
+	cm.colonyInfo = colonyInfo
 }
 
 // GetLastSuccessfulEndpoint returns the last WireGuard endpoint that successfully connected.
@@ -338,6 +343,38 @@ func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
 		Msg("Successfully registered with colony")
 
 	return cm.assignedIP, cm.assignedSubnet, nil
+}
+
+// ApplyBootstrapRegistration records the registration returned by RFD 109's
+// compound BootstrapAndRegister RPC. It deliberately does not set a Colony
+// endpoint: the NAT-local Colony initiates WireGuard and the Agent learns its
+// endpoint through WireGuard roaming.
+func (cm *ConnectionManager) ApplyBootstrapRegistration(resp *meshv1.RegisterResponse) error {
+	if resp == nil {
+		return fmt.Errorf("bootstrap registration response is nil")
+	}
+	if !resp.Accepted {
+		return fmt.Errorf("bootstrap registration rejected by colony: %s", resp.Reason)
+	}
+	if net.ParseIP(resp.AssignedIp) == nil {
+		return fmt.Errorf("invalid mesh IP in bootstrap registration response: %s", resp.AssignedIp)
+	}
+	if _, _, err := net.ParseCIDR(resp.MeshSubnet); err != nil {
+		return fmt.Errorf("invalid mesh subnet in bootstrap registration response: %w", err)
+	}
+
+	cm.stateMu.Lock()
+	cm.assignedIP = resp.AssignedIp
+	cm.assignedSubnet = resp.MeshSubnet
+	cm.currentEndpoint = ""
+	cm.stateMu.Unlock()
+	cm.setState(StateRegistered)
+
+	cm.logger.Info().
+		Str("assigned_ip", resp.AssignedIp).
+		Str("mesh_subnet", resp.MeshSubnet).
+		Msg("Applied compound bootstrap registration")
+	return nil
 }
 
 // StartHeartbeatLoop sends periodic heartbeats to the colony and monitors connection health.

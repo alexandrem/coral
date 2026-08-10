@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
 	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/config"
@@ -16,10 +18,14 @@ import (
 // BootstrapPhase handles certificate bootstrap during agent startup.
 // Implements RFD 048 - Agent Certificate Bootstrap.
 type BootstrapPhase struct {
-	logger      logging.Logger
-	agentConfig *config.AgentConfig
-	colonyID    string
-	agentID     string
+	logger          logging.Logger
+	agentConfig     *config.AgentConfig
+	colonyID        string
+	agentID         string
+	wireGuardPubkey string
+	services        []*meshv1.ServiceInfo
+	runtimeContext  *agentv1.RuntimeContextResponse
+	protocolVersion string
 }
 
 // BootstrapResult contains the result of the bootstrap phase.
@@ -29,6 +35,10 @@ type BootstrapResult struct {
 
 	// Bootstrapped indicates whether a new certificate was obtained.
 	Bootstrapped bool
+
+	// Registration is set when RFD 109 completed mesh enrollment over the
+	// rendezvous dial-back connection.
+	Registration *meshv1.RegisterResponse
 }
 
 // NewBootstrapPhase creates a new bootstrap phase handler.
@@ -37,12 +47,20 @@ func NewBootstrapPhase(
 	agentConfig *config.AgentConfig,
 	colonyID string,
 	agentID string,
+	wireGuardPubkey string,
+	services []*meshv1.ServiceInfo,
+	runtimeContext *agentv1.RuntimeContextResponse,
+	protocolVersion string,
 ) *BootstrapPhase {
 	return &BootstrapPhase{
-		logger:      logger,
-		agentConfig: agentConfig,
-		colonyID:    colonyID,
-		agentID:     agentID,
+		logger:          logger,
+		agentConfig:     agentConfig,
+		colonyID:        colonyID,
+		agentID:         agentID,
+		wireGuardPubkey: wireGuardPubkey,
+		services:        services,
+		runtimeContext:  runtimeContext,
+		protocolVersion: protocolVersion,
 	}
 }
 
@@ -149,6 +167,10 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		BootstrapPublicEndpoint:     bootstrapCfg.BootstrapPublicEndpoint,
 		VerifyBootstrapReachability: bootstrapCfg.VerifyBootstrapReachability,
 		BootstrapListenPort:         bootstrapCfg.BootstrapListenPort,
+		WireGuardPubkey:             bp.wireGuardPubkey,
+		Services:                    bp.services,
+		RuntimeContext:              bp.runtimeContext,
+		ProtocolVersion:             bp.protocolVersion,
 		Logger:                      bp.logger,
 	})
 
@@ -209,6 +231,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	return &BootstrapResult{
 		CertManager:  certManager,
 		Bootstrapped: true,
+		Registration: result.Registration,
 	}, nil
 }
 

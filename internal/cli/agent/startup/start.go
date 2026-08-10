@@ -105,14 +105,20 @@ Examples:
 				return err
 			}
 
-			// Phase 1.5: Certificate bootstrap (RFD 048).
-			// Required - agents must bootstrap with CA fingerprint validation.
-			if err := builder.InitializeBootstrap(); err != nil {
+			// Phase 2: Initialize network identity, STUN, and Discovery first.
+			// RFD 109 needs the Agent's registered WireGuard endpoint while the
+			// Colony processes the compound bootstrap request.
+			if err := builder.InitializeNetwork(); err != nil {
 				return err
 			}
 
-			// Phase 2: Initialize network (WireGuard, STUN, discovery).
-			if err := builder.InitializeNetwork(); err != nil {
+			// Phase 2.5: Detect runtime context before compound registration.
+			if err := builder.InitializeRuntime(); err != nil {
+				return err
+			}
+
+			// Phase 2.75: Certificate bootstrap (RFD 048/RFD 109).
+			if err := builder.InitializeBootstrap(); err != nil {
 				return err
 			}
 

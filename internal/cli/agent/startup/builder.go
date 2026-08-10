@@ -168,12 +168,18 @@ func (b *AgentServerBuilder) Validate() error {
 	return nil
 }
 
-// InitializeBootstrap performs certificate bootstrap (RFD 048).
-// This should be called after Validate() and before InitializeNetwork().
+// InitializeBootstrap performs certificate bootstrap (RFD 048/RFD 109).
+// Network identity and runtime detection must already be initialized so a
+// rendezvous fallback can perform compound mesh enrollment.
 // Bootstrap is required - agents must have CA fingerprint configured.
 func (b *AgentServerBuilder) InitializeBootstrap() error {
-	if b.configResult == nil {
-		return fmt.Errorf("must call Validate() before InitializeBootstrap()")
+	if b.configResult == nil || b.networkResult == nil || b.runtimeService == nil {
+		return fmt.Errorf("must initialize network and runtime before InitializeBootstrap()")
+	}
+
+	serviceInfos := make([]*meshv1.ServiceInfo, len(b.configResult.ServiceSpecs))
+	for i, spec := range b.configResult.ServiceSpecs {
+		serviceInfos[i] = spec.ToProto()
 	}
 
 	bootstrapPhase := NewBootstrapPhase(
@@ -181,6 +187,10 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 		b.configResult.AgentConfig,
 		b.configResult.Config.ColonyID,
 		b.agentID,
+		b.networkResult.AgentKeys.PublicKey,
+		serviceInfos,
+		b.runtimeService.GetCachedContext(),
+		version.Version,
 	)
 
 	// Check if bootstrap is configured.
@@ -195,6 +205,33 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 	}
 
 	b.bootstrapResult = result
+	return nil
+}
+
+// InitializeRuntime starts runtime detection before bootstrap so RFD 109 can
+// include the same runtime context ordinary registration sends.
+func (b *AgentServerBuilder) InitializeRuntime() error {
+	if b.configResult == nil {
+		return fmt.Errorf("must call Validate() before InitializeRuntime()")
+	}
+	if b.runtimeService != nil {
+		return nil
+	}
+
+	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+		Context:         b.ctx,
+		AgentID:         b.agentID,
+		Logger:          b.logger,
+		Version:         version.Version,
+		RefreshInterval: 5 * time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create runtime service: %w", err)
+	}
+	if err := runtimeService.Start(); err != nil {
+		return fmt.Errorf("failed to start runtime service: %w", err)
+	}
+	b.runtimeService = runtimeService
 	return nil
 }
 
@@ -246,26 +283,9 @@ func (b *AgentServerBuilder) InitializeStorage() error {
 
 // CreateAgentInstance creates the agent instance and runtime service.
 func (b *AgentServerBuilder) CreateAgentInstance() error {
-	if b.configResult == nil || b.storageResult == nil {
-		return fmt.Errorf("must call Validate() and InitializeStorage() before CreateAgentInstance()")
+	if b.configResult == nil || b.storageResult == nil || b.runtimeService == nil {
+		return fmt.Errorf("must initialize runtime and storage before CreateAgentInstance()")
 	}
-
-	// Create runtime service early (RFD 018).
-	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
-		Context:         b.ctx,
-		AgentID:         b.agentID,
-		Logger:          b.logger,
-		Version:         version.Version,
-		RefreshInterval: 5 * time.Minute,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create runtime service: %w", err)
-	}
-
-	if err := runtimeService.Start(); err != nil {
-		return fmt.Errorf("failed to start runtime service: %w", err)
-	}
-	b.runtimeService = runtimeService
 
 	// Create agent instance.
 	serviceInfos := make([]*meshv1.ServiceInfo, len(b.configResult.ServiceSpecs))
@@ -311,6 +331,53 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 		b.logger,
 	)
 	b.connectionManager = connMgr
+
+	// RFD 109 already registered the Agent while the NAT-local Colony held
+	// the reverse rendezvous connection. Configure the returned assignment
+	// with an empty peer endpoint and skip ordinary HTTP registration, which
+	// cannot reach a loopback/mesh-only Colony before WireGuard is up.
+	if b.bootstrapResult != nil && b.bootstrapResult.Registration != nil {
+		registration := b.bootstrapResult.Registration
+
+		// InitializeNetwork tolerates an early Discovery miss, while bootstrap
+		// retries its own lookup. Refresh here if bootstrap outlived that miss;
+		// configuring the dynamic Colony peer still needs its public key and
+		// mesh addresses.
+		if b.networkResult.ColonyInfo == nil {
+			colonyInfo, err := QueryDiscoveryForColony(b.configResult.Config, b.logger)
+			if err != nil {
+				return fmt.Errorf("failed to refresh colony information after compound bootstrap: %w", err)
+			}
+			b.networkResult.ColonyInfo = colonyInfo
+			connMgr.SetColonyInfo(colonyInfo)
+		}
+
+		if err := connMgr.ApplyBootstrapRegistration(registration); err != nil {
+			return fmt.Errorf("invalid compound bootstrap registration: %w", err)
+		}
+
+		networkInitializer := NewNetworkInitializer(
+			b.logger,
+			b.configResult.Config,
+			b.configResult.AgentConfig,
+			b.configResult.ServiceSpecs,
+			b.agentID,
+		)
+		if err := networkInitializer.ConfigureMesh(
+			b.networkResult,
+			registration.AssignedIp,
+			registration.MeshSubnet,
+			"",
+		); err != nil {
+			return fmt.Errorf("failed to configure mesh from compound bootstrap registration: %w", err)
+		}
+
+		b.logger.Info().
+			Str("agent_id", b.agentID).
+			Str("mesh_ip", registration.AssignedIp).
+			Msg("Agent enrolled through rendezvous bootstrap; skipped ordinary colony registration")
+		return nil
+	}
 
 	// Attempt initial registration with colony.
 	meshIPStr, meshSubnetStr, err := connMgr.AttemptRegistration()
