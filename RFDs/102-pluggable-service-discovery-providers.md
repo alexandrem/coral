@@ -81,7 +81,7 @@ Beyond the naming problem, the socket-table approach has three structural gaps:
 
 - `discovery.system_wide: true` — drops uprobe support entirely; Go binaries
   receive no traces.
-- Catch-all via `executable_name: ".*"` — same single-rule grouping problem as
+- Catch-all via `exe_path: ".*"` — same single-rule grouping problem as
   the port range; Beyla still merges all matches under one name.
 - Named rules in E2E fixture config — effective workaround for known
   environments, not a general solution.
@@ -102,7 +102,7 @@ A `DiscoveryManager` runs all active providers on a poll interval, merges
 their `ProcessCandidate` results (first non-empty name wins, in priority
 order), detects changes, and triggers the existing debounced Beyla restart
 (RFD 053) on change. `generateBeylaConfig` maps candidates with ports to
-`open_ports` rules and client-only candidates to `executable_name` rules.
+`open_ports` rules and client-only candidates to `exe_path` rules.
 
 **Key Design Decisions:**
 
@@ -122,10 +122,24 @@ order), detects changes, and triggers the existing debounced Beyla restart
   provider that returns a non-empty name for a candidate wins. This allows
   future providers (Docker, Kubernetes) to slot in at higher priority without
   touching lower-priority implementations.
-- **`executable_name` rules for client-only processes.** Beyla supports both
-  `open_ports` and `executable_name` discovery rules. Client-only processes
-  have no port to match on, so `executable_name` is the correct Beyla rule
-  type. This requires no Beyla changes.
+- **`exe_path` rules for client-only processes.** Beyla's discovery rules
+  support `open_ports` and `exe_path` (a regex match against the process
+  executable path); there is no `executable_name` field. Client-only
+  processes have no port to match on, so `exe_path` is the correct rule type
+  — the same field `generateBeylaConfig` already uses today for named
+  service rules (`.*<name>.*`). This requires no Beyla changes.
+- **Explicit `coral connect` registrations are a pinned candidate source, not
+  a separate update path.** RFD 053 added `Manager.UpdateDiscovery(serviceMap
+  map[int]string)`, called directly by the `ConnectService`/`DisconnectService`
+  RPC handlers with a port→name map. That signature cannot represent
+  client-only candidates because it is keyed by port. This RFD replaces it
+  with `Manager.SetStaticCandidates(candidates []discovery.ProcessCandidate)`,
+  so a `coral connect` registration becomes just another candidate — highest
+  priority, always present regardless of poll timing — that `DiscoveryManager`
+  merges alongside `EnvVarProvider` and `ProcFSProvider` on every cycle. This
+  keeps a single merge point, a single change-detection pass, and a single
+  debounced restart, instead of two independent code paths racing to
+  reconfigure Beyla.
 
 **Benefits:**
 
@@ -142,6 +156,9 @@ order), detects changes, and triggers the existing debounced Beyla restart
 ```
 coral-agent (MonitorAll=true)
   │
+  ├─ ConnectService/DisconnectService RPC
+  │    └─ DiscoveryManager.SetStaticCandidates() → pinned, highest-priority candidates
+  │
   ├─ DiscoveryManager (poll on sync_interval)
   │    ├─ EnvVarProvider.Probe() → true (always)
   │    │    └─ /proc/<pid>/environ → OTEL_SERVICE_NAME
@@ -149,17 +166,18 @@ coral-agent (MonitorAll=true)
   │    │    ├─ /proc/net/tcp[6] → listening ports → server candidates
   │    │    └─ /proc/<pid>/comm → all processes → client-only candidates
   │    │
-  │    ├─ merge by PID (priority: EnvVar name > ProcFS binary name)
+  │    ├─ merge by PID (priority: static (coral connect) > EnvVar name >
+  │    │    ProcFS binary name)
   │    ├─ detect added/removed candidates
-  │    └─ UpdatePorts() → debounced Beyla restart (RFD 053)
+  │    └─ Manager.applyDiscovery(candidates) → debounced Beyla restart (RFD 053)
   │
   └─ generateBeylaConfig([]ProcessCandidate)
        ├─ server candidates  → open_ports rules
        │    - name: otel-app
        │      open_ports: "8090"
-       ├─ client-only candidates → executable_name rules
+       ├─ client-only candidates → exe_path rules
        │    - name: kafka-consumer
-       │      executable_name: kafka-consumer
+       │      exe_path: ".*kafka-consumer.*"
        └─ unresolved fallback → residual catch-all (if any)
 ```
 
@@ -171,8 +189,10 @@ coral-agent (MonitorAll=true)
       and `Name` methods.
     - Define `ProcessCandidate` struct: PID, listening ports, name hint,
       source provider name, labels map, client-only flag.
-    - Implement `DiscoveryManager`: provider registration, priority-ordered
-      merge, change detection, `UpdatePorts` callback.
+    - Implement `DiscoveryManager`: provider registration, a pinned static
+      candidate slot fed by `SetStaticCandidates` (always present, immune to
+      poll-cycle aging, highest priority), priority-ordered merge, change
+      detection, and an `applyDiscovery` callback on change.
     - Implement `ProcFSProvider`: socket table scan (`/proc/net/tcp[6]`) plus
       full `/proc/<pid>/comm` walk; marks candidates with no listening port as
       client-only.
@@ -183,20 +203,30 @@ coral-agent (MonitorAll=true)
 2. **`internal/agent/beyla/Manager`** (config generation):
 
     - Update `generateBeylaConfig` to accept `[]ProcessCandidate`.
-    - Emit `executable_name` service rules for candidates with
-      `IsClientOnly=true`.
+    - Emit `exe_path` service rules (regex-anchored to the process/service
+      name, `.*<name>.*`, matching the pattern already used for named service
+      rules today) for candidates with `IsClientOnly=true`.
     - Emit `open_ports` service rules for candidates with listening ports.
     - Residual catch-all scoped to ports not covered by any named rule; omitted
       entirely when all processes are resolved.
     - Static `ServiceMap` entries override auto-discovered names for the same
       port.
 
-3. **`internal/agent/beyla/Manager`** (sync loop):
+3. **`internal/agent/beyla/Manager`** (sync loop and dynamic connects):
 
     - Replace the existing poll goroutine with a call to
       `DiscoveryManager.Run()`.
     - Wire `DiscoverySyncInterval` and `DiscoveryProviders` config fields
       through to `DiscoveryManager`.
+    - Replace `UpdateDiscovery(serviceMap map[int]string)` with
+      `SetStaticCandidates(candidates []discovery.ProcessCandidate)`; update
+      the `ConnectService`/`DisconnectService` handlers (`internal/agent/agent.go`)
+      to build a `ProcessCandidate` per connected service (`IsClientOnly=false`,
+      single-element `Ports`) instead of a raw port map.
+    - `DiscoveryManager` merges static candidates and provider candidates into
+      one table and drives the existing debounced-restart logic (RFD 053)
+      from that single merge, so a poll tick and a `coral connect` call never
+      trigger independent, racing restarts.
 
 **Configuration:**
 
@@ -219,10 +249,15 @@ beyla:
 - [ ] Create `internal/agent/beyla/discovery/` package
 - [ ] Define `ProcessDiscoveryProvider` interface (`Probe`, `Discover`, `Name`)
 - [ ] Define `ProcessCandidate` struct with all fields
-- [ ] Implement `DiscoveryManager`: provider list, priority merge by PID,
-      change detection (added/removed PIDs), `UpdatePorts` callback on change
-- [ ] Unit tests: merge with two providers (higher-priority name wins), change
-      detection fires callback on add/remove, no callback when map unchanged
+- [ ] Implement `DiscoveryManager`: provider list, a pinned static-candidate
+      slot (`SetStaticCandidates`, priority above all providers, not aged out
+      by a poll cycle), priority merge by PID, change detection (added/removed
+      PIDs), `applyDiscovery` callback on change
+- [ ] Unit tests: merge with two providers (higher-priority name wins), static
+      candidate always wins over provider candidates for the same PID, static
+      candidate survives a poll cycle where no provider reports that PID,
+      change detection fires callback on add/remove, no callback when map
+      unchanged
 
 ### Phase 2: ProcFSProvider
 
@@ -248,18 +283,25 @@ beyla:
 ### Phase 4: Integration, config, and documentation
 
 - [ ] Wire `DiscoveryManager` into `Manager.Start()`
+- [ ] Replace `Manager.UpdateDiscovery(map[int]string)` with
+      `Manager.SetStaticCandidates([]discovery.ProcessCandidate)`; update the
+      `ConnectService`/`DisconnectService` handlers in
+      `internal/agent/agent.go` to build candidates instead of a port map
 - [ ] Update `generateBeylaConfig` to accept `[]ProcessCandidate`; emit
-      `executable_name` rules for `IsClientOnly=true` candidates
+      `exe_path` rules (`.*<name>.*`) for `IsClientOnly=true` candidates
 - [ ] Add `DiscoverySyncInterval` and `DiscoveryProviders` to `Config` struct
 - [ ] Unit tests for `generateBeylaConfig`: server rule, client-only rule,
       residual catch-all absent when all ports resolved, static `ServiceMap`
       override
+- [ ] Unit tests for the static/provider merge: a `coral connect`-registered
+      service and a provider-discovered service coexist without duplicate
+      rules or restart races
 - [ ] Update E2E topology test to use `MonitorAll` without a fixture config
       file; assert `coral query topology` returns the `otel-app → cpu-app`
       edge within the polling window
 - [ ] E2E test: run a client-only process (no listening port) with
-      `OTEL_SERVICE_NAME` set; assert Beyla config contains an
-      `executable_name` rule for it
+      `OTEL_SERVICE_NAME` set; assert Beyla config contains an `exe_path`
+      rule for it
 - [ ] Update `docs/AGENT.md`: document `MonitorAll` behaviour,
       `discovery_sync_interval`, and `discovery_providers` config keys
 - [ ] Update `docs/SERVICE_DISCOVERY.md`: document provider priority chain
@@ -267,8 +309,10 @@ beyla:
 
 ## API Changes
 
-No protobuf or RPC changes. Internal Beyla config generation and agent
-configuration only.
+No protobuf or RPC changes. `Manager.UpdateDiscovery(map[int]string)` is
+replaced by `Manager.SetStaticCandidates([]discovery.ProcessCandidate)` — an
+internal Go API change only, not a wire-protocol change; `ConnectService` and
+`DisconnectService` RPCs are unaffected.
 
 ### Configuration Changes
 
@@ -294,7 +338,7 @@ discovery:
     - open_ports: "1-65535"
 ```
 
-**After (named rules per process, client-only via executable_name):**
+**After (named rules per process, client-only via exe_path):**
 
 ```yaml
 discovery:
@@ -304,7 +348,7 @@ discovery:
     - name: cpu-app
       open_ports: "8080"
     - name: kafka-consumer         # OTEL_SERVICE_NAME or binary name
-      executable_name: kafka-consumer
+      exe_path: ".*kafka-consumer.*"
     # no residual catch-all when all processes are resolved
 ```
 
@@ -313,6 +357,8 @@ discovery:
 ### Unit Tests
 
 - `DiscoveryManager`: merge priority (higher-priority provider name wins);
+  static candidates (`SetStaticCandidates`) always outrank provider
+  candidates and survive a poll cycle with no matching provider result;
   change detection fires callback on add, remove, name change; idempotent on
   unchanged map.
 - `ProcFSProvider`: server candidate has correct port list; client-only
@@ -320,8 +366,8 @@ discovery:
   IPv6 hex address parsing.
 - `EnvVarProvider`: `OTEL_SERVICE_NAME` extracted correctly; falls back to
   `SERVICE_NAME`; absent env var returns empty name (not an error).
-- `generateBeylaConfig`: `open_ports` rule for server; `executable_name` rule
-  for client-only; catch-all absent when all processes resolved; static
+- `generateBeylaConfig`: `open_ports` rule for server; `exe_path` rule for
+  client-only; catch-all absent when all processes resolved; static
   `ServiceMap` overrides auto-discovered name.
 
 ### Integration Tests
@@ -331,6 +377,10 @@ discovery:
 - Run a process with no listening socket and `OTEL_SERVICE_NAME=my-worker` in
   its environment; run full `DiscoveryManager` poll; assert candidate has
   `Name="my-worker"` and `IsClientOnly=true`.
+- Call `SetStaticCandidates` with a `coral connect`-style entry, then run a
+  `DiscoveryManager` poll that also discovers the same PID via `ProcFSProvider`
+  with a different name; assert the static name wins and only one Beyla
+  restart is triggered.
 
 ### E2E Tests
 
@@ -347,7 +397,7 @@ discovery:
 `DiscoveryManager` and two built-in providers (`ProcFSProvider`,
 `EnvVarProvider`) will replace the `open_ports: 1-65535` catch-all rule in
 `MonitorAll` mode. Every listening server gets a named `open_ports` rule;
-every client-only process gets a named `executable_name` rule. `OTEL_SERVICE_NAME`
+every client-only process gets a named `exe_path` rule. `OTEL_SERVICE_NAME`
 is respected automatically in all Linux environments.
 
 ## Future Work
