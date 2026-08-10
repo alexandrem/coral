@@ -153,8 +153,12 @@ type RegisterRequest struct {
 	ProtocolVersion string `protobuf:"bytes,12,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	// NEW: eBPF capabilities (RFD 013).
 	EbpfCapabilities *v1.EbpfCapabilities `protobuf:"bytes,13,opt,name=ebpf_capabilities,json=ebpfCapabilities,proto3" json:"ebpf_capabilities,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Agent feature capabilities (RFD 109). Gates optional protocol features,
+	// e.g. "bootstrap_and_register" for the compound RFD 109 enrollment RPC,
+	// independently of protocol_version.
+	Capabilities  []string `protobuf:"bytes,14,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterRequest) Reset() {
@@ -261,6 +265,13 @@ func (x *RegisterRequest) GetProtocolVersion() string {
 func (x *RegisterRequest) GetEbpfCapabilities() *v1.EbpfCapabilities {
 	if x != nil {
 		return x.EbpfCapabilities
+	}
+	return nil
+}
+
+func (x *RegisterRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
 	}
 	return nil
 }
@@ -555,7 +566,7 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"binaryHash\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe0\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x84\x05\n" +
 	"\x0fRegisterRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12)\n" +
 	"\x0ecomponent_name\x18\x02 \x01(\tB\x02\x18\x01R\rcomponentName\x12\x1b\n" +
@@ -568,7 +579,8 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	" \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\x12O\n" +
 	"\x0fruntime_context\x18\v \x01(\v2&.coral.agent.v1.RuntimeContextResponseR\x0eruntimeContext\x12)\n" +
 	"\x10protocol_version\x18\f \x01(\tR\x0fprotocolVersion\x12M\n" +
-	"\x11ebpf_capabilities\x18\r \x01(\v2 .coral.agent.v1.EbpfCapabilitiesR\x10ebpfCapabilities\x1a9\n" +
+	"\x11ebpf_capabilities\x18\r \x01(\v2 .coral.agent.v1.EbpfCapabilitiesR\x10ebpfCapabilities\x12\"\n" +
+	"\fcapabilities\x18\x0e \x03(\tR\fcapabilities\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf8\x01\n" +

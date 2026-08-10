@@ -186,6 +186,129 @@ func TestRendezvousBootstrapPublishesAndCompletesOnDialBack(t *testing.T) {
 	_ = payload // payload.SessionNonce validated implicitly by fakeColonyService not checking header (agent side only asserts response parses).
 }
 
+// TestRendezvousBootstrapUsesCompoundRPCWhenWireGuardPubkeySet is the RFD
+// 109 counterpart of TestRendezvousBootstrapPublishesAndCompletesOnDialBack:
+// when the Agent has WireGuard registration data available, rendezvous
+// bootstrap must call BootstrapAndRegister instead of plain
+// RequestCertificate, and surface the returned RegisterResponse on Result.
+func TestRendezvousBootstrapUsesCompoundRPCWhenWireGuardPubkeySet(t *testing.T) {
+	fakeSvc := &fakeDiscoveryService{}
+	path, handler := discoveryv1connect.NewDiscoveryServiceHandler(fakeSvc)
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	meshID := "mesh-1"
+	psk := "coral-psk:abc123"
+	agentID := "agent-1"
+
+	client := NewClient(Config{
+		AgentID:                 agentID,
+		ColonyID:                meshID,
+		CAFingerprint:           "sha256:aabbcc",
+		BootstrapPSK:            psk,
+		DiscoveryEndpoint:       srv.URL,
+		BootstrapPublicEndpoint: "127.0.0.1:0",
+		WireGuardPubkey:         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		Logger:                  zerolog.Nop(),
+	})
+
+	cert, rootFingerprint, err := selfSignedColonyCert(meshID)
+	if err != nil {
+		t.Fatalf("failed to generate colony cert: %v", err)
+	}
+	client.cfg.CAFingerprint = rootFingerprint
+	client.validator = NewCAValidator(rootFingerprint, meshID)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve a port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	client.cfg.BootstrapListenPort = port
+
+	type outcome struct {
+		res *Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := client.rendezvousBootstrap(context.Background(), "test-token")
+		done <- outcome{res, err}
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if fakeSvc.lastReq.Load() != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if fakeSvc.lastReq.Load() == nil {
+		t.Fatal("timed out waiting for a rendezvous publish")
+	}
+
+	dialAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", dialAddr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("failed to dial agent listener: %v", err)
+	}
+	tlsConn := tls.Server(conn, &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
+	})
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatalf("colony-side handshake failed: %v", err)
+	}
+
+	requestCertCalled := int32(0)
+	bootstrapAndRegisterCalled := int32(0)
+	var gotWireguardPubkey string
+	colonySvc := &fakeColonyService{
+		onRequestCertificate: func(req *colonyv1.RequestCertificateRequest) {
+			atomic.AddInt32(&requestCertCalled, 1)
+		},
+		onBootstrapAndRegister: func(req *colonyv1.BootstrapAndRegisterRequest) {
+			atomic.AddInt32(&bootstrapAndRegisterCalled, 1)
+			gotWireguardPubkey = req.Registration.WireguardPubkey
+		},
+	}
+	_, colonyHTTPHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
+
+	srv2 := &http2.Server{}
+	go srv2.ServeConn(tlsConn, &http2.ServeConnOpts{Handler: colonyHTTPHandler})
+
+	select {
+	case o := <-done:
+		if o.err != nil {
+			t.Fatalf("rendezvousBootstrap failed: %v", o.err)
+		}
+		if o.res == nil {
+			t.Fatal("expected a non-nil result")
+		}
+		if o.res.Registration == nil {
+			t.Fatal("expected Result.Registration to be set for compound enrollment")
+		}
+		if o.res.Registration.AssignedIp != "100.64.0.5" {
+			t.Fatalf("expected assigned IP from compound response, got %q", o.res.Registration.AssignedIp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for rendezvousBootstrap to complete")
+	}
+
+	if atomic.LoadInt32(&requestCertCalled) != 0 {
+		t.Fatal("expected plain RequestCertificate to never be called when WireGuardPubkey is set")
+	}
+	if atomic.LoadInt32(&bootstrapAndRegisterCalled) != 1 {
+		t.Fatal("expected BootstrapAndRegister to be called exactly once")
+	}
+	if gotWireguardPubkey != client.cfg.WireGuardPubkey {
+		t.Fatalf("expected registration to carry the configured WireGuard pubkey, got %q", gotWireguardPubkey)
+	}
+}
+
 // TestRendezvousAcceptLoopSurvivesSilentConnection simulates Discovery's own
 // reachability probe (a connect-only, no-TLS-data connection) landing on the
 // agent's listener before the real colony dials in, and asserts it does not

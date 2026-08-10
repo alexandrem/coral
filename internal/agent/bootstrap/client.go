@@ -17,8 +17,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/retry"
@@ -53,6 +55,17 @@ type Config struct {
 	// binds to. Default: constants.DefaultAgentBootstrapPort.
 	BootstrapListenPort int
 
+	// WireGuardPubkey, when set, opts the rendezvous fallback into RFD 109's
+	// compound BootstrapAndRegister RPC instead of plain RequestCertificate,
+	// so mesh registration completes atomically with certificate issuance
+	// over the same dial-back connection. Left empty, rendezvous bootstrap
+	// behaves exactly as it did under RFD 108 alone (RequestCertificate,
+	// followed by the ordinary MeshService.Register retry loop).
+	WireGuardPubkey string
+	Services        []*meshv1.ServiceInfo
+	RuntimeContext  *agentv1.RuntimeContextResponse
+	ProtocolVersion string
+
 	ReefID string
 	Logger zerolog.Logger
 }
@@ -64,6 +77,13 @@ type Result struct {
 	RootCA        []byte
 	ExpiresAt     time.Time
 	AgentSPIFFEID string
+
+	// Registration is set only when rendezvous bootstrap completed via RFD
+	// 109's compound BootstrapAndRegister. When set, the caller must skip
+	// the ordinary pre-mesh MeshService.Register retry loop and configure
+	// the Colony WireGuard peer with no endpoint (RFD 109 WireGuard
+	// endpoint establishment) instead.
+	Registration *meshv1.RegisterResponse
 }
 
 type Client struct {

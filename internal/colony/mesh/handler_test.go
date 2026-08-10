@@ -168,7 +168,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selectedEp, matchType := selectBestAgentEndpoint(
+			selectedEp, matchType := SelectBestAgentEndpoint(
 				tt.observedEndpoints,
 				tt.peerHost,
 				logger,
@@ -214,7 +214,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		// Agent connected from 192.168.5.2
 		peerHost := "192.168.5.2"
 
-		selectedEp, matchType := selectBestAgentEndpoint(
+		selectedEp, matchType := SelectBestAgentEndpoint(
 			observedEndpoints,
 			peerHost,
 			logger,
@@ -244,7 +244,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		// Agent connected via secondary IP
 		peerHost := "198.51.100.50"
 
-		selectedEp, matchType := selectBestAgentEndpoint(
+		selectedEp, matchType := SelectBestAgentEndpoint(
 			observedEndpoints,
 			peerHost,
 			logger,
@@ -270,7 +270,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		// Agent connected via Docker network
 		peerHost := "172.18.0.10"
 
-		selectedEp, matchType := selectBestAgentEndpoint(
+		selectedEp, matchType := SelectBestAgentEndpoint(
 			observedEndpoints,
 			peerHost,
 			logger,
@@ -307,6 +307,6 @@ func BenchmarkSelectBestAgentEndpoint(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		selectBestAgentEndpoint(endpoints, peerHost, logger, fmt.Sprintf("agent-%d", i))
+		SelectBestAgentEndpoint(endpoints, peerHost, logger, fmt.Sprintf("agent-%d", i))
 	}
 }

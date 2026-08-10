@@ -52,6 +52,11 @@ message RegisterRequest {
 
   // NEW: eBPF capabilities (RFD 013).
   coral.agent.v1.EbpfCapabilities ebpf_capabilities = 13;
+
+  // Agent feature capabilities (RFD 109). Gates optional protocol features,
+  // e.g. "bootstrap_and_register" for the compound RFD 109 enrollment RPC,
+  // independently of protocol_version.
+  repeated string capabilities = 14;
 }
 
 message RegisterResponse {

@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 // selfSignedColonyCert builds a two-certificate chain [leaf, root] where the
@@ -87,7 +89,9 @@ func selfSignedColonyCert(meshID string) (tls.Certificate, string, error) {
 // (which checks the returned cert's public key against the CSR key) succeeds.
 type fakeColonyService struct {
 	colonyv1connect.UnimplementedColonyServiceHandler
-	onRequestCertificate func(*colonyv1.RequestCertificateRequest)
+	onRequestCertificate   func(*colonyv1.RequestCertificateRequest)
+	onBootstrapAndRegister func(*colonyv1.BootstrapAndRegisterRequest)
+	registrationResponse   *meshv1.RegisterResponse // used by BootstrapAndRegister; defaults to a minimal accepted response.
 }
 
 func (f *fakeColonyService) RequestCertificate(
@@ -98,7 +102,47 @@ func (f *fakeColonyService) RequestCertificate(
 		f.onRequestCertificate(req.Msg)
 	}
 
-	block, _ := pem.Decode(req.Msg.Csr)
+	resp, err := issueTestCertificate(req.Msg.Csr)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (f *fakeColonyService) BootstrapAndRegister(
+	ctx context.Context,
+	req *connect.Request[colonyv1.BootstrapAndRegisterRequest],
+) (*connect.Response[colonyv1.BootstrapAndRegisterResponse], error) {
+	if f.onBootstrapAndRegister != nil {
+		f.onBootstrapAndRegister(req.Msg)
+	}
+
+	certResp, err := issueTestCertificate(req.Msg.Bootstrap.Csr)
+	if err != nil {
+		return nil, err
+	}
+
+	regResp := f.registrationResponse
+	if regResp == nil {
+		regResp = &meshv1.RegisterResponse{
+			Accepted:     true,
+			AssignedIp:   "100.64.0.5",
+			MeshSubnet:   "100.64.0.0/16",
+			RegisteredAt: timestamppb.Now(),
+		}
+	}
+
+	return connect.NewResponse(&colonyv1.BootstrapAndRegisterResponse{
+		Certificate:  certResp,
+		Registration: regResp,
+	}), nil
+}
+
+// issueTestCertificate signs whatever CSR the agent presents so the
+// agent's own result-parsing logic (which checks the returned cert's
+// public key against the CSR key) succeeds.
+func issueTestCertificate(csrPEM []byte) (*colonyv1.RequestCertificateResponse, error) {
+	block, _ := pem.Decode(csrPEM)
 	if block == nil {
 		return nil, fmt.Errorf("invalid CSR PEM")
 	}
@@ -139,9 +183,9 @@ func (f *fakeColonyService) RequestCertificate(
 	}
 	rootPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})
 
-	return connect.NewResponse(&colonyv1.RequestCertificateResponse{
+	return &colonyv1.RequestCertificateResponse{
 		Certificate: certPEM,
 		CaChain:     rootPEM,
 		ExpiresAt:   time.Now().Add(time.Hour).Unix(),
-	}), nil
+	}, nil
 }
