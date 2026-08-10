@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -194,7 +195,7 @@ func EnsureServicesConnected(
 			})
 			resp, connectErr := agentClient.ConnectService(ctx, req)
 			alreadyConn := (connectErr != nil && isAlreadyConnected(connectErr)) ||
-				(connectErr == nil && !resp.Msg.Success && isAlreadyConnected(fmt.Errorf(resp.Msg.Error)))
+				(connectErr == nil && !resp.Msg.Success && isAlreadyConnected(errors.New(resp.Msg.Error)))
 			if alreadyConn {
 				// Disconnect then reconnect so SDK capabilities are set on the fresh monitor.
 				t.Logf("Service %s already connected; disconnecting to re-register with SDK capabilities", svc.Name)
