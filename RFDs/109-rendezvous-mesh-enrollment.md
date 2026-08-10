@@ -157,8 +157,10 @@ updates a peer's roaming endpoint when it receives an authenticated packet.
 
 ## Non-goals
 
-- Automatic discovery of a TCP bootstrap listener. The Agent still explicitly
-  configures `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` under RFD 108.
+- Automatic TCP NAT port mapping. For the common public-Agent case, startup
+  derives the rendezvous listener as `STUN-observed-IP:8444`; operators still
+  configure `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` when TCP forwarding changes the
+  external address or port.
 - Solving the case where neither side is dialable and neither a relay nor a
   public endpoint is available.
 - Turning Discovery into a TCP, HTTP, or WireGuard relay.
@@ -587,7 +589,7 @@ the rendezvous record TTL. Existing endpoint validation and rate limits apply.
 
 | Condition | Result | Operator action |
 | --- | --- | --- |
-| No `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Existing direct-bootstrap failure | Configure the Agent TCP endpoint. |
+| No explicit bootstrap endpoint and no Discovery-confirmed Agent STUN address | Existing direct-bootstrap failure | Configure STUN/fixed Agent UDP port, or set the Agent TCP endpoint explicitly. |
 | No usable Agent observed UDP endpoint | Enrollment rejected before ticket consumption or issuance; record unacked; Agent retries the same ticket on the next dial-back | Configure STUN and allow the Agent WireGuard UDP port. |
 | PSK/ticket/nonce invalid | Enrollment rejected; no mesh mutation, no ticket consumed | Correct credentials; investigate security logs. |
 | Peer add fails | Roll back a newly allocated IP; ticket not yet consumed; record unacked; Agent retries the same ticket on the next dial-back | Inspect Colony WireGuard/device logs. |

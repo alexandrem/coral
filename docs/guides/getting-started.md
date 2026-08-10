@@ -106,8 +106,10 @@ Press Ctrl+C to stop
 
 ### Production Deployment (different machines)
 
-**IMPORTANT:** For agents to connect from different machines, you **MUST** set
-`CORAL_PUBLIC_ENDPOINT` to your colony's publicly reachable IP or hostname:
+Colony automatically discovers its public UDP mapping through STUN and
+registers it with Discovery. In ordinary NAT environments, no static endpoint
+is required. Set `CORAL_PUBLIC_ENDPOINT` when you need to override the observed
+mapping with a stable IP, hostname, load balancer, or explicit port forward:
 
 ```bash
 # With public IP
@@ -117,18 +119,20 @@ CORAL_PUBLIC_ENDPOINT=203.0.113.5:41580 ./bin/coral colony start
 CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 ./bin/coral colony start
 ```
 
-**Why this is required:**
+**Why an override may be required:**
 
 - WireGuard endpoints must be reachable addresses (public IP or hostname)
 - The mesh IPs (10.42.0.1) only work **inside** the tunnel
-- Without `CORAL_PUBLIC_ENDPOINT`, agents can't establish the initial connection
+- Symmetric NAT, load balancers, and port-rewriting forwards may not match the
+  address observed by STUN
 
 **Cloud deployments:**
 
 - AWS EC2: Use Elastic IP or public IP from instance metadata
 - GCP: Use external IP from instance metadata
 - Azure: Use public IP address
-- Behind NAT: Configure port forwarding and use public IP
+- Behind NAT: Prefer automatic STUN registration; configure a forwarding
+  override if the observed mapping is not reusable
 - Docker: Use host machine's public IP
 
 **Verify registration:**

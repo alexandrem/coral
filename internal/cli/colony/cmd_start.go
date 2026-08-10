@@ -24,6 +24,7 @@ import (
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery/registration"
 	"github.com/coral-mesh/coral/internal/logging"
+	meshwg "github.com/coral-mesh/coral/internal/wireguard"
 )
 
 func newStartCmd() *cobra.Command {
@@ -59,8 +60,8 @@ Environment Variables:
                              Examples:
                                Single:   colony.example.com:41580
                                Multiple: 192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
-                             Default: 127.0.0.1:<port> (local development only)
-                             Production: MUST be set to reachable public IP/hostname
+                             Optional override: startup registers a STUN-observed endpoint
+                             automatically when Discovery STUN servers are configured
                              Alternative: Configure public_endpoints in colony YAML config
   CORAL_MESH_SUBNET        - WireGuard mesh network subnet (CIDR notation)
                              Default: 100.64.0.0/10 (CGNAT address space, RFC 6598)
@@ -68,8 +69,9 @@ Environment Variables:
                              Use CGNAT (100.64.0.0/10) to avoid conflicts with corporate networks
 
 Production Deployment:
-  For agents to connect from different machines, you MUST set CORAL_PUBLIC_ENDPOINT
-  to your colony's publicly reachable IP address or hostname.
+  Colony automatically registers its STUN-observed WireGuard endpoint with
+  Discovery. Set CORAL_PUBLIC_ENDPOINT only to override that address (for
+  example, behind a static port-forward, load balancer, or restrictive NAT).
 
 Examples:
   # Local development (agents on same machine)
@@ -161,6 +163,30 @@ Examples:
 
 			// TODO: Implement remaining colony startup tasks
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
+
+			// Discover the Colony's live public WireGuard endpoint before the
+			// device binds its fixed UDP port. Discovery registration carries
+			// this observed endpoint so Agents do not require a static
+			// CORAL_PUBLIC_ENDPOINT in ordinary NAT environments.
+			var colonyObservedEndpoint *discoverypb.Endpoint
+			colonySTUNServers := colonyConfigForEndpoints.Discovery.STUNServers
+			if len(colonySTUNServers) == 0 {
+				colonySTUNServers = []string{constants.DefaultSTUNServer}
+			}
+			if cfg.WireGuard.Port > 0 {
+				observed := meshwg.DiscoverPublicEndpoint(
+					colonySTUNServers,
+					cfg.WireGuard.Port,
+					logger,
+				)
+				if observed != nil {
+					colonyObservedEndpoint = &discoverypb.Endpoint{
+						Ip:       observed.IP,
+						Port:     observed.Port,
+						Protocol: "udp",
+					}
+				}
+			}
 
 			// Initialize WireGuard device (but don't start it yet)
 			wgDevice, err := colonywg.CreateDevice(cfg, logger)
@@ -263,11 +289,6 @@ Examples:
 			if publicPort == 0 {
 				publicPort = constants.DefaultPublicEndpointPort
 			}
-
-			// TODO: Implement STUN discovery before WireGuard initialization.
-			// For now, colonies rely on configured endpoints or agents discovering them via STUN.
-			// See RFD 029 for planned colony-based STUN enhancement.
-			var colonyObservedEndpoint *discoverypb.Endpoint
 
 			// Register interval is loaded from config (env var override via MergeFromEnv)
 			registerInterval := colonyConfig.Discovery.RegisterInterval

@@ -284,7 +284,7 @@ template.
 |-----------|----------------------|------------------------------|--------------------|
 | **9000**  | HTTP/2 (Connect RPC) | Colony gRPC API              | Agents (mesh), CLI |
 | **8443**  | HTTPS                | Public endpoint (API tokens) | External clients   |
-| **51820** | UDP                  | WireGuard mesh               | Agents             |
+| **41580** | UDP                  | WireGuard mesh               | Agents             |
 
 ---
 

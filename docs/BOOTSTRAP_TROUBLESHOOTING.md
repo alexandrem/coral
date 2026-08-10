@@ -330,20 +330,25 @@ configured endpoint agent.example.com:8444 is not reachable from the internet
 
 **Solutions:**
 
-1. Configure the Agent's public address explicitly. It must be an externally
-   reachable `host:port`, not a mesh or private address:
+1. For `coral agent start`, confirm the Agent logged both a successful
+   STUN/Discovery registration and an automatically derived
+   `<public-IP>:8444` endpoint. The Agent must use a fixed WireGuard port;
+   `CORAL_WIREGUARD_PORT=0` or `-1` disables this discovery path.
+
+2. If the externally reachable TCP address or port differs from the automatic
+   endpoint, configure it explicitly. It must not be a mesh or private address:
 
    ```bash
    coral agent bootstrap ... \
      --bootstrap-public-endpoint agent.example.com:8444
    ```
 
-2. Permit and, where required, forward inbound **TCP 8444** to the Agent. If
+3. Permit and, where required, forward inbound **TCP 8444** to the Agent. If
    the local listener uses another port, set it with
    `--bootstrap-listen-port` / `CORAL_BOOTSTRAP_LISTEN_PORT` and ensure the
    public endpoint routes to that listener.
 
-3. Check the endpoint from a network that can reach the Agent, not from the
+4. Check the endpoint from a network that can reach the Agent, not from the
    Agent itself:
 
    ```bash

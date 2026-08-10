@@ -139,10 +139,11 @@ primitive. When enabled, it is separately quota- and concurrency-limited, and
 failure is an actionable configuration signal rather than an enrollment
 authorization decision.
 
-The fallback requires an explicitly configured, dialable Agent endpoint
-(`CORAL_BOOTSTRAP_PUBLIC_ENDPOINT`). It does not perform automatic TCP NAT
-discovery and does not solve a topology in which both peers lack an inbound
-path.
+During `coral agent start`, the fallback derives a dial-back endpoint from the
+Agent's Discovery-confirmed STUN IP and bootstrap listen port. Operators use
+`CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` when TCP is exposed at a different address
+or port. This inference does not perform TCP NAT discovery and does not solve a
+topology in which both peers lack an inbound path.
 
 ## 4. Discovery Service Characteristics
 

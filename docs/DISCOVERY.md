@@ -75,7 +75,7 @@ Content-Type: application/json
   "colony_id": "prod-us-east",
   "region": "us-east-1",
   "public_key": "wg_pubkey_abc123...",
-  "endpoint": "203.0.113.5:51820",
+  "endpoint": "203.0.113.5:41580",
   "lease_ttl": 60,
   "metadata": {
     "version": "v1.0.0",
@@ -103,7 +103,7 @@ Content-Type: application/json
     "status": "conflict",
     "error": "Colony ID 'prod-us-east' already registered",
     "existing": {
-        "endpoint": "203.0.113.5:51820",
+        "endpoint": "203.0.113.5:41580",
         "registered_at": "2025-11-01T12:00:00Z",
         "lease_expires_at": "2025-11-01T12:01:00Z",
         "region": "us-east-1"
@@ -187,7 +187,7 @@ GET https://discovery.coralmesh.dev/v1/colonies/prod-us-east
     "colony_id": "prod-us-east",
     "region": "us-east-1",
     "public_key": "wg_pubkey_abc123...",
-    "endpoint": "203.0.113.5:51820",
+    "endpoint": "203.0.113.5:41580",
     "lease_expires_at": "2025-11-01T12:01:00Z",
     "nat_traversal": {
         "method": "direct",
@@ -294,7 +294,7 @@ changes, failover, NAT.
 
 ```
 colony_id: prod-colony
-endpoint: 203.0.113.5:51820
+endpoint: 203.0.113.5:41580
 status: active
 lease_expires: 2025-11-01T12:01:00Z
 ```
@@ -316,11 +316,11 @@ lease_expires: 2025-11-01T12:01:00Z
 
 ```
 colony_id: prod-us-east
-endpoint: 203.0.113.5:51820
+endpoint: 203.0.113.5:41580
 region: us-east-1
 
 colony_id: prod-eu-west
-endpoint: 198.51.100.7:51820
+endpoint: 198.51.100.7:41580
 region: eu-west-1
 ```
 
@@ -343,11 +343,11 @@ region: eu-west-1
 
 ```
 T0: Colony A registers
-    POST /register { colony_id: "prod-colony", endpoint: "203.0.113.5:51820" }
+    POST /register { colony_id: "prod-colony", endpoint: "203.0.113.5:41580" }
     → Success, lease granted
 
 T1: Colony B tries to register (same ID)
-    POST /register { colony_id: "prod-colony", endpoint: "198.51.100.8:51820" }
+    POST /register { colony_id: "prod-colony", endpoint: "198.51.100.8:41580" }
     → Discovery Service detects conflict
 
     Response:
@@ -355,7 +355,7 @@ T1: Colony B tries to register (same ID)
       "status": "conflict",
       "error": "Colony ID 'prod-colony' already registered",
       "existing": {
-        "endpoint": "203.0.113.5:51820",
+        "endpoint": "203.0.113.5:41580",
         "registered_at": "2025-11-01T12:00:00Z",
         "lease_expires_at": "2025-11-01T12:01:00Z"
       }
@@ -407,7 +407,7 @@ T4: Colony A restarts (or Colony B takes over)
     - Colony registers as "prod-colony"
     - Discovery Service accepts (old lease expired)
 
-    POST /register { colony_id: "prod-colony", endpoint: "203.0.113.5:51820" }
+    POST /register { colony_id: "prod-colony", endpoint: "203.0.113.5:41580" }
     → Success
 
 T5: Agents retry, query Discovery Service
@@ -453,23 +453,27 @@ Currently, single Colony per colony_id is supported.
 **Flow:**
 
 ```
-1. Colony starts, binds to 0.0.0.0:51820
+1. Colony starts, binds WireGuard to 0.0.0.0:41580
 
 2. Colony sends UDP packet to Discovery Service
-   UDP to discovery.coralmesh.dev:51821
+   UDP to the configured STUN server
    Payload: "STUN-like-request"
 
-3. Discovery Service sees packet from 203.0.113.5:51820
+3. The STUN server sees the mapping as 203.0.113.5:41580
    (Colony's public IP:port as seen by Discovery Service)
 
 4. Discovery Service responds with observed endpoint
-   Response: { "public_ip": "203.0.113.5", "public_port": 51820 }
+   Response: { "public_ip": "203.0.113.5", "public_port": 41580 }
 
 5. Colony registers with discovered public endpoint
-   POST /register { endpoint: "203.0.113.5:51820" }
+   POST /register { endpoint: "203.0.113.5:41580" }
 ```
 
-**Agent uses this endpoint** to connect directly to Colony.
+**Agent uses this endpoint** to connect directly to Colony. Agents perform the
+same sequence on their default UDP port `51820` and register their observed
+endpoints. Colony consumes the Agent record during RFD 109 compound enrollment
+and when establishing the WireGuard peer; no static peer address is required
+when the observed mapping is reusable.
 
 ### Symmetric NAT
 
@@ -763,7 +767,7 @@ colony:
 
 ```bash
 # Agent logs show connection timeout
-Agent: Connecting to Colony at 203.0.113.5:51820
+Agent: Connecting to Colony at 203.0.113.5:41580
 Agent: WireGuard handshake timeout
 
 # Check if STUN endpoint detection worked

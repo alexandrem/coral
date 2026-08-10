@@ -1077,7 +1077,7 @@ Environment variables override configuration file values.
 | `CORAL_COLONY_ID`          | -                                | `my-app-prod`              | Colony to start                                                        |
 | `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`             | `http://discovery:8080`    | Discovery service URL                                                  |
 | `CORAL_STORAGE_PATH`       | `storage_path`                   | `/var/lib/coral`           | Storage directory path                                                 |
-| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`     | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint(s), comma-separated |
+| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`     | `colony.example.com:41580` | Optional static WireGuard endpoint override(s), comma-separated        |
 | `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4`    | `100.64.0.0/10`            | Mesh network subnet                                                    |
 | `CORAL_WG_KEEPALIVE`       | `wireguard.persistent_keepalive` | `25`                       | WireGuard keepalive interval (seconds)                                 |
 | `CORAL_COLONY_ENDPOINT`    | -                                | `https://colony:8443`      | **Public API:** Public HTTPS endpoint for CLI/SDK access (RFD 031)     |
@@ -1116,6 +1116,8 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 | `CORAL_CA_FINGERPRINT`          | Root CA fingerprint for bootstrap (sha256:hex)      |
 | `CORAL_BOOTSTRAP_PSK`           | Bootstrap PSK for enrollment authorization          |
 | `CORAL_BOOTSTRAP_ENABLED`       | Enable/disable automatic bootstrap (`true`/`false`) |
+| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Optional reverse-dial TCP endpoint override; defaults to STUN-observed IP plus `:8444` |
+| `CORAL_WIREGUARD_PORT`          | Agent UDP port (default `51820`; `0`/`-1` requests ephemeral mode) |
 | `CORAL_CERTS_DIR`               | Directory for storing certificates                  |
 | `CORAL_SERVICES`                | Services to monitor (name:port[:health][:type],...) |
 | `CORAL_AGENT_RUNTIME`           | Agent runtime (auto, native, docker, kubernetes)    |
@@ -1322,8 +1324,9 @@ Understanding the difference:
     - Single: `colony.example.com:41580`
     - Multiple: `192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000`
 
-The public endpoints are registered to the discovery service when Colony starts
-up.
+At startup, Colony registers its STUN-observed UDP endpoint with Discovery.
+Configured public endpoints are also registered as operator overrides for
+environments where the observed mapping is not the desired advertised address.
 
 ```yaml
 # Mesh configuration (internal)

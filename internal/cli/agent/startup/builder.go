@@ -191,6 +191,7 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 		serviceInfos,
 		b.runtimeService.GetCachedContext(),
 		version.Version,
+		b.networkResult.AgentObservedEndpoint,
 	)
 
 	// Check if bootstrap is configured.

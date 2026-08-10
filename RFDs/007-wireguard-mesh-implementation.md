@@ -593,8 +593,8 @@ CREATE INDEX idx_status ON mesh_ip_allocations (status);
 
 1. **UDP Hole Punching**:
     - Colony listens on fixed port (41580)
-    - Agent sends initial handshake from random source port
-    - NAT creates mapping: agent:random → colony:41580
+    - Agent sends its initial handshake from fixed port 51820 by default
+    - NAT creates a mapping for agent:51820 → colony:41580
     - Colony's response travels back through same mapping
 
 2. **Persistent Keepalive**:

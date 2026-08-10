@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -12,20 +14,23 @@ import (
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
 	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // BootstrapPhase handles certificate bootstrap during agent startup.
 // Implements RFD 048 - Agent Certificate Bootstrap.
 type BootstrapPhase struct {
-	logger          logging.Logger
-	agentConfig     *config.AgentConfig
-	colonyID        string
-	agentID         string
-	wireGuardPubkey string
-	services        []*meshv1.ServiceInfo
-	runtimeContext  *agentv1.RuntimeContextResponse
-	protocolVersion string
+	logger           logging.Logger
+	agentConfig      *config.AgentConfig
+	colonyID         string
+	agentID          string
+	wireGuardPubkey  string
+	services         []*meshv1.ServiceInfo
+	runtimeContext   *agentv1.RuntimeContextResponse
+	protocolVersion  string
+	observedEndpoint *discovery.Endpoint
 }
 
 // BootstrapResult contains the result of the bootstrap phase.
@@ -51,16 +56,18 @@ func NewBootstrapPhase(
 	services []*meshv1.ServiceInfo,
 	runtimeContext *agentv1.RuntimeContextResponse,
 	protocolVersion string,
+	observedEndpoint *discovery.Endpoint,
 ) *BootstrapPhase {
 	return &BootstrapPhase{
-		logger:          logger,
-		agentConfig:     agentConfig,
-		colonyID:        colonyID,
-		agentID:         agentID,
-		wireGuardPubkey: wireGuardPubkey,
-		services:        services,
-		runtimeContext:  runtimeContext,
-		protocolVersion: protocolVersion,
+		logger:           logger,
+		agentConfig:      agentConfig,
+		colonyID:         colonyID,
+		agentID:          agentID,
+		wireGuardPubkey:  wireGuardPubkey,
+		services:         services,
+		runtimeContext:   runtimeContext,
+		protocolVersion:  protocolVersion,
+		observedEndpoint: observedEndpoint,
 	}
 }
 
@@ -156,6 +163,16 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 
 	// Bootstrap PSK is loaded from config (env var override via MergeFromEnv)
 	bootstrapPSK := bootstrapCfg.BootstrapPSK
+	bootstrapPublicEndpoint := resolveBootstrapPublicEndpoint(
+		bootstrapCfg.BootstrapPublicEndpoint,
+		bp.observedEndpoint,
+		bootstrapCfg.BootstrapListenPort,
+	)
+	if bootstrapCfg.BootstrapPublicEndpoint == "" && bootstrapPublicEndpoint != "" {
+		bp.logger.Info().
+			Str("endpoint", bootstrapPublicEndpoint).
+			Msg("Derived public bootstrap endpoint from Discovery-registered STUN address")
+	}
 
 	client := bootstrap.NewClient(bootstrap.Config{
 		AgentID:                     bp.agentID,
@@ -164,7 +181,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		BootstrapPSK:                bootstrapPSK,
 		DiscoveryEndpoint:           discoveryURL,
 		ColonyEndpoint:              bootstrapCfg.ColonyEndpoint,
-		BootstrapPublicEndpoint:     bootstrapCfg.BootstrapPublicEndpoint,
+		BootstrapPublicEndpoint:     bootstrapPublicEndpoint,
 		VerifyBootstrapReachability: bootstrapCfg.VerifyBootstrapReachability,
 		BootstrapListenPort:         bootstrapCfg.BootstrapListenPort,
 		WireGuardPubkey:             bp.wireGuardPubkey,
@@ -233,6 +250,25 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		Bootstrapped: true,
 		Registration: result.Registration,
 	}, nil
+}
+
+// resolveBootstrapPublicEndpoint keeps explicit configuration as the
+// authoritative override, otherwise deriving the temporary TCP listener from
+// the public IP STUN already discovered for Agent registration.
+func resolveBootstrapPublicEndpoint(configured string, observed *discovery.Endpoint, listenPort int) string {
+	if configured != "" {
+		return configured
+	}
+	if observed == nil || net.ParseIP(observed.IP) == nil {
+		return ""
+	}
+	if listenPort == 0 {
+		listenPort = constants.DefaultAgentBootstrapPort
+	}
+	if listenPort < 1 || listenPort > 65535 {
+		return ""
+	}
+	return net.JoinHostPort(observed.IP, strconv.Itoa(listenPort))
 }
 
 // ShouldBootstrap checks if bootstrap is needed based on configuration.

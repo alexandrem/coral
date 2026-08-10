@@ -750,9 +750,9 @@ agent:
     # Bootstrap PSK for enrollment authorization (required)
     bootstrap_psk: "coral-psk:f1e2d3c4b5a6..."
 
-    # Public TCP endpoint on this Agent for a Colony behind NAT to dial back.
-    # Required only when the normal direct bootstrap path cannot reach Colony.
-    bootstrap_public_endpoint: "agent.example.com:8444"
+    # Optional public TCP override for a Colony behind NAT to dial back.
+    # By default, the Agent uses its STUN-observed IP and TCP port 8444.
+	bootstrap_public_endpoint: "agent.example.com:8444"
 
     # Local listener used for the temporary reverse-dial bootstrap connection.
     # Default: 8444. Open/forward this TCP port to the Agent when configured.
@@ -777,11 +777,24 @@ agent:
 |----------|-------------|
 | `CORAL_CA_FINGERPRINT` | Root CA fingerprint (sha256:hex) |
 | `CORAL_BOOTSTRAP_PSK` | Bootstrap PSK for enrollment authorization |
-| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Public Agent `host:port` for reverse-dial bootstrap |
+| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Optional public Agent `host:port` override for reverse-dial bootstrap |
 | `CORAL_BOOTSTRAP_LISTEN_PORT` | Reverse-dial listener port (default: `8444`) |
 | `CORAL_VERIFY_BOOTSTRAP_REACHABILITY` | Enable the optional Discovery reachability probe |
+| `CORAL_WIREGUARD_PORT` | Agent WireGuard UDP port (default: `51820`; use another fixed port for multiple Agents on one host) |
 | `CORAL_CERTS_DIR` | Certificate storage directory |
 | `CORAL_BOOTSTRAP_ENABLED` | Enable/disable bootstrap |
+
+Agents use UDP `51820` by default so STUN can discover and publish the same
+port before WireGuard starts. This is required for a NAT-local Colony to find
+the public Agent during compound enrollment. Set `CORAL_WIREGUARD_PORT` to a
+different fixed port when `51820` is occupied. Values `0` and `-1` explicitly
+request an ephemeral port, which disables STUN-based Agent registration and
+therefore cannot be used for RFD 109 NAT-local enrollment.
+
+The same observed public IP is used with TCP `8444` to publish the encrypted
+bootstrap rendezvous endpoint. Set `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` only when
+the externally reachable TCP address or forwarded port differs from that
+automatic endpoint.
 
 ### Manual Bootstrap
 
@@ -805,11 +818,12 @@ coral agent bootstrap \
 coral agent cert status
 ```
 
-The `--bootstrap-public-endpoint` value must resolve to an endpoint that the
-Colony can reach. The temporary listener binds to TCP `8444` by default; use
+The standalone command does not run the `agent start` network phase, so its
+`--bootstrap-public-endpoint` value must resolve to an endpoint that the Colony
+can reach. Normal `coral agent start` derives `<Discovery-confirmed-STUN-IP>:8444`
+automatically. The temporary listener binds to TCP `8444` by default; use
 `--bootstrap-listen-port` if the externally forwarded port maps to a different
-local port. This fallback is not needed when the Agent can directly reach the
-Colony, and it cannot help when neither side has an inbound path.
+local port. This fallback cannot help when neither side has an inbound path.
 
 ### Certificate Renewal
 
