@@ -18,6 +18,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/enrollment"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/storage"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -58,6 +59,7 @@ type Server struct {
 	logger           zerolog.Logger
 	meshInfoProvider MeshInfoProvider
 	wgStatsProvider  WGStatsProvider
+	enroller         *enrollment.Enroller // RFD 109 - rendezvous compound enrollment.
 }
 
 // New creates a new colony server.
@@ -80,6 +82,13 @@ func (s *Server) SetMeshInfoProvider(provider MeshInfoProvider) {
 // SetWGStatsProvider sets the callback for accessing WireGuard device stats and peer configs.
 func (s *Server) SetWGStatsProvider(provider WGStatsProvider) {
 	s.wgStatsProvider = provider
+}
+
+// SetEnroller attaches the RFD 109 rendezvous enrollment processor. Only
+// set when the Colony has WireGuard and Discovery components available
+// (the same components MeshService.Register needs).
+func (s *Server) SetEnroller(enroller *enrollment.Enroller) {
+	s.enroller = enroller
 }
 
 // SetEbpfService sets the eBPF query service instance.
@@ -574,6 +583,42 @@ func (s *Server) RequestCertificate(
 		Str("auth_method", authMethod).
 		Time("expires_at", expiresAt).
 		Msg("Certificate issued successfully")
+
+	return connect.NewResponse(resp), nil
+}
+
+// BootstrapAndRegister handles compound certificate issuance + mesh
+// registration over an RFD 108 rendezvous dial-back connection (RFD 109).
+// It is a thin adapter: identity, ticket/PSK, and peer-mutation logic all
+// live in enrollment.Enroller, which is transaction-capable and reused
+// verbatim on retry/replay. Only reachable when Coral-Rendezvous-Record-Id
+// is set — which only the rendezvous dialer does, and only after its own
+// nonce check succeeds (see internal/colony/rendezvous/dialer.go). The
+// ordinary public/mesh listener must never route this procedure through to
+// here (see internal/cli/colony/server.go's mux wiring).
+func (s *Server) BootstrapAndRegister(
+	ctx context.Context,
+	req *connect.Request[colonyv1.BootstrapAndRegisterRequest],
+) (*connect.Response[colonyv1.BootstrapAndRegisterResponse], error) {
+	if s.enroller == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("rendezvous enrollment is not available on this colony"))
+	}
+
+	recordID := req.Header().Get(constants.RendezvousRecordIDHeader)
+	if recordID == "" {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("BootstrapAndRegister is only available over an RFD 108 rendezvous connection"))
+	}
+
+	var peerAddr string
+	if req.Peer().Addr != "" {
+		peerAddr = req.Peer().Addr
+	}
+
+	resp, err := s.enroller.BootstrapAndRegister(ctx, recordID, peerAddr, req.Msg)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("record_id", recordID).Msg("rendezvous: BootstrapAndRegister failed")
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 
 	return connect.NewResponse(resp), nil
 }

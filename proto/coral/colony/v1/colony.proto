@@ -54,6 +54,11 @@ service ColonyService {
   // Request a client certificate using a bootstrap token.
   rpc RequestCertificate(RequestCertificateRequest) returns (RequestCertificateResponse);
 
+  // Compound certificate issuance + mesh registration over an RFD 108
+  // rendezvous dial-back connection (RFD 109). Only permitted on that
+  // restricted connection; not exposed on the ordinary public listener.
+  rpc BootstrapAndRegister(BootstrapAndRegisterRequest) returns (BootstrapAndRegisterResponse);
+
   // Revoke an issued certificate.
   rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse);
 
@@ -278,6 +283,23 @@ message RequestCertificateResponse {
 
   // Certificate expiration timestamp (Unix seconds).
   int64 expires_at = 3;
+}
+
+// BootstrapAndRegisterRequest performs certificate issuance and mesh
+// registration atomically over an RFD 108 rendezvous connection (RFD 109).
+message BootstrapAndRegisterRequest {
+  // Certificate enrollment inputs (referral ticket, CSR, bootstrap PSK).
+  RequestCertificateRequest bootstrap = 1;
+
+  // Mesh registration inputs (agent/colony ID, WireGuard pubkey, services).
+  coral.mesh.v1.RegisterRequest registration = 2;
+}
+
+// BootstrapAndRegisterResponse returns both the issued certificate and the
+// mesh registration result from a single compound enrollment (RFD 109).
+message BootstrapAndRegisterResponse {
+  RequestCertificateResponse certificate = 1;
+  coral.mesh.v1.RegisterResponse registration = 2;
 }
 
 // RevokeCertificateRequest revokes a previously issued certificate.

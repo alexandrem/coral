@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -448,6 +449,142 @@ func TestDialerRejectsNonceMismatchWithoutInvokingHandler(t *testing.T) {
 	defer pollClient.mu.Unlock()
 	if len(pollClient.acked) != 0 {
 		t.Fatal("expected the record to remain unacked after a nonce mismatch")
+	}
+}
+
+// TestDialerRoutesBootstrapAndRegisterAndInjectsRecordID is the RFD 109
+// counterpart of the RFD 108 nonce test: a valid-nonce request to
+// /BootstrapAndRegister must reach the handler (unlike arbitrary other
+// paths, which still 404), and the dialer must inject the trusted
+// Coral-Rendezvous-Record-Id header carrying this dial attempt's record_id
+// — the only way the handler can look up enrollment state.
+func TestDialerRoutesBootstrapAndRegisterAndInjectsRecordID(t *testing.T) {
+	meshID := "mesh-1"
+	psk := "coral-psk:abc123"
+	key, err := rendezvous.DeriveKey(psk, meshID)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	sessionNonce, _ := rendezvous.GenerateSessionNonce()
+	writeToken, _ := rendezvous.GenerateWriteToken()
+	payload := rendezvous.Payload{
+		Endpoint:     ln.Addr().String(),
+		SessionNonce: sessionNonce,
+		WriteToken:   writeToken,
+		ExpiresAt:    time.Now().Add(90 * time.Second),
+	}
+	ciphertext, gcmNonce, err := rendezvous.Seal(key, payload)
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	agentDone := make(chan error, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			agentDone <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+
+		tlsConn := tls.Client(conn, &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13}) //nolint:gosec // test-only.
+		if err := tlsConn.Handshake(); err != nil {
+			agentDone <- fmt.Errorf("handshake: %w", err)
+			return
+		}
+		tr := &http2.Transport{}
+		cc, err := tr.NewClientConn(tlsConn)
+		if err != nil {
+			agentDone <- fmt.Errorf("new client conn: %w", err)
+			return
+		}
+
+		// A path outside the allowlist must still 404, even with a valid nonce.
+		otherReq, err := http.NewRequest(http.MethodPost, "https://agent/coral.colony.v1.ColonyService/GetStatus", nil)
+		if err != nil {
+			agentDone <- err
+			return
+		}
+		otherReq.Header.Set(constants.RendezvousNonceHeader, base64.StdEncoding.EncodeToString(sessionNonce))
+		otherResp, err := cc.RoundTrip(otherReq)
+		if err != nil {
+			agentDone <- fmt.Errorf("other path round trip: %w", err)
+			return
+		}
+		_ = otherResp.Body.Close()
+		if otherResp.StatusCode != http.StatusNotFound {
+			agentDone <- fmt.Errorf("expected 404 for GetStatus over rendezvous connection, got %d", otherResp.StatusCode)
+			return
+		}
+
+		req, err := http.NewRequest(http.MethodPost, "https://agent/coral.colony.v1.ColonyService/BootstrapAndRegister", nil)
+		if err != nil {
+			agentDone <- err
+			return
+		}
+		req.Header.Set(constants.RendezvousNonceHeader, base64.StdEncoding.EncodeToString(sessionNonce))
+		resp, err := cc.RoundTrip(req)
+		if err != nil {
+			agentDone <- fmt.Errorf("bootstrap and register round trip: %w", err)
+			return
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			agentDone <- fmt.Errorf("expected 200 for BootstrapAndRegister over rendezvous connection, got %d", resp.StatusCode)
+			return
+		}
+		agentDone <- nil
+	}()
+
+	var gotRecordIDHeader string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/BootstrapAndRegister") {
+			gotRecordIDHeader = r.Header.Get(constants.RendezvousRecordIDHeader)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	pollClient := &fakePollClient{
+		recs: []discovery.BootstrapRendezvousRecord{{
+			RecordID:   "rec-109",
+			Ciphertext: ciphertext,
+			GCMNonce:   gcmNonce,
+		}},
+	}
+
+	d := NewDialer(Config{
+		MeshID:    meshID,
+		Client:    pollClient,
+		PSKs:      &fakePSKProvider{psks: []string{psk}},
+		TLSConfig: selfSignedTLSConfig(t),
+		Handler:   handler,
+		Logger:    zerolog.Nop(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Stop()
+
+	select {
+	case err := <-agentDone:
+		if err != nil {
+			t.Fatalf("agent side failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for colony dial-back")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	if gotRecordIDHeader != "rec-109" {
+		t.Fatalf("expected the dialer to inject record_id=rec-109, got %q", gotRecordIDHeader)
 	}
 }
 

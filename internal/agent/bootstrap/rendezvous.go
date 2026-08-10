@@ -17,6 +17,7 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/rendezvous"
@@ -246,14 +247,51 @@ func (c *Client) handleRendezvousConn(ctx context.Context, conn net.Conn, sessio
 		return nil, err
 	}
 
-	c.logger.Info().Bool("psk_provided", c.cfg.BootstrapPSK != "").Msg("Requesting certificate over rendezvous dial-back connection")
-
 	client := colonyv1connect.NewColonyServiceClient(httpClient, "https://coral-rendezvous")
-	req := connect.NewRequest(&colonyv1.RequestCertificateRequest{
+	bootstrapReq := &colonyv1.RequestCertificateRequest{
 		Jwt:          token,
 		Csr:          csr,
 		BootstrapPsk: c.cfg.BootstrapPSK,
-	})
+	}
+
+	// RFD 109: when the caller has WireGuard registration data available,
+	// use the compound RPC so mesh registration completes atomically with
+	// certificate issuance instead of falling back to the ordinary
+	// post-bootstrap MeshService.Register retry loop, which cannot reach a
+	// Colony advertised only as a mesh/loopback address.
+	if c.cfg.WireGuardPubkey != "" {
+		c.logger.Info().Bool("psk_provided", c.cfg.BootstrapPSK != "").Msg("Requesting compound bootstrap + registration over rendezvous dial-back connection (RFD 109)")
+
+		req := connect.NewRequest(&colonyv1.BootstrapAndRegisterRequest{
+			Bootstrap: bootstrapReq,
+			Registration: &meshv1.RegisterRequest{
+				AgentId:         c.cfg.AgentID,
+				ColonyId:        c.cfg.ColonyID,
+				WireguardPubkey: c.cfg.WireGuardPubkey,
+				Services:        c.cfg.Services,
+				RuntimeContext:  c.cfg.RuntimeContext,
+				ProtocolVersion: c.cfg.ProtocolVersion,
+				Capabilities:    []string{constants.CapabilityBootstrapAndRegister},
+			},
+		})
+		req.Header().Set(constants.RendezvousNonceHeader, base64.StdEncoding.EncodeToString(sessionNonce))
+
+		resp, err := client.BootstrapAndRegister(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("BootstrapAndRegister over rendezvous connection failed: %w", err)
+		}
+
+		result, err := c.parseAndVerifyResult(resp.Msg.Certificate, pub, priv)
+		if err != nil {
+			return nil, err
+		}
+		result.Registration = resp.Msg.Registration
+		return result, nil
+	}
+
+	c.logger.Info().Bool("psk_provided", c.cfg.BootstrapPSK != "").Msg("Requesting certificate over rendezvous dial-back connection")
+
+	req := connect.NewRequest(bootstrapReq)
 	req.Header().Set(constants.RendezvousNonceHeader, base64.StdEncoding.EncodeToString(sessionNonce))
 
 	resp, err := client.RequestCertificate(ctx, req)

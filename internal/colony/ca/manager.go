@@ -90,6 +90,11 @@ func NewManager(db *sql.DB, logger zerolog.Logger, cfg Config) (*Manager, error)
 		return nil, fmt.Errorf("failed to ensure PSK table: %w", err)
 	}
 
+	// Ensure consumed_referral_tickets table exists (RFD 109).
+	if err := m.ensureConsumedTicketsTable(); err != nil {
+		return nil, fmt.Errorf("failed to ensure consumed referral tickets table: %w", err)
+	}
+
 	return m, nil
 }
 
@@ -322,6 +327,24 @@ func (m *Manager) loadCA() error {
 // This is a stateless validation per RFD 049.
 func (m *Manager) ValidateReferralTicket(tokenString string) (*ReferralClaims, error) {
 	return m.policy.ValidateReferralTicket(tokenString)
+}
+
+// ValidateCSRIdentity validates a CSR's signature and confirms its subject
+// CN matches the expected agentID/colonyID, without issuing a certificate.
+// Used by RFD 109's compound enrollment to check ticket/CSR/RegisterRequest
+// identity consistency before touching the mesh allocator or WireGuard
+// device, ahead of the point where IssueCertificate would otherwise perform
+// the same check.
+func (m *Manager) ValidateCSRIdentity(csrPEM []byte, agentID, colonyID string) error {
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return fmt.Errorf("failed to decode CSR PEM")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse CSR: %w", err)
+	}
+	return m.policy.ValidateAgentCSR(csr, agentID, colonyID)
 }
 
 // IssueCertificate issues a new client certificate for an agent.
@@ -774,6 +797,54 @@ func (m *Manager) ensurePSKTable() error {
 		return fmt.Errorf("failed to create bootstrap_psks table: %w", err)
 	}
 	return nil
+}
+
+// ensureConsumedTicketsTable creates the consumed_referral_tickets table if
+// it does not exist. RFD 048 documents referral tickets as single-use via
+// jti, but ValidateReferralTicket is stateless; this table is what actually
+// enforces single-use, closing that gap for RFD 109's enrollment flow.
+func (m *Manager) ensureConsumedTicketsTable() error {
+	_, err := m.db.Exec(`CREATE TABLE IF NOT EXISTS consumed_referral_tickets (
+		jti TEXT PRIMARY KEY,
+		consumed_at TIMESTAMP NOT NULL,
+		expires_at TIMESTAMP NOT NULL
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create consumed_referral_tickets table: %w", err)
+	}
+	return nil
+}
+
+// ConsumeReferralTicketJTI records a referral ticket's jti as consumed,
+// returning an error if it was already consumed (single-use enforcement,
+// RFD 048/109). Callers must validate the ticket's signature and expiry
+// before calling this, and must not issue a certificate unless this
+// succeeds.
+func (m *Manager) ConsumeReferralTicketJTI(ctx context.Context, jti string, expiresAt time.Time) error {
+	if jti == "" {
+		return fmt.Errorf("referral ticket has no jti")
+	}
+	_, err := m.db.ExecContext(ctx,
+		`INSERT INTO consumed_referral_tickets (jti, consumed_at, expires_at) VALUES (?, ?, ?)`,
+		jti, time.Now(), expiresAt)
+	if err != nil {
+		return fmt.Errorf("referral ticket already consumed (jti=%s): %w", jti, err)
+	}
+	return nil
+}
+
+// IsReferralTicketConsumed reports whether a referral ticket's jti has
+// already been consumed. Used during RFD 109 crash recovery to determine
+// whether a certificate was already issued for a given ticket before
+// deciding whether to reissue.
+func (m *Manager) IsReferralTicketConsumed(ctx context.Context, jti string) (bool, error) {
+	var count int
+	err := m.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM consumed_referral_tickets WHERE jti = ?`, jti).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check consumed referral ticket: %w", err)
+	}
+	return count > 0, nil
 }
 
 // BootstrapPSK represents a stored bootstrap PSK record (RFD 088).

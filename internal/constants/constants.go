@@ -380,4 +380,17 @@ const (
 	// RendezvousNonceHeader is the HTTP header carrying the rendezvous session
 	// nonce on the RequestCertificate call made over a dial-back connection.
 	RendezvousNonceHeader = "Coral-Rendezvous-Nonce"
+
+	// RendezvousRecordIDHeader carries the RFD 108 rendezvous record_id the
+	// current dial-back connection was established for (RFD 109). Set only
+	// by the Colony's own rendezvous dialer after it has already validated
+	// Coral-Rendezvous-Nonce for that record — never trust this header on a
+	// request that did not arrive through the rendezvous dial-back handler.
+	RendezvousRecordIDHeader = "Coral-Rendezvous-Record-Id"
+
+	// CapabilityBootstrapAndRegister is the RegisterRequest.capabilities
+	// value an Agent advertises once it supports RFD 109's compound
+	// BootstrapAndRegister RPC, gating that feature independently of
+	// protocol_version (see RFD 109 Resolved Design Decisions).
+	CapabilityBootstrapAndRegister = "bootstrap_and_register"
 )

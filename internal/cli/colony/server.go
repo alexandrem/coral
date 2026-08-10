@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -19,6 +20,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/debug"
+	"github.com/coral-mesh/coral/internal/colony/enrollment"
 	"github.com/coral-mesh/coral/internal/colony/httpapi"
 	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
@@ -94,6 +96,23 @@ func startRendezvousDialer(
 	})
 	dialer.Start(ctx)
 	rzLogger.Info().Msg("PSK-encrypted rendezvous dial-back loop started (RFD 108)")
+}
+
+// blockBootstrapAndRegister wraps a ColonyService handler so the
+// BootstrapAndRegister procedure (RFD 109) 404s, while every other
+// procedure is forwarded unchanged. RFD 109 requires that procedure be
+// reachable only over an RFD 108 rendezvous dial-back connection, never on
+// the ordinary mesh or public listener — those pass the request straight
+// through without the dialer's nonce check, so BootstrapAndRegister must
+// never be routed to the underlying handler from here.
+func blockBootstrapAndRegister(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/BootstrapAndRegister") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
@@ -195,6 +214,25 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		return stats, wgDevice.ListPeers()
 	})
 
+	// Wire up RFD 109 rendezvous compound enrollment. Requires the same
+	// components ordinary MeshService.Register needs (WireGuard device,
+	// Discovery client); without Discovery there is no way to resolve an
+	// Agent's UDP endpoint, so enrollment stays unavailable rather than
+	// half-configured.
+	if discoveryClient != nil && caManager != nil {
+		enrollmentStore, err := enrollment.NewStore(db.DB())
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize rendezvous enrollment store, RFD 109 enrollment disabled")
+		} else if keyStore, err := enrollment.NewKeyStore(db.DB()); err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize agent WireGuard key store, RFD 109 enrollment disabled")
+		} else {
+			colonySvc.SetEnroller(enrollment.NewEnroller(
+				caManager, wgDevice, agentRegistry, discoveryClient, enrollmentStore, keyStore, cfg,
+				logger.With().Str("component", "rendezvous-enrollment").Logger(),
+			))
+		}
+	}
+
 	// Load colony config early (needed by function registry, MCP, and other components).
 	mcpLoader, mcpErr := config.NewLoader()
 	if mcpErr != nil {
@@ -252,10 +290,17 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
 	debugPath, debugHandler := colonyv1connect.NewColonyDebugServiceHandler(debugOrchestrator)
 
+	// BootstrapAndRegister (RFD 109) is permitted only on the restricted RFD
+	// 108 rendezvous dial-back connection; the ordinary mesh/public listener
+	// must 404 it even though colonySvc implements the full ColonyService
+	// interface. Only the raw colonyHandler (below) is ever handed to the
+	// rendezvous dialer.
+	restrictedColonyHandler := blockBootstrapAndRegister(colonyHandler)
+
 	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.Handle(meshPath, meshHandler)
-	mux.Handle(colonyPath, colonyHandler)
+	mux.Handle(colonyPath, restrictedColonyHandler)
 	mux.Handle(debugPath, debugHandler)
 
 	// Add DuckDB HTTP handler for remote query (RFD 046).
@@ -416,7 +461,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		publicConfig := httpapi.Config{
 			PublicConfig:            colonyConfig.PublicEndpoint,
 			ColonyPath:              colonyPath,
-			ColonyHandler:           colonyHandler,
+			ColonyHandler:           restrictedColonyHandler,
 			DebugPath:               debugPath,
 			DebugHandler:            debugHandler,
 			MCPServer:               nil, // Tool dispatch moved to proxy layer (RFD 100).

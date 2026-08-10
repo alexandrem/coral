@@ -223,7 +223,10 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 	return nil
 }
 
-// RemovePeer removes a WireGuard peer by public key.
+// RemovePeer removes a WireGuard peer by public key. It is a no-op,
+// returning nil, if the peer is already absent — RFD 109's phased
+// peer-replacement relies on this to make a crash-and-retry of the
+// remove-old-peer sub-phase idempotent.
 func (d *Device) RemovePeer(publicKey string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -233,7 +236,7 @@ func (d *Device) RemovePeer(publicKey string) error {
 	}
 
 	if _, ok := d.peers[publicKey]; !ok {
-		return fmt.Errorf("peer not found: %s", publicKey)
+		return nil
 	}
 
 	// Remove from peers map
@@ -248,6 +251,35 @@ func (d *Device) RemovePeer(publicKey string) error {
 	}
 
 	return nil
+}
+
+// TriggerHandshake initiates an immediate WireGuard handshake with the peer
+// identified by publicKey, rather than waiting for the next keepalive
+// interval. Used after RFD 109 rendezvous enrollment, where the Colony (not
+// the Agent) must initiate the first handshake since it is the NAT'd party.
+func (d *Device) TriggerHandshake(publicKey string) error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if d.wgDevice == nil {
+		return fmt.Errorf("device not started")
+	}
+
+	keyBytes, err := base64.StdEncoding.DecodeString(publicKey)
+	if err != nil {
+		return fmt.Errorf("invalid public key: %w", err)
+	}
+	if len(keyBytes) != 32 {
+		return fmt.Errorf("invalid public key length: expected 32 bytes, got %d", len(keyBytes))
+	}
+	var noiseKey device.NoisePublicKey
+	copy(noiseKey[:], keyBytes)
+
+	peer := d.wgDevice.LookupPeer(noiseKey)
+	if peer == nil {
+		return fmt.Errorf("peer not found: %s", publicKey)
+	}
+	return peer.SendHandshakeInitiation(false)
 }
 
 // GetPeer returns the configuration for a peer by public key.

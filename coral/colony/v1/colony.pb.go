@@ -1023,6 +1023,116 @@ func (x *RequestCertificateResponse) GetExpiresAt() int64 {
 	return 0
 }
 
+// BootstrapAndRegisterRequest performs certificate issuance and mesh
+// registration atomically over an RFD 108 rendezvous connection (RFD 109).
+type BootstrapAndRegisterRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Certificate enrollment inputs (referral ticket, CSR, bootstrap PSK).
+	Bootstrap *RequestCertificateRequest `protobuf:"bytes,1,opt,name=bootstrap,proto3" json:"bootstrap,omitempty"`
+	// Mesh registration inputs (agent/colony ID, WireGuard pubkey, services).
+	Registration  *v11.RegisterRequest `protobuf:"bytes,2,opt,name=registration,proto3" json:"registration,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BootstrapAndRegisterRequest) Reset() {
+	*x = BootstrapAndRegisterRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapAndRegisterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapAndRegisterRequest) ProtoMessage() {}
+
+func (x *BootstrapAndRegisterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapAndRegisterRequest.ProtoReflect.Descriptor instead.
+func (*BootstrapAndRegisterRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *BootstrapAndRegisterRequest) GetBootstrap() *RequestCertificateRequest {
+	if x != nil {
+		return x.Bootstrap
+	}
+	return nil
+}
+
+func (x *BootstrapAndRegisterRequest) GetRegistration() *v11.RegisterRequest {
+	if x != nil {
+		return x.Registration
+	}
+	return nil
+}
+
+// BootstrapAndRegisterResponse returns both the issued certificate and the
+// mesh registration result from a single compound enrollment (RFD 109).
+type BootstrapAndRegisterResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Certificate   *RequestCertificateResponse `protobuf:"bytes,1,opt,name=certificate,proto3" json:"certificate,omitempty"`
+	Registration  *v11.RegisterResponse       `protobuf:"bytes,2,opt,name=registration,proto3" json:"registration,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BootstrapAndRegisterResponse) Reset() {
+	*x = BootstrapAndRegisterResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapAndRegisterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapAndRegisterResponse) ProtoMessage() {}
+
+func (x *BootstrapAndRegisterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapAndRegisterResponse.ProtoReflect.Descriptor instead.
+func (*BootstrapAndRegisterResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *BootstrapAndRegisterResponse) GetCertificate() *RequestCertificateResponse {
+	if x != nil {
+		return x.Certificate
+	}
+	return nil
+}
+
+func (x *BootstrapAndRegisterResponse) GetRegistration() *v11.RegisterResponse {
+	if x != nil {
+		return x.Registration
+	}
+	return nil
+}
+
 // RevokeCertificateRequest revokes a previously issued certificate.
 type RevokeCertificateRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1036,7 +1146,7 @@ type RevokeCertificateRequest struct {
 
 func (x *RevokeCertificateRequest) Reset() {
 	*x = RevokeCertificateRequest{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[13]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1048,7 +1158,7 @@ func (x *RevokeCertificateRequest) String() string {
 func (*RevokeCertificateRequest) ProtoMessage() {}
 
 func (x *RevokeCertificateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[13]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1061,7 +1171,7 @@ func (x *RevokeCertificateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeCertificateRequest.ProtoReflect.Descriptor instead.
 func (*RevokeCertificateRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{13}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RevokeCertificateRequest) GetSerialNumber() string {
@@ -1089,7 +1199,7 @@ type RevokeCertificateResponse struct {
 
 func (x *RevokeCertificateResponse) Reset() {
 	*x = RevokeCertificateResponse{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[14]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1101,7 +1211,7 @@ func (x *RevokeCertificateResponse) String() string {
 func (*RevokeCertificateResponse) ProtoMessage() {}
 
 func (x *RevokeCertificateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[14]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1114,7 +1224,7 @@ func (x *RevokeCertificateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeCertificateResponse.ProtoReflect.Descriptor instead.
 func (*RevokeCertificateResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{14}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RevokeCertificateResponse) GetSuccess() bool {
@@ -1132,7 +1242,7 @@ type GetCAStatusRequest struct {
 
 func (x *GetCAStatusRequest) Reset() {
 	*x = GetCAStatusRequest{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[15]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1144,7 +1254,7 @@ func (x *GetCAStatusRequest) String() string {
 func (*GetCAStatusRequest) ProtoMessage() {}
 
 func (x *GetCAStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[15]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1157,7 +1267,7 @@ func (x *GetCAStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCAStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetCAStatusRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{15}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{17}
 }
 
 type GetCAStatusResponse struct {
@@ -1174,7 +1284,7 @@ type GetCAStatusResponse struct {
 
 func (x *GetCAStatusResponse) Reset() {
 	*x = GetCAStatusResponse{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[16]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1186,7 +1296,7 @@ func (x *GetCAStatusResponse) String() string {
 func (*GetCAStatusResponse) ProtoMessage() {}
 
 func (x *GetCAStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[16]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1199,7 +1309,7 @@ func (x *GetCAStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCAStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetCAStatusResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{16}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetCAStatusResponse) GetRootCa() *GetCAStatusResponse_CertStatus {
@@ -1258,7 +1368,7 @@ type MeshPingRequest struct {
 
 func (x *MeshPingRequest) Reset() {
 	*x = MeshPingRequest{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[17]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1270,7 +1380,7 @@ func (x *MeshPingRequest) String() string {
 func (*MeshPingRequest) ProtoMessage() {}
 
 func (x *MeshPingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[17]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1283,7 +1393,7 @@ func (x *MeshPingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshPingRequest.ProtoReflect.Descriptor instead.
 func (*MeshPingRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{17}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *MeshPingRequest) GetAgentId() string {
@@ -1316,7 +1426,7 @@ type MeshPingResponse struct {
 
 func (x *MeshPingResponse) Reset() {
 	*x = MeshPingResponse{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[18]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1328,7 +1438,7 @@ func (x *MeshPingResponse) String() string {
 func (*MeshPingResponse) ProtoMessage() {}
 
 func (x *MeshPingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[18]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1341,7 +1451,7 @@ func (x *MeshPingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshPingResponse.ProtoReflect.Descriptor instead.
 func (*MeshPingResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{18}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *MeshPingResponse) GetResults() []*MeshPingResponse_AgentPingResult {
@@ -1361,7 +1471,7 @@ type MeshAuditRequest struct {
 
 func (x *MeshAuditRequest) Reset() {
 	*x = MeshAuditRequest{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[19]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1373,7 +1483,7 @@ func (x *MeshAuditRequest) String() string {
 func (*MeshAuditRequest) ProtoMessage() {}
 
 func (x *MeshAuditRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[19]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1386,7 +1496,7 @@ func (x *MeshAuditRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshAuditRequest.ProtoReflect.Descriptor instead.
 func (*MeshAuditRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{19}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *MeshAuditRequest) GetAgentId() string {
@@ -1405,7 +1515,7 @@ type MeshAuditResponse struct {
 
 func (x *MeshAuditResponse) Reset() {
 	*x = MeshAuditResponse{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[20]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1527,7 @@ func (x *MeshAuditResponse) String() string {
 func (*MeshAuditResponse) ProtoMessage() {}
 
 func (x *MeshAuditResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[20]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1540,7 @@ func (x *MeshAuditResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshAuditResponse.ProtoReflect.Descriptor instead.
 func (*MeshAuditResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{20}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *MeshAuditResponse) GetResults() []*MeshAuditAgentResult {
@@ -1468,7 +1578,7 @@ type MeshAuditAgentResult struct {
 
 func (x *MeshAuditAgentResult) Reset() {
 	*x = MeshAuditAgentResult{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[21]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1480,7 +1590,7 @@ func (x *MeshAuditAgentResult) String() string {
 func (*MeshAuditAgentResult) ProtoMessage() {}
 
 func (x *MeshAuditAgentResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[21]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1493,7 +1603,7 @@ func (x *MeshAuditAgentResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshAuditAgentResult.ProtoReflect.Descriptor instead.
 func (*MeshAuditAgentResult) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{21}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *MeshAuditAgentResult) GetAgentId() string {
@@ -1571,7 +1681,7 @@ type GetCAStatusResponse_CertStatus struct {
 
 func (x *GetCAStatusResponse_CertStatus) Reset() {
 	*x = GetCAStatusResponse_CertStatus{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[22]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1583,7 +1693,7 @@ func (x *GetCAStatusResponse_CertStatus) String() string {
 func (*GetCAStatusResponse_CertStatus) ProtoMessage() {}
 
 func (x *GetCAStatusResponse_CertStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[22]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1596,7 +1706,7 @@ func (x *GetCAStatusResponse_CertStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCAStatusResponse_CertStatus.ProtoReflect.Descriptor instead.
 func (*GetCAStatusResponse_CertStatus) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{16, 0}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{18, 0}
 }
 
 func (x *GetCAStatusResponse_CertStatus) GetPath() string {
@@ -1638,7 +1748,7 @@ type GetCAStatusResponse_Stats struct {
 
 func (x *GetCAStatusResponse_Stats) Reset() {
 	*x = GetCAStatusResponse_Stats{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[23]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1650,7 +1760,7 @@ func (x *GetCAStatusResponse_Stats) String() string {
 func (*GetCAStatusResponse_Stats) ProtoMessage() {}
 
 func (x *GetCAStatusResponse_Stats) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[23]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1663,7 +1773,7 @@ func (x *GetCAStatusResponse_Stats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCAStatusResponse_Stats.ProtoReflect.Descriptor instead.
 func (*GetCAStatusResponse_Stats) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{16, 1}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{18, 1}
 }
 
 func (x *GetCAStatusResponse_Stats) GetTotalIssued() int32 {
@@ -1704,7 +1814,7 @@ type MeshPingResponse_AgentPingResult struct {
 
 func (x *MeshPingResponse_AgentPingResult) Reset() {
 	*x = MeshPingResponse_AgentPingResult{}
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[24]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1716,7 +1826,7 @@ func (x *MeshPingResponse_AgentPingResult) String() string {
 func (*MeshPingResponse_AgentPingResult) ProtoMessage() {}
 
 func (x *MeshPingResponse_AgentPingResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_colony_proto_msgTypes[24]
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1729,7 +1839,7 @@ func (x *MeshPingResponse_AgentPingResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshPingResponse_AgentPingResult.ProtoReflect.Descriptor instead.
 func (*MeshPingResponse_AgentPingResult) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{18, 0}
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{20, 0}
 }
 
 func (x *MeshPingResponse_AgentPingResult) GetAgentId() string {
@@ -1870,7 +1980,13 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12\x19\n" +
 	"\bca_chain\x18\x02 \x01(\fR\acaChain\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x03 \x01(\x03R\texpiresAt\"W\n" +
+	"expires_at\x18\x03 \x01(\x03R\texpiresAt\"\xab\x01\n" +
+	"\x1bBootstrapAndRegisterRequest\x12H\n" +
+	"\tbootstrap\x18\x01 \x01(\v2*.coral.colony.v1.RequestCertificateRequestR\tbootstrap\x12B\n" +
+	"\fregistration\x18\x02 \x01(\v2\x1e.coral.mesh.v1.RegisterRequestR\fregistration\"\xb2\x01\n" +
+	"\x1cBootstrapAndRegisterResponse\x12M\n" +
+	"\vcertificate\x18\x01 \x01(\v2+.coral.colony.v1.RequestCertificateResponseR\vcertificate\x12C\n" +
+	"\fregistration\x18\x02 \x01(\v2\x1f.coral.mesh.v1.RegisterResponseR\fregistration\"W\n" +
 	"\x18RevokeCertificateRequest\x12#\n" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
@@ -1935,7 +2051,7 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\x1aEVIDENCE_LAYER_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17EVIDENCE_LAYER_L7_TRACE\x10\x01\x12\x1d\n" +
 	"\x19EVIDENCE_LAYER_L4_NETWORK\x10\x02\x12\x17\n" +
-	"\x13EVIDENCE_LAYER_BOTH\x10\x032\x91\x11\n" +
+	"\x13EVIDENCE_LAYER_BOTH\x10\x032\x86\x12\n" +
 	"\rColonyService\x12R\n" +
 	"\tGetStatus\x12!.coral.colony.v1.GetStatusRequest\x1a\".coral.colony.v1.GetStatusResponse\x12U\n" +
 	"\n" +
@@ -1955,7 +2071,8 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
 	"StreamTool\x12\".coral.colony.v1.StreamToolRequest\x1a#.coral.colony.v1.StreamToolResponse(\x010\x01\x12R\n" +
 	"\tListTools\x12!.coral.colony.v1.ListToolsRequest\x1a\".coral.colony.v1.ListToolsResponse\x12m\n" +
-	"\x12RequestCertificate\x12*.coral.colony.v1.RequestCertificateRequest\x1a+.coral.colony.v1.RequestCertificateResponse\x12j\n" +
+	"\x12RequestCertificate\x12*.coral.colony.v1.RequestCertificateRequest\x1a+.coral.colony.v1.RequestCertificateResponse\x12s\n" +
+	"\x14BootstrapAndRegister\x12,.coral.colony.v1.BootstrapAndRegisterRequest\x1a-.coral.colony.v1.BootstrapAndRegisterResponse\x12j\n" +
 	"\x11RevokeCertificate\x12).coral.colony.v1.RevokeCertificateRequest\x1a*.coral.colony.v1.RevokeCertificateResponse\x12X\n" +
 	"\vGetCAStatus\x12#.coral.colony.v1.GetCAStatusRequest\x1a$.coral.colony.v1.GetCAStatusResponse\x12O\n" +
 	"\bMeshPing\x12 .coral.colony.v1.MeshPingRequest\x1a!.coral.colony.v1.MeshPingResponse\x12R\n" +
@@ -1976,7 +2093,7 @@ func file_coral_colony_v1_colony_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_colony_v1_colony_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(EvidenceLayer)(0),                       // 0: coral.colony.v1.EvidenceLayer
 	(*GetStatusRequest)(nil),                 // 1: coral.colony.v1.GetStatusRequest
@@ -1992,118 +2109,128 @@ var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*L4ConnectionEntry)(nil),                // 11: coral.colony.v1.L4ConnectionEntry
 	(*RequestCertificateRequest)(nil),        // 12: coral.colony.v1.RequestCertificateRequest
 	(*RequestCertificateResponse)(nil),       // 13: coral.colony.v1.RequestCertificateResponse
-	(*RevokeCertificateRequest)(nil),         // 14: coral.colony.v1.RevokeCertificateRequest
-	(*RevokeCertificateResponse)(nil),        // 15: coral.colony.v1.RevokeCertificateResponse
-	(*GetCAStatusRequest)(nil),               // 16: coral.colony.v1.GetCAStatusRequest
-	(*GetCAStatusResponse)(nil),              // 17: coral.colony.v1.GetCAStatusResponse
-	(*MeshPingRequest)(nil),                  // 18: coral.colony.v1.MeshPingRequest
-	(*MeshPingResponse)(nil),                 // 19: coral.colony.v1.MeshPingResponse
-	(*MeshAuditRequest)(nil),                 // 20: coral.colony.v1.MeshAuditRequest
-	(*MeshAuditResponse)(nil),                // 21: coral.colony.v1.MeshAuditResponse
-	(*MeshAuditAgentResult)(nil),             // 22: coral.colony.v1.MeshAuditAgentResult
-	(*GetCAStatusResponse_CertStatus)(nil),   // 23: coral.colony.v1.GetCAStatusResponse.CertStatus
-	(*GetCAStatusResponse_Stats)(nil),        // 24: coral.colony.v1.GetCAStatusResponse.Stats
-	(*MeshPingResponse_AgentPingResult)(nil), // 25: coral.colony.v1.MeshPingResponse.AgentPingResult
-	(*timestamppb.Timestamp)(nil),            // 26: google.protobuf.Timestamp
-	(*v1.MeshTelemetry)(nil),                 // 27: coral.network.v1.MeshTelemetry
-	(*v11.ServiceInfo)(nil),                  // 28: coral.mesh.v1.ServiceInfo
-	(*v12.RuntimeContextResponse)(nil),       // 29: coral.agent.v1.RuntimeContextResponse
-	(*QueryUnifiedSummaryRequest)(nil),       // 30: coral.colony.v1.QueryUnifiedSummaryRequest
-	(*QueryUnifiedTracesRequest)(nil),        // 31: coral.colony.v1.QueryUnifiedTracesRequest
-	(*QueryUnifiedMetricsRequest)(nil),       // 32: coral.colony.v1.QueryUnifiedMetricsRequest
-	(*QueryUnifiedLogsRequest)(nil),          // 33: coral.colony.v1.QueryUnifiedLogsRequest
-	(*ListServicesRequest)(nil),              // 34: coral.colony.v1.ListServicesRequest
-	(*GetMetricPercentileRequest)(nil),       // 35: coral.colony.v1.GetMetricPercentileRequest
-	(*GetServiceActivityRequest)(nil),        // 36: coral.colony.v1.GetServiceActivityRequest
-	(*ListServiceActivityRequest)(nil),       // 37: coral.colony.v1.ListServiceActivityRequest
-	(*ExecuteQueryRequest)(nil),              // 38: coral.colony.v1.ExecuteQueryRequest
-	(*QueryTraceProfileRequest)(nil),         // 39: coral.colony.v1.QueryTraceProfileRequest
-	(*CallToolRequest)(nil),                  // 40: coral.colony.v1.CallToolRequest
-	(*StreamToolRequest)(nil),                // 41: coral.colony.v1.StreamToolRequest
-	(*ListToolsRequest)(nil),                 // 42: coral.colony.v1.ListToolsRequest
-	(*QueryUnifiedSummaryResponse)(nil),      // 43: coral.colony.v1.QueryUnifiedSummaryResponse
-	(*QueryUnifiedTracesResponse)(nil),       // 44: coral.colony.v1.QueryUnifiedTracesResponse
-	(*QueryUnifiedMetricsResponse)(nil),      // 45: coral.colony.v1.QueryUnifiedMetricsResponse
-	(*QueryUnifiedLogsResponse)(nil),         // 46: coral.colony.v1.QueryUnifiedLogsResponse
-	(*ListServicesResponse)(nil),             // 47: coral.colony.v1.ListServicesResponse
-	(*GetMetricPercentileResponse)(nil),      // 48: coral.colony.v1.GetMetricPercentileResponse
-	(*GetServiceActivityResponse)(nil),       // 49: coral.colony.v1.GetServiceActivityResponse
-	(*ListServiceActivityResponse)(nil),      // 50: coral.colony.v1.ListServiceActivityResponse
-	(*ExecuteQueryResponse)(nil),             // 51: coral.colony.v1.ExecuteQueryResponse
-	(*QueryTraceProfileResponse)(nil),        // 52: coral.colony.v1.QueryTraceProfileResponse
-	(*CallToolResponse)(nil),                 // 53: coral.colony.v1.CallToolResponse
-	(*StreamToolResponse)(nil),               // 54: coral.colony.v1.StreamToolResponse
-	(*ListToolsResponse)(nil),                // 55: coral.colony.v1.ListToolsResponse
+	(*BootstrapAndRegisterRequest)(nil),      // 14: coral.colony.v1.BootstrapAndRegisterRequest
+	(*BootstrapAndRegisterResponse)(nil),     // 15: coral.colony.v1.BootstrapAndRegisterResponse
+	(*RevokeCertificateRequest)(nil),         // 16: coral.colony.v1.RevokeCertificateRequest
+	(*RevokeCertificateResponse)(nil),        // 17: coral.colony.v1.RevokeCertificateResponse
+	(*GetCAStatusRequest)(nil),               // 18: coral.colony.v1.GetCAStatusRequest
+	(*GetCAStatusResponse)(nil),              // 19: coral.colony.v1.GetCAStatusResponse
+	(*MeshPingRequest)(nil),                  // 20: coral.colony.v1.MeshPingRequest
+	(*MeshPingResponse)(nil),                 // 21: coral.colony.v1.MeshPingResponse
+	(*MeshAuditRequest)(nil),                 // 22: coral.colony.v1.MeshAuditRequest
+	(*MeshAuditResponse)(nil),                // 23: coral.colony.v1.MeshAuditResponse
+	(*MeshAuditAgentResult)(nil),             // 24: coral.colony.v1.MeshAuditAgentResult
+	(*GetCAStatusResponse_CertStatus)(nil),   // 25: coral.colony.v1.GetCAStatusResponse.CertStatus
+	(*GetCAStatusResponse_Stats)(nil),        // 26: coral.colony.v1.GetCAStatusResponse.Stats
+	(*MeshPingResponse_AgentPingResult)(nil), // 27: coral.colony.v1.MeshPingResponse.AgentPingResult
+	(*timestamppb.Timestamp)(nil),            // 28: google.protobuf.Timestamp
+	(*v1.MeshTelemetry)(nil),                 // 29: coral.network.v1.MeshTelemetry
+	(*v11.ServiceInfo)(nil),                  // 30: coral.mesh.v1.ServiceInfo
+	(*v12.RuntimeContextResponse)(nil),       // 31: coral.agent.v1.RuntimeContextResponse
+	(*v11.RegisterRequest)(nil),              // 32: coral.mesh.v1.RegisterRequest
+	(*v11.RegisterResponse)(nil),             // 33: coral.mesh.v1.RegisterResponse
+	(*QueryUnifiedSummaryRequest)(nil),       // 34: coral.colony.v1.QueryUnifiedSummaryRequest
+	(*QueryUnifiedTracesRequest)(nil),        // 35: coral.colony.v1.QueryUnifiedTracesRequest
+	(*QueryUnifiedMetricsRequest)(nil),       // 36: coral.colony.v1.QueryUnifiedMetricsRequest
+	(*QueryUnifiedLogsRequest)(nil),          // 37: coral.colony.v1.QueryUnifiedLogsRequest
+	(*ListServicesRequest)(nil),              // 38: coral.colony.v1.ListServicesRequest
+	(*GetMetricPercentileRequest)(nil),       // 39: coral.colony.v1.GetMetricPercentileRequest
+	(*GetServiceActivityRequest)(nil),        // 40: coral.colony.v1.GetServiceActivityRequest
+	(*ListServiceActivityRequest)(nil),       // 41: coral.colony.v1.ListServiceActivityRequest
+	(*ExecuteQueryRequest)(nil),              // 42: coral.colony.v1.ExecuteQueryRequest
+	(*QueryTraceProfileRequest)(nil),         // 43: coral.colony.v1.QueryTraceProfileRequest
+	(*CallToolRequest)(nil),                  // 44: coral.colony.v1.CallToolRequest
+	(*StreamToolRequest)(nil),                // 45: coral.colony.v1.StreamToolRequest
+	(*ListToolsRequest)(nil),                 // 46: coral.colony.v1.ListToolsRequest
+	(*QueryUnifiedSummaryResponse)(nil),      // 47: coral.colony.v1.QueryUnifiedSummaryResponse
+	(*QueryUnifiedTracesResponse)(nil),       // 48: coral.colony.v1.QueryUnifiedTracesResponse
+	(*QueryUnifiedMetricsResponse)(nil),      // 49: coral.colony.v1.QueryUnifiedMetricsResponse
+	(*QueryUnifiedLogsResponse)(nil),         // 50: coral.colony.v1.QueryUnifiedLogsResponse
+	(*ListServicesResponse)(nil),             // 51: coral.colony.v1.ListServicesResponse
+	(*GetMetricPercentileResponse)(nil),      // 52: coral.colony.v1.GetMetricPercentileResponse
+	(*GetServiceActivityResponse)(nil),       // 53: coral.colony.v1.GetServiceActivityResponse
+	(*ListServiceActivityResponse)(nil),      // 54: coral.colony.v1.ListServiceActivityResponse
+	(*ExecuteQueryResponse)(nil),             // 55: coral.colony.v1.ExecuteQueryResponse
+	(*QueryTraceProfileResponse)(nil),        // 56: coral.colony.v1.QueryTraceProfileResponse
+	(*CallToolResponse)(nil),                 // 57: coral.colony.v1.CallToolResponse
+	(*StreamToolResponse)(nil),               // 58: coral.colony.v1.StreamToolResponse
+	(*ListToolsResponse)(nil),                // 59: coral.colony.v1.ListToolsResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
-	26, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
-	27, // 1: coral.colony.v1.GetStatusResponse.wireguard:type_name -> coral.network.v1.MeshTelemetry
+	28, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	29, // 1: coral.colony.v1.GetStatusResponse.wireguard:type_name -> coral.network.v1.MeshTelemetry
 	5,  // 2: coral.colony.v1.ListAgentsResponse.agents:type_name -> coral.colony.v1.Agent
-	26, // 3: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
-	28, // 4: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
-	29, // 5: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	28, // 3: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
+	30, // 4: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
+	31, // 5: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
 	5,  // 6: coral.colony.v1.GetTopologyResponse.agents:type_name -> coral.colony.v1.Agent
 	8,  // 7: coral.colony.v1.GetTopologyResponse.connections:type_name -> coral.colony.v1.Connection
 	0,  // 8: coral.colony.v1.Connection.evidence_layer:type_name -> coral.colony.v1.EvidenceLayer
 	11, // 9: coral.colony.v1.ReportConnectionsRequest.connections:type_name -> coral.colony.v1.L4ConnectionEntry
-	26, // 10: coral.colony.v1.L4ConnectionEntry.last_observed:type_name -> google.protobuf.Timestamp
-	23, // 11: coral.colony.v1.GetCAStatusResponse.root_ca:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
-	23, // 12: coral.colony.v1.GetCAStatusResponse.server_intermediate:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
-	23, // 13: coral.colony.v1.GetCAStatusResponse.agent_intermediate:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
-	23, // 14: coral.colony.v1.GetCAStatusResponse.policy_signing:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
-	24, // 15: coral.colony.v1.GetCAStatusResponse.statistics:type_name -> coral.colony.v1.GetCAStatusResponse.Stats
-	25, // 16: coral.colony.v1.MeshPingResponse.results:type_name -> coral.colony.v1.MeshPingResponse.AgentPingResult
-	22, // 17: coral.colony.v1.MeshAuditResponse.results:type_name -> coral.colony.v1.MeshAuditAgentResult
-	26, // 18: coral.colony.v1.GetCAStatusResponse.CertStatus.expires_at:type_name -> google.protobuf.Timestamp
-	1,  // 19: coral.colony.v1.ColonyService.GetStatus:input_type -> coral.colony.v1.GetStatusRequest
-	3,  // 20: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
-	6,  // 21: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
-	30, // 22: coral.colony.v1.ColonyService.QueryUnifiedSummary:input_type -> coral.colony.v1.QueryUnifiedSummaryRequest
-	31, // 23: coral.colony.v1.ColonyService.QueryUnifiedTraces:input_type -> coral.colony.v1.QueryUnifiedTracesRequest
-	32, // 24: coral.colony.v1.ColonyService.QueryUnifiedMetrics:input_type -> coral.colony.v1.QueryUnifiedMetricsRequest
-	33, // 25: coral.colony.v1.ColonyService.QueryUnifiedLogs:input_type -> coral.colony.v1.QueryUnifiedLogsRequest
-	34, // 26: coral.colony.v1.ColonyService.ListServices:input_type -> coral.colony.v1.ListServicesRequest
-	35, // 27: coral.colony.v1.ColonyService.GetMetricPercentile:input_type -> coral.colony.v1.GetMetricPercentileRequest
-	36, // 28: coral.colony.v1.ColonyService.GetServiceActivity:input_type -> coral.colony.v1.GetServiceActivityRequest
-	37, // 29: coral.colony.v1.ColonyService.ListServiceActivity:input_type -> coral.colony.v1.ListServiceActivityRequest
-	38, // 30: coral.colony.v1.ColonyService.ExecuteQuery:input_type -> coral.colony.v1.ExecuteQueryRequest
-	39, // 31: coral.colony.v1.ColonyService.QueryTraceProfile:input_type -> coral.colony.v1.QueryTraceProfileRequest
-	40, // 32: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
-	41, // 33: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
-	42, // 34: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
-	12, // 35: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
-	14, // 36: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
-	16, // 37: coral.colony.v1.ColonyService.GetCAStatus:input_type -> coral.colony.v1.GetCAStatusRequest
-	18, // 38: coral.colony.v1.ColonyService.MeshPing:input_type -> coral.colony.v1.MeshPingRequest
-	20, // 39: coral.colony.v1.ColonyService.MeshAudit:input_type -> coral.colony.v1.MeshAuditRequest
-	9,  // 40: coral.colony.v1.ColonyService.ReportConnections:input_type -> coral.colony.v1.ReportConnectionsRequest
-	2,  // 41: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	4,  // 42: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	7,  // 43: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	43, // 44: coral.colony.v1.ColonyService.QueryUnifiedSummary:output_type -> coral.colony.v1.QueryUnifiedSummaryResponse
-	44, // 45: coral.colony.v1.ColonyService.QueryUnifiedTraces:output_type -> coral.colony.v1.QueryUnifiedTracesResponse
-	45, // 46: coral.colony.v1.ColonyService.QueryUnifiedMetrics:output_type -> coral.colony.v1.QueryUnifiedMetricsResponse
-	46, // 47: coral.colony.v1.ColonyService.QueryUnifiedLogs:output_type -> coral.colony.v1.QueryUnifiedLogsResponse
-	47, // 48: coral.colony.v1.ColonyService.ListServices:output_type -> coral.colony.v1.ListServicesResponse
-	48, // 49: coral.colony.v1.ColonyService.GetMetricPercentile:output_type -> coral.colony.v1.GetMetricPercentileResponse
-	49, // 50: coral.colony.v1.ColonyService.GetServiceActivity:output_type -> coral.colony.v1.GetServiceActivityResponse
-	50, // 51: coral.colony.v1.ColonyService.ListServiceActivity:output_type -> coral.colony.v1.ListServiceActivityResponse
-	51, // 52: coral.colony.v1.ColonyService.ExecuteQuery:output_type -> coral.colony.v1.ExecuteQueryResponse
-	52, // 53: coral.colony.v1.ColonyService.QueryTraceProfile:output_type -> coral.colony.v1.QueryTraceProfileResponse
-	53, // 54: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
-	54, // 55: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
-	55, // 56: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
-	13, // 57: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
-	15, // 58: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
-	17, // 59: coral.colony.v1.ColonyService.GetCAStatus:output_type -> coral.colony.v1.GetCAStatusResponse
-	19, // 60: coral.colony.v1.ColonyService.MeshPing:output_type -> coral.colony.v1.MeshPingResponse
-	21, // 61: coral.colony.v1.ColonyService.MeshAudit:output_type -> coral.colony.v1.MeshAuditResponse
-	10, // 62: coral.colony.v1.ColonyService.ReportConnections:output_type -> coral.colony.v1.ReportConnectionsResponse
-	41, // [41:63] is the sub-list for method output_type
-	19, // [19:41] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	28, // 10: coral.colony.v1.L4ConnectionEntry.last_observed:type_name -> google.protobuf.Timestamp
+	12, // 11: coral.colony.v1.BootstrapAndRegisterRequest.bootstrap:type_name -> coral.colony.v1.RequestCertificateRequest
+	32, // 12: coral.colony.v1.BootstrapAndRegisterRequest.registration:type_name -> coral.mesh.v1.RegisterRequest
+	13, // 13: coral.colony.v1.BootstrapAndRegisterResponse.certificate:type_name -> coral.colony.v1.RequestCertificateResponse
+	33, // 14: coral.colony.v1.BootstrapAndRegisterResponse.registration:type_name -> coral.mesh.v1.RegisterResponse
+	25, // 15: coral.colony.v1.GetCAStatusResponse.root_ca:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
+	25, // 16: coral.colony.v1.GetCAStatusResponse.server_intermediate:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
+	25, // 17: coral.colony.v1.GetCAStatusResponse.agent_intermediate:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
+	25, // 18: coral.colony.v1.GetCAStatusResponse.policy_signing:type_name -> coral.colony.v1.GetCAStatusResponse.CertStatus
+	26, // 19: coral.colony.v1.GetCAStatusResponse.statistics:type_name -> coral.colony.v1.GetCAStatusResponse.Stats
+	27, // 20: coral.colony.v1.MeshPingResponse.results:type_name -> coral.colony.v1.MeshPingResponse.AgentPingResult
+	24, // 21: coral.colony.v1.MeshAuditResponse.results:type_name -> coral.colony.v1.MeshAuditAgentResult
+	28, // 22: coral.colony.v1.GetCAStatusResponse.CertStatus.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 23: coral.colony.v1.ColonyService.GetStatus:input_type -> coral.colony.v1.GetStatusRequest
+	3,  // 24: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
+	6,  // 25: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
+	34, // 26: coral.colony.v1.ColonyService.QueryUnifiedSummary:input_type -> coral.colony.v1.QueryUnifiedSummaryRequest
+	35, // 27: coral.colony.v1.ColonyService.QueryUnifiedTraces:input_type -> coral.colony.v1.QueryUnifiedTracesRequest
+	36, // 28: coral.colony.v1.ColonyService.QueryUnifiedMetrics:input_type -> coral.colony.v1.QueryUnifiedMetricsRequest
+	37, // 29: coral.colony.v1.ColonyService.QueryUnifiedLogs:input_type -> coral.colony.v1.QueryUnifiedLogsRequest
+	38, // 30: coral.colony.v1.ColonyService.ListServices:input_type -> coral.colony.v1.ListServicesRequest
+	39, // 31: coral.colony.v1.ColonyService.GetMetricPercentile:input_type -> coral.colony.v1.GetMetricPercentileRequest
+	40, // 32: coral.colony.v1.ColonyService.GetServiceActivity:input_type -> coral.colony.v1.GetServiceActivityRequest
+	41, // 33: coral.colony.v1.ColonyService.ListServiceActivity:input_type -> coral.colony.v1.ListServiceActivityRequest
+	42, // 34: coral.colony.v1.ColonyService.ExecuteQuery:input_type -> coral.colony.v1.ExecuteQueryRequest
+	43, // 35: coral.colony.v1.ColonyService.QueryTraceProfile:input_type -> coral.colony.v1.QueryTraceProfileRequest
+	44, // 36: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
+	45, // 37: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
+	46, // 38: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
+	12, // 39: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
+	14, // 40: coral.colony.v1.ColonyService.BootstrapAndRegister:input_type -> coral.colony.v1.BootstrapAndRegisterRequest
+	16, // 41: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
+	18, // 42: coral.colony.v1.ColonyService.GetCAStatus:input_type -> coral.colony.v1.GetCAStatusRequest
+	20, // 43: coral.colony.v1.ColonyService.MeshPing:input_type -> coral.colony.v1.MeshPingRequest
+	22, // 44: coral.colony.v1.ColonyService.MeshAudit:input_type -> coral.colony.v1.MeshAuditRequest
+	9,  // 45: coral.colony.v1.ColonyService.ReportConnections:input_type -> coral.colony.v1.ReportConnectionsRequest
+	2,  // 46: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	4,  // 47: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	7,  // 48: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	47, // 49: coral.colony.v1.ColonyService.QueryUnifiedSummary:output_type -> coral.colony.v1.QueryUnifiedSummaryResponse
+	48, // 50: coral.colony.v1.ColonyService.QueryUnifiedTraces:output_type -> coral.colony.v1.QueryUnifiedTracesResponse
+	49, // 51: coral.colony.v1.ColonyService.QueryUnifiedMetrics:output_type -> coral.colony.v1.QueryUnifiedMetricsResponse
+	50, // 52: coral.colony.v1.ColonyService.QueryUnifiedLogs:output_type -> coral.colony.v1.QueryUnifiedLogsResponse
+	51, // 53: coral.colony.v1.ColonyService.ListServices:output_type -> coral.colony.v1.ListServicesResponse
+	52, // 54: coral.colony.v1.ColonyService.GetMetricPercentile:output_type -> coral.colony.v1.GetMetricPercentileResponse
+	53, // 55: coral.colony.v1.ColonyService.GetServiceActivity:output_type -> coral.colony.v1.GetServiceActivityResponse
+	54, // 56: coral.colony.v1.ColonyService.ListServiceActivity:output_type -> coral.colony.v1.ListServiceActivityResponse
+	55, // 57: coral.colony.v1.ColonyService.ExecuteQuery:output_type -> coral.colony.v1.ExecuteQueryResponse
+	56, // 58: coral.colony.v1.ColonyService.QueryTraceProfile:output_type -> coral.colony.v1.QueryTraceProfileResponse
+	57, // 59: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
+	58, // 60: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
+	59, // 61: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
+	13, // 62: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
+	15, // 63: coral.colony.v1.ColonyService.BootstrapAndRegister:output_type -> coral.colony.v1.BootstrapAndRegisterResponse
+	17, // 64: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
+	19, // 65: coral.colony.v1.ColonyService.GetCAStatus:output_type -> coral.colony.v1.GetCAStatusResponse
+	21, // 66: coral.colony.v1.ColonyService.MeshPing:output_type -> coral.colony.v1.MeshPingResponse
+	23, // 67: coral.colony.v1.ColonyService.MeshAudit:output_type -> coral.colony.v1.MeshAuditResponse
+	10, // 68: coral.colony.v1.ColonyService.ReportConnections:output_type -> coral.colony.v1.ReportConnectionsResponse
+	46, // [46:69] is the sub-list for method output_type
+	23, // [23:46] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_colony_proto_init() }
@@ -2119,7 +2246,7 @@ func file_coral_colony_v1_colony_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_colony_proto_rawDesc), len(file_coral_colony_v1_colony_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

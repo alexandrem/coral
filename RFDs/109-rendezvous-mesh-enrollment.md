@@ -1,7 +1,7 @@
 ---
 rfd: "109"
 title: "Rendezvous Mesh Enrollment for NAT-Local Colonies"
-state: "proposed"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,55 @@ areas: [ "agent", "colony", "discovery", "wireguard", "security" ]
 
 # RFD 109 - Rendezvous Mesh Enrollment for NAT-Local Colonies
 
-**Status:** Proposed
+**Status:** 🎉 Implemented
+
+**Implementation Status:** 🎉 Implemented. Built:
+
+- ✅ `BootstrapAndRegister` RPC and messages added to `ColonyService`
+  (`proto/coral/colony/v1/colony.proto`), reusing `RequestCertificateRequest`/
+  `Response` and `mesh.v1.RegisterRequest`/`RegisterResponse`. A
+  `capabilities` field was added to `RegisterRequest` (`bootstrap_and_register`)
+  per the Resolved Design Decisions.
+- ✅ `jti` consumption tracking added to `ca.Manager`
+  (`internal/colony/ca/manager.go`: `ConsumeReferralTicketJTI`,
+  `IsReferralTicketConsumed`, backed by a new `consumed_referral_tickets`
+  table), closing the gap between RFD 048's documented single-use invariant
+  and the previously-stateless validation.
+- ✅ Durable, `record_id`-keyed enrollment-state store
+  (`internal/colony/enrollment`, new `rendezvous_enrollment_state` table):
+  atomic-insert claiming, lease-based ownership with compare-and-swap steal,
+  delete-and-restart for an expired `claimed` row vs. steal-and-resume for
+  `authorized`-or-later, phase-tracked (`claimed` → `authorized` →
+  `ip_allocated` → `old_peer_removed` → `new_peer_added` →
+  `registry_updated` → `completed`).
+- ✅ `enrollment.Enroller` implementing the full Enrollment Processing flow:
+  ticket/PSK/identity validation, Discovery endpoint lookup with pubkey
+  binding, phased peer replacement (remove-old/add-new/update the new
+  `agent_wireguard_keys` registry), jti consumption + certificate issuance,
+  completion + replay. `Server.BootstrapAndRegister`
+  (`internal/colony/server/server.go`) is a thin adapter.
+- ✅ Nonce validation and record-scoping remain in the RFD 108 dialer
+  (`internal/colony/rendezvous/dialer.go`), extended to also route
+  `/BootstrapAndRegister` and to inject a trusted
+  `Coral-Rendezvous-Record-Id` header after its own nonce check succeeds.
+  `BootstrapAndRegister` is walled off from the ordinary mesh/public
+  listener via `blockBootstrapAndRegister` in `internal/cli/colony/server.go`
+  ("No broad rendezvous handler").
+- ✅ `wireguard.Device.RemovePeer` made idempotent (no-op on an absent peer)
+  and a new `Device.TriggerHandshake` added, so peer replacement is
+  restart-safe and the Colony-initiated handshake fires immediately instead
+  of waiting for the next keepalive.
+- ✅ Agent-side protocol support: `bootstrap.Client` calls
+  `BootstrapAndRegister` instead of `RequestCertificate` whenever
+  `Config.WireGuardPubkey` is set, advertising the `bootstrap_and_register`
+  capability and returning the compound `RegisterResponse` on `Result`.
+  Unset (the default), behavior is byte-for-byte the RFD 108 flow.
+- ✅ Verified Discovery's existing agent-registration TTL (300s default)
+  already comfortably covers the RFD 108 rendezvous wait budget (120s); no
+  Discovery-side change was needed.
+
+See Future Work below for the one piece deliberately not wired end-to-end:
+full agent startup sequencing to call `BootstrapAndRegister` in practice.
 
 ## Summary
 
@@ -699,3 +747,39 @@ ports are independent, so treating one as proof of the other is incorrect.
   monotonically increasing number, and it composes with the existing Rollout
   plan (step 1: "Add protocol and handler support behind an Agent
   capability/version check") without redefining what "version" means later.
+
+## Future Work
+
+- **Agent startup sequencing to actually invoke `BootstrapAndRegister`.**
+  `bootstrap.Client` supports the compound RPC end-to-end and is tested
+  (`internal/agent/bootstrap/rendezvous_test.go`), but nothing in
+  `internal/cli/agent/startup` populates `Config.WireGuardPubkey`/`Services`/
+  `RuntimeContext` yet: today's agent startup order generates WireGuard keys
+  and calls `RegisterAgent` on Discovery in `InitializeNetwork()`, which runs
+  *after* `InitializeBootstrap()` — but `BootstrapAndRegister` needs the
+  WireGuard pubkey at bootstrap time. Wiring this up requires reordering
+  `AgentServerBuilder`'s phases (or hoisting key generation out of
+  `NetworkInitializer`) so WireGuard keys exist before bootstrap runs, then
+  having `RegisterWithColony()` skip `ConnectionManager.AttemptRegistration()`
+  and configure the Colony peer with an empty endpoint when
+  `BootstrapResult.Registration` is set. This touches the primary (non-
+  rendezvous) startup path for every agent, so it deserves its own focused
+  change and test pass rather than being folded into this already-large RFD.
+- **Full crash-window certificate recovery.** If the Colony crashes between
+  consuming the referral ticket's `jti` and marking the enrollment-state row
+  `completed`, the current implementation (`Enroller.finish`) detects the gap
+  via `IsReferralTicketConsumed` but cannot recover the previously-issued
+  certificate bytes — `ca.Manager` has no lookup-by-`jti` — so it returns a
+  distinct, actionable error instead of the RFD's originally-envisioned
+  "check the CA/registry before reissuing" recovery. The Agent's next
+  retry needs a fresh referral ticket in this narrow window. Closing this
+  fully requires indexing issued certificates by `jti` (or storing the
+  certificate on the enrollment row immediately at issuance instead of only
+  at completion) as a follow-up hardening change.
+- **IP allocation isn't released if a peer add fails and the Agent never
+  retries.** `wireguard.Allocator.Allocate` is idempotent per `agent_id`, so
+  a retry reuses the same IP correctly, but an abandoned enrollment (Agent
+  gives up after a transient `AddPeer` failure) leaks that allocation rather
+  than being explicitly rolled back, as the original Failure Handling table
+  describes. Low impact (mesh subnets are large relative to expected churn),
+  but worth revisiting if it proves to matter operationally.

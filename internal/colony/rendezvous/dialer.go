@@ -307,7 +307,7 @@ func (d *Dialer) candidateKeys(ctx context.Context) ([][]byte, error) {
 // successful exchange (RFD 108 Data Flow § Rendezvous Session Binding).
 func (d *Dialer) nonceCheckHandler(recordID string, expectedNonce, writeToken []byte) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/RequestCertificate") {
+		if !strings.HasSuffix(r.URL.Path, "/RequestCertificate") && !strings.HasSuffix(r.URL.Path, "/BootstrapAndRegister") {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -319,6 +319,12 @@ func (d *Dialer) nonceCheckHandler(recordID string, expectedNonce, writeToken []
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+
+		// Only reached after the nonce check above succeeds. Trusted proof
+		// to the handler (RFD 109) that this request arrived over an
+		// RFD 108 dial-back connection for exactly this record_id — set
+		// here, never accepted from the inbound request itself.
+		r.Header.Set(constants.RendezvousRecordIDHeader, recordID)
 
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		d.cfg.Handler.ServeHTTP(rw, r)
