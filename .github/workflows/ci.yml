@@ -165,6 +165,7 @@ jobs:
 
       - name: Run tests with coverage
         run: make test-ci
+        timeout-minutes: 30
 
       - name: Generate coverage report
         run: go tool cover -func=coverage.out -o coverage.txt
