@@ -8,6 +8,7 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/pkg/version"
@@ -187,7 +188,7 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 		b.configResult.AgentConfig,
 		b.configResult.Config.ColonyID,
 		b.agentID,
-		b.networkResult.AgentKeys.PublicKey,
+		b.networkResult.AgentKeys,
 		serviceInfos,
 		b.runtimeService.GetCachedContext(),
 		version.Version,
@@ -389,6 +390,15 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 		return nil // Continue, reconnection loop will handle retries
 	}
 
+	// Commit the enrollment checkpoint for ordinary (non-rendezvous)
+	// registration too, so a restart after this point reuses the same
+	// WireGuard identity and mesh assignment instead of re-registering.
+	if b.bootstrapResult != nil && b.bootstrapResult.CertManager != nil {
+		if err := b.commitOrdinaryEnrollment(meshIPStr, meshSubnetStr); err != nil {
+			b.logger.Warn().Err(err).Msg("Failed to commit enrollment checkpoint after colony registration")
+		}
+	}
+
 	// Configure mesh network.
 	colonyEndpoint := connMgr.GetColonyEndpoint()
 	if colonyEndpoint == "" {
@@ -432,6 +442,34 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 	}
 
 	return nil
+}
+
+// commitOrdinaryEnrollment persists the enrollment checkpoint after an
+// ordinary (non-RFD-109-rendezvous) colony registration succeeds, mirroring
+// the commit BootstrapPhase performs for compound enrollment.
+func (b *AgentServerBuilder) commitOrdinaryEnrollment(meshIP, meshSubnet string) error {
+	certManager := b.bootstrapResult.CertManager
+	info := certManager.GetCertificateInfo()
+	if info == nil {
+		return fmt.Errorf("no certificate info available to commit enrollment checkpoint")
+	}
+
+	certSHA256, err := certSHA256Hex(certManager.GetCertPath())
+	if err != nil {
+		return fmt.Errorf("failed to hash certificate: %w", err)
+	}
+
+	store := enrollmentstate.NewStore(certManager.GetCertsDir(), b.logger)
+	_, err = store.CommitEnrollment(
+		b.agentID,
+		b.configResult.Config.ColonyID,
+		b.networkResult.AgentKeys.PublicKey,
+		meshIP,
+		meshSubnet,
+		certSHA256,
+		info.SerialNumber,
+	)
+	return err
 }
 
 // RegisterServices creates and registers all services.

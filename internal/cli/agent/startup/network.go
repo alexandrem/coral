@@ -1,12 +1,15 @@
 package startup
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/agent/certs"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
@@ -76,15 +79,14 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 	}
 	result.ColonyInfo = colonyInfo
 
-	// Step 2: Generate WireGuard keys for this agent.
-	agentKeys, err := auth.GenerateWireGuardKeyPair()
+	// Step 2: Load the persisted WireGuard identity, or generate and
+	// durably save a pending one before it is advertised to Discovery.
+	// Reusing a pending key keeps a retry stable even if the process exits
+	// before compound enrollment completes (RFD 109 restart-state fix).
+	agentKeys, err := n.loadOrGenerateAgentKeys()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate WireGuard keys: %w", err)
+		return nil, fmt.Errorf("failed to establish WireGuard identity: %w", err)
 	}
-
-	n.logger.Info().
-		Str("agent_pubkey", agentKeys.PublicKey).
-		Msg("Generated agent WireGuard keys")
 	result.AgentKeys = agentKeys
 
 	// Step 3: Get STUN servers for NAT traversal.
@@ -168,6 +170,50 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 	}
 
 	return result, nil
+}
+
+// loadOrGenerateAgentKeys restores the WireGuard identity from the
+// enrollment checkpoint if one exists and is well-formed, otherwise
+// generates a new keypair and persists it as a pending identity before it is
+// advertised anywhere. A corrupt or unsupported checkpoint is archived
+// rather than trusted.
+func (n *NetworkInitializer) loadOrGenerateAgentKeys() (*auth.WireGuardKeyPair, error) {
+	store := enrollmentstate.NewStore(certs.ResolveDir(n.agentCfg.Agent.Bootstrap.CertsDir), n.logger)
+
+	cp, err := store.Load()
+	switch {
+	case err == nil:
+		n.logger.Info().
+			Str("agent_pubkey", cp.WireGuardPublicKey).
+			Msg("Restored agent WireGuard identity from enrollment checkpoint")
+		return &auth.WireGuardKeyPair{PrivateKey: cp.WireGuardPrivateKey, PublicKey: cp.WireGuardPublicKey}, nil
+
+	case errors.Is(err, enrollmentstate.ErrNotExist):
+		// No prior identity; fall through to generate one.
+
+	default:
+		n.logger.Warn().
+			Err(err).
+			Msg("Enrollment checkpoint is invalid, archiving before generating a new WireGuard identity")
+		if archErr := store.ArchiveIncomplete("invalid_checkpoint"); archErr != nil {
+			return nil, fmt.Errorf("failed to archive invalid enrollment checkpoint: %w", archErr)
+		}
+	}
+
+	agentKeys, err := auth.GenerateWireGuardKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate WireGuard keys: %w", err)
+	}
+
+	if _, err := store.SavePendingIdentity(n.agentID, n.cfg.ColonyID, agentKeys); err != nil {
+		return nil, fmt.Errorf("failed to persist pending WireGuard identity: %w", err)
+	}
+
+	n.logger.Info().
+		Str("agent_pubkey", agentKeys.PublicKey).
+		Msg("Generated agent WireGuard keys")
+
+	return agentKeys, nil
 }
 
 // resolveAgentWireGuardPort resolves the optional environment override. Zero

@@ -96,15 +96,21 @@ type Config struct {
 
 // NewManager creates a new certificate manager.
 func NewManager(cfg Config) *Manager {
-	if cfg.CertsDir == "" {
-		homeDir, _ := os.UserHomeDir()
-		cfg.CertsDir = filepath.Join(homeDir, ".coral", "certs")
-	}
-
 	return &Manager{
-		certsDir: cfg.CertsDir,
+		certsDir: ResolveDir(cfg.CertsDir),
 		logger:   cfg.Logger,
 	}
+}
+
+// ResolveDir returns dir unchanged if non-empty, otherwise the default
+// certs directory (~/.coral/certs). Shared with internal/agent/enrollmentstate
+// so both packages resolve the same directory from the same configuration.
+func ResolveDir(dir string) string {
+	if dir != "" {
+		return dir
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".coral", "certs")
 }
 
 // CertificateExists checks if a valid certificate exists.
