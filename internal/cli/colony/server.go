@@ -241,10 +241,18 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				Err(err).
 				Msg("Failed to initialize agent WireGuard key store, RFD 109 enrollment disabled")
 		} else {
-			colonySvc.SetEnroller(enrollment.NewEnroller(
+			enroller := enrollment.NewEnroller(
 				caManager, wgDevice, agentRegistry, discoveryClient, enrollmentStore, keyStore, cfg,
 				logger.With().Str("component", "rendezvous-enrollment").Logger(),
-			))
+			)
+			colonySvc.SetEnroller(enroller)
+			if err := enroller.RestorePeers(ctx); err != nil {
+				logger.Warn().
+					Str("event", "rendezvous_peer_restore_failed").
+					Err(err).
+					Msg("Failed to restore completed rendezvous WireGuard peers")
+			}
+			go enroller.StartPeerRestoreLoop(ctx)
 			logger.Info().
 				Str("event", "rendezvous_enrollment_ready").
 				Msg("RFD 109 compound rendezvous enrollment initialized")

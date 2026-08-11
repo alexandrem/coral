@@ -26,8 +26,9 @@ import (
 // waitPollInterval and waitTimeout bound how long a caller that observed
 // OutcomeWait polls for another in-flight owner to reach Completed.
 const (
-	waitPollInterval = 250 * time.Millisecond
-	waitTimeout      = 20 * time.Second
+	waitPollInterval    = 250 * time.Millisecond
+	waitTimeout         = 20 * time.Second
+	peerRestoreInterval = 30 * time.Second
 )
 
 var phaseOrder = map[Phase]int{
@@ -77,6 +78,99 @@ func NewEnroller(
 		keys:            keys,
 		cfg:             cfg,
 		logger:          logger.With().Str("component", "rendezvous-enrollment").Logger(),
+	}
+}
+
+// RestorePeers restores the current peer for every completed compound
+// enrollment after a Colony restart. WireGuard peer configuration is runtime
+// state, so the durable enrollment record and current Discovery endpoint are
+// needed to make an already-enrolled Agent reachable again.
+func (e *Enroller) RestorePeers(ctx context.Context) error {
+	rows, err := e.store.ListCompleted(ctx)
+	if err != nil {
+		return err
+	}
+
+	restored := 0
+	for _, row := range rows {
+		if row.ColonyID != e.cfg.ColonyID {
+			continue
+		}
+		currentPubkey, err := e.keys.CurrentPubkey(ctx, row.AgentID)
+		if err != nil {
+			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer key")
+			continue
+		}
+		if currentPubkey == "" || currentPubkey != row.NewPubkey {
+			// This is a superseded enrollment record; only restore the key that
+			// is currently authoritative for the Agent.
+			continue
+		}
+
+		agentInfo, err := e.discoveryClient.LookupAgent(ctx, row.AgentID, row.ColonyID)
+		if err != nil {
+			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer without Discovery endpoint")
+			continue
+		}
+		if agentInfo.Pubkey != row.NewPubkey {
+			e.logger.Warn().
+				Str("agent_id", row.AgentID).
+				Str("enrolled_pubkey", row.NewPubkey).
+				Str("discovery_pubkey", agentInfo.Pubkey).
+				Msg("rendezvous: Discovery key differs from completed enrollment; skipping peer restore")
+			continue
+		}
+		endpoint, _ := mesh.SelectBestAgentEndpoint(agentInfo.ObservedEndpoints, "", e.logger, row.AgentID)
+		if endpoint == nil {
+			e.logger.Warn().Str("agent_id", row.AgentID).Msg("rendezvous: no usable Discovery endpoint while restoring Agent peer")
+			continue
+		}
+
+		peerConfig := &wireguard.PeerConfig{
+			PublicKey:           row.NewPubkey,
+			Endpoint:            net.JoinHostPort(endpoint.IP, fmt.Sprintf("%d", endpoint.Port)),
+			AllowedIPs:          []string{row.AllocatedIP + "/32"},
+			PersistentKeepalive: 25,
+		}
+		if existing, ok := e.wgDevice.GetPeer(row.NewPubkey); ok && existing.Endpoint == peerConfig.Endpoint {
+			continue
+		}
+		if err := e.wgDevice.AddPeer(peerConfig); err != nil {
+			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to restore Agent WireGuard peer")
+			continue
+		}
+		if err := e.wgDevice.TriggerHandshake(row.NewPubkey); err != nil {
+			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to trigger restored Agent handshake")
+			continue
+		}
+		restored++
+		e.logger.Info().
+			Str("agent_id", row.AgentID).
+			Str("mesh_ip", row.AllocatedIP).
+			Str("endpoint", peerConfig.Endpoint).
+			Msg("rendezvous: restored Agent WireGuard peer and initiated handshake")
+	}
+
+	e.logger.Debug().Int("peer_count", restored).Msg("rendezvous: completed WireGuard peer restoration")
+	return nil
+}
+
+// StartPeerRestoreLoop retries restoration after startup. An Agent may not
+// have published its current STUN endpoint to Discovery when the Colony first
+// starts, so restoration must not be a one-shot operation.
+func (e *Enroller) StartPeerRestoreLoop(ctx context.Context) {
+	ticker := time.NewTicker(peerRestoreInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := e.RestorePeers(ctx); err != nil {
+				e.logger.Warn().Err(err).Msg("rendezvous: periodic Agent peer restoration failed")
+			}
+		}
 	}
 }
 

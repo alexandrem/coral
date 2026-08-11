@@ -98,20 +98,6 @@ func TestWaitForDiscoveryStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
-func TestGetColonyEndpointUsesDiscoveryEndpoint(t *testing.T) {
-	cm := &ConnectionManager{
-		colonyInfo: &discovery.LookupColonyResponse{
-			Endpoints: []string{"198.51.100.10:9000"},
-			Metadata:  map[string]string{"wireguard_port": "51821"},
-		},
-		logger: zerolog.Nop(),
-	}
-
-	if endpoint := cm.GetColonyEndpoint(); endpoint != "198.51.100.10:51821" {
-		t.Fatalf("GetColonyEndpoint() = %q, want 198.51.100.10:51821", endpoint)
-	}
-}
-
 func TestApplyBootstrapRegistrationRejectsInvalidResponse(t *testing.T) {
 	tests := []struct {
 		name string

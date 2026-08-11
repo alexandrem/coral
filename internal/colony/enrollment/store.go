@@ -294,6 +294,32 @@ func (s *Store) Get(ctx context.Context, recordID string) (*Row, error) {
 	return &r, nil
 }
 
+// ListCompleted returns completed enrollment records. Callers must still
+// verify each record against the current key mapping before using it, since an
+// agent may have enrolled again with a rotated WireGuard key.
+func (s *Store) ListCompleted(ctx context.Context) ([]*Row, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT record_id, agent_id, colony_id, allocated_ip, new_pubkey
+		 FROM rendezvous_enrollment_state WHERE phase = ?`, string(PhaseCompleted))
+	if err != nil {
+		return nil, fmt.Errorf("enrollment: failed to list completed records: %w", err)
+	}
+	defer rows.Close()
+
+	var completed []*Row
+	for rows.Next() {
+		row := &Row{Phase: PhaseCompleted}
+		if err := rows.Scan(&row.RecordID, &row.AgentID, &row.ColonyID, &row.AllocatedIP, &row.NewPubkey); err != nil {
+			return nil, fmt.Errorf("enrollment: failed to scan completed record: %w", err)
+		}
+		completed = append(completed, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("enrollment: failed while listing completed records: %w", err)
+	}
+	return completed, nil
+}
+
 // SetAuthorized transitions a Claimed row to Authorized after the referral
 // ticket, PSK, and identity consistency checks all pass. This is the line
 // between "someone claimed this record_id" and "this is a validated

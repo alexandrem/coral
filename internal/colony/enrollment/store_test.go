@@ -49,6 +49,28 @@ func TestClaim_CompletedRowReplays(t *testing.T) {
 	require.Equal(t, []byte("resp"), row.RegisterResponse)
 }
 
+func TestListCompletedReturnsOnlyCompletedEnrollments(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	_, _, err := s.Claim(ctx, "completed", "owner", DefaultLease)
+	require.NoError(t, err)
+	require.NoError(t, s.SetAuthorized(ctx, "completed", "owner", "agent-1", "colony-1", "jti", time.Now().Add(time.Hour), "hash", DefaultLease))
+	require.NoError(t, s.SetIPAllocated(ctx, "completed", "owner", "203.0.113.1:51820", "100.64.0.2", "", "pubkey-1", DefaultLease))
+	require.NoError(t, s.SetCompleted(ctx, "completed", "owner", nil, nil, time.Now().Add(time.Hour), nil))
+
+	_, _, err = s.Claim(ctx, "pending", "owner", DefaultLease)
+	require.NoError(t, err)
+
+	rows, err := s.ListCompleted(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "completed", rows[0].RecordID)
+	require.Equal(t, "agent-1", rows[0].AgentID)
+	require.Equal(t, "100.64.0.2", rows[0].AllocatedIP)
+	require.Equal(t, "pubkey-1", rows[0].NewPubkey)
+}
+
 func TestClaim_LiveLeaseWaits(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
