@@ -90,6 +90,7 @@ type ConnectionManager struct {
 	backoff          *ExponentialBackoff
 	discoveryBackoff *ExponentialBackoff
 	colonyInfoMu     sync.RWMutex // Protects colonyInfo updates
+	discoveryLookup  func(*config.ResolvedConfig, logging.Logger) (*discovery.LookupColonyResponse, error)
 }
 
 // ExponentialBackoff implements exponential backoff with jitter for reconnection attempts.
@@ -167,6 +168,7 @@ func NewConnectionManager(
 			Multiplier:      2.0,
 			Jitter:          0.1,
 		},
+		discoveryLookup: QueryDiscoveryForColony,
 	}
 }
 
@@ -200,7 +202,11 @@ func (cm *ConnectionManager) AttemptDiscovery() (*discovery.LookupColonyResponse
 		Str("discovery_url", cm.config.DiscoveryURL).
 		Msg("Attempting discovery service query")
 
-	colonyInfo, err := QueryDiscoveryForColony(cm.config, cm.logger)
+	lookup := cm.discoveryLookup
+	if lookup == nil {
+		lookup = QueryDiscoveryForColony
+	}
+	colonyInfo, err := lookup(cm.config, cm.logger)
 	if err != nil {
 		return nil, fmt.Errorf("discovery lookup failed: %w", err)
 	}
@@ -218,6 +224,33 @@ func (cm *ConnectionManager) AttemptDiscovery() (*discovery.LookupColonyResponse
 	}
 
 	return colonyInfo, nil
+}
+
+// WaitForDiscovery continually queries Discovery until the Colony appears or
+// the caller cancels the context. This is used when startup cannot proceed
+// without Colony metadata, such as restoring a compound bootstrap enrollment.
+func (cm *ConnectionManager) WaitForDiscovery(ctx context.Context) (*discovery.LookupColonyResponse, error) {
+	for {
+		colonyInfo, err := cm.AttemptDiscovery()
+		if err == nil {
+			cm.discoveryBackoff.Reset()
+			return colonyInfo, nil
+		}
+
+		delay := cm.discoveryBackoff.NextDelay()
+		cm.logger.Warn().
+			Err(err).
+			Dur("retry_in", delay).
+			Msg("Discovery lookup required to finish agent startup failed - will retry")
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // GetColonyInfo safely returns the current colony info.

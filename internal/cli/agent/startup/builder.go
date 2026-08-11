@@ -340,22 +340,21 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 	// cannot reach a loopback/mesh-only Colony before WireGuard is up.
 	if b.bootstrapResult != nil && b.bootstrapResult.Registration != nil {
 		registration := b.bootstrapResult.Registration
-
-		// InitializeNetwork tolerates an early Discovery miss, while bootstrap
-		// retries its own lookup. Refresh here if bootstrap outlived that miss;
-		// configuring the dynamic Colony peer still needs its public key and
-		// mesh addresses.
-		if b.networkResult.ColonyInfo == nil {
-			colonyInfo, err := QueryDiscoveryForColony(b.configResult.Config, b.logger)
-			if err != nil {
-				return fmt.Errorf("failed to refresh colony information after compound bootstrap: %w", err)
-			}
-			b.networkResult.ColonyInfo = colonyInfo
-			connMgr.SetColonyInfo(colonyInfo)
-		}
-
 		if err := connMgr.ApplyBootstrapRegistration(registration); err != nil {
 			return fmt.Errorf("invalid compound bootstrap registration: %w", err)
+		}
+
+		// InitializeNetwork tolerates an early Discovery miss, while bootstrap
+		// retries its own lookup. Keep retrying here if bootstrap outlived that
+		// miss; configuring the dynamic Colony peer still needs its public key
+		// and mesh addresses. A temporarily absent Colony must not terminate an
+		// otherwise enrolled Agent.
+		if b.networkResult.ColonyInfo == nil {
+			colonyInfo, err := connMgr.WaitForDiscovery(b.ctx)
+			if err != nil {
+				return fmt.Errorf("stopped while waiting to refresh colony information after compound bootstrap: %w", err)
+			}
+			b.networkResult.ColonyInfo = colonyInfo
 		}
 
 		networkInitializer := NewNetworkInitializer(
