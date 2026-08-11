@@ -160,7 +160,7 @@ test-integration: generate ## Run integration tests (requires Docker/Colima)
 
 test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
-	go test -short -count=1 -parallel=8 -coverprofile=coverage.out -covermode=atomic ./... -timeout=20m
+	go test -short -count=1 -parallel=8 -coverprofile=coverage.out -covermode=atomic ./... -timeout=30m
 	@cd tests/integration && go test -short -count=1 -parallel=4 ./...
 
 test-linux: ## Run tests in Linux Docker (tests platform-specific code)
