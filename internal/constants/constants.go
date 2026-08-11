@@ -38,6 +38,11 @@ var (
 	// DefaultWireGuardPort is the default WireGuard peering port for colonies.
 	DefaultWireGuardPort = 41580
 
+	// DefaultAgentWireGuardPort is the default UDP listen port for Agents.
+	// A fixed port lets STUN run before WireGuard binds and ensures the Agent
+	// can publish a usable endpoint for RFD 109 rendezvous enrollment.
+	DefaultAgentWireGuardPort = 51820
+
 	DefaultWireGuardKeepaliveSeconds = 25
 
 	// DefaultWireGuardMTU is default MTU for WireGuard (1500 - 80 overhead).

@@ -56,12 +56,14 @@ areas: [ "agent", "colony", "discovery", "wireguard", "security" ]
   `Config.WireGuardPubkey` is set, advertising the `bootstrap_and_register`
   capability and returning the compound `RegisterResponse` on `Result`.
   Unset (the default), behavior is byte-for-byte the RFD 108 flow.
+- ✅ Agent startup initializes WireGuard/STUN/Discovery and runtime detection
+  before certificate bootstrap, supplies the full registration payload to
+  `bootstrap.Client`, and consumes a compound `RegisterResponse` by installing
+  a dynamic Colony peer with no endpoint. The ordinary pre-mesh
+  `MeshService.Register` loop is skipped for rendezvous enrollment.
 - ✅ Verified Discovery's existing agent-registration TTL (300s default)
   already comfortably covers the RFD 108 rendezvous wait budget (120s); no
   Discovery-side change was needed.
-
-See Future Work below for the one piece deliberately not wired end-to-end:
-full agent startup sequencing to call `BootstrapAndRegister` in practice.
 
 ## Summary
 
@@ -155,8 +157,10 @@ updates a peer's roaming endpoint when it receives an authenticated packet.
 
 ## Non-goals
 
-- Automatic discovery of a TCP bootstrap listener. The Agent still explicitly
-  configures `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` under RFD 108.
+- Automatic TCP NAT port mapping. For the common public-Agent case, startup
+  derives the rendezvous listener as `STUN-observed-IP:8444`; operators still
+  configure `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` when TCP forwarding changes the
+  external address or port.
 - Solving the case where neither side is dialable and neither a relay nor a
   public endpoint is available.
 - Turning Discovery into a TCP, HTTP, or WireGuard relay.
@@ -585,7 +589,7 @@ the rendezvous record TTL. Existing endpoint validation and rate limits apply.
 
 | Condition | Result | Operator action |
 | --- | --- | --- |
-| No `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Existing direct-bootstrap failure | Configure the Agent TCP endpoint. |
+| No explicit bootstrap endpoint and no Discovery-confirmed Agent STUN address | Existing direct-bootstrap failure | Configure STUN/fixed Agent UDP port, or set the Agent TCP endpoint explicitly. |
 | No usable Agent observed UDP endpoint | Enrollment rejected before ticket consumption or issuance; record unacked; Agent retries the same ticket on the next dial-back | Configure STUN and allow the Agent WireGuard UDP port. |
 | PSK/ticket/nonce invalid | Enrollment rejected; no mesh mutation, no ticket consumed | Correct credentials; investigate security logs. |
 | Peer add fails | Roll back a newly allocated IP; ticket not yet consumed; record unacked; Agent retries the same ticket on the next dial-back | Inspect Colony WireGuard/device logs. |
@@ -602,8 +606,12 @@ the rendezvous record TTL. Existing endpoint validation and rate limits apply.
 
 Required structured events and metrics:
 
-- `rendezvous_enrollment_started`, `rendezvous_enrollment_succeeded`, and
-  `rendezvous_enrollment_failed` with record ID, agent ID, and failure class.
+- `rendezvous_enrollment_started`, `rendezvous_enrollment_phase_changed`,
+  `rendezvous_enrollment_completed`, and `rendezvous_enrollment_failed` with
+  record ID, authorized Agent ID, durable phase, and failure class.
+- `rendezvous_endpoint_selected`, `rendezvous_old_peer_removed`,
+  `rendezvous_peer_added`, `rendezvous_registry_updated`, and
+  `rendezvous_certificate_issued` for the enrollment mutations.
 - `rendezvous_wireguard_handshake_started` and elapsed time to first handshake.
 - A distinct error for missing Agent UDP endpoint; never report it as a generic
   mesh registration timeout.
@@ -750,21 +758,6 @@ ports are independent, so treating one as proof of the other is incorrect.
 
 ## Future Work
 
-- **Agent startup sequencing to actually invoke `BootstrapAndRegister`.**
-  `bootstrap.Client` supports the compound RPC end-to-end and is tested
-  (`internal/agent/bootstrap/rendezvous_test.go`), but nothing in
-  `internal/cli/agent/startup` populates `Config.WireGuardPubkey`/`Services`/
-  `RuntimeContext` yet: today's agent startup order generates WireGuard keys
-  and calls `RegisterAgent` on Discovery in `InitializeNetwork()`, which runs
-  *after* `InitializeBootstrap()` — but `BootstrapAndRegister` needs the
-  WireGuard pubkey at bootstrap time. Wiring this up requires reordering
-  `AgentServerBuilder`'s phases (or hoisting key generation out of
-  `NetworkInitializer`) so WireGuard keys exist before bootstrap runs, then
-  having `RegisterWithColony()` skip `ConnectionManager.AttemptRegistration()`
-  and configure the Colony peer with an empty endpoint when
-  `BootstrapResult.Registration` is set. This touches the primary (non-
-  rendezvous) startup path for every agent, so it deserves its own focused
-  change and test pass rather than being folded into this already-large RFD.
 - **Full crash-window certificate recovery.** If the Colony crashes between
   consuming the referral ticket's `jti` and marking the enrollment-state row
   `completed`, the current implementation (`Enroller.finish`) detects the gap

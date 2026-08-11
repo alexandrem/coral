@@ -1,12 +1,15 @@
 package startup
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/agent/certs"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
@@ -76,15 +79,14 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 	}
 	result.ColonyInfo = colonyInfo
 
-	// Step 2: Generate WireGuard keys for this agent.
-	agentKeys, err := auth.GenerateWireGuardKeyPair()
+	// Step 2: Load the persisted WireGuard identity, or generate and
+	// durably save a pending one before it is advertised to Discovery.
+	// Reusing a pending key keeps a retry stable even if the process exits
+	// before compound enrollment completes (RFD 109 restart-state fix).
+	agentKeys, err := n.loadOrGenerateAgentKeys()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate WireGuard keys: %w", err)
+		return nil, fmt.Errorf("failed to establish WireGuard identity: %w", err)
 	}
-
-	n.logger.Info().
-		Str("agent_pubkey", agentKeys.PublicKey).
-		Msg("Generated agent WireGuard keys")
 	result.AgentKeys = agentKeys
 
 	// Step 3: Get STUN servers for NAT traversal.
@@ -99,19 +101,31 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 	// Relay setting is loaded from config (env var override via MergeFromEnv)
 	enableRelay := n.agentCfg.Agent.NAT.EnableRelay
 
-	// Step 5: Get WireGuard port from environment or use ephemeral (-1).
-	wgPort := -1 // Default: ephemeral port
-	if envPort := os.Getenv("CORAL_WIREGUARD_PORT"); envPort != "" {
-		if port, err := strconv.Atoi(envPort); err == nil && port > 0 && port < 65536 {
-			wgPort = port
-			n.logger.Info().
-				Int("port", wgPort).
-				Msg("Using configured WireGuard port")
+	// Step 5: Use a fixed, discoverable port by default. STUN must bind the
+	// intended WireGuard port before the device starts, so an ephemeral port
+	// cannot be advertised for RFD 109 rendezvous enrollment.
+	envPort := os.Getenv("CORAL_WIREGUARD_PORT")
+	wgPort, portErr := resolveAgentWireGuardPort(envPort)
+	if envPort != "" {
+		if portErr == nil {
+			if wgPort < 0 {
+				n.logger.Warn().Msg("Using explicitly configured ephemeral WireGuard port; STUN and NAT-local Colony enrollment will be unavailable")
+			} else {
+				n.logger.Info().
+					Int("port", wgPort).
+					Msg("Using configured WireGuard port")
+			}
 		} else {
+			wgPort = constants.DefaultAgentWireGuardPort
 			n.logger.Warn().
 				Str("port", envPort).
-				Msg("Invalid CORAL_WIREGUARD_PORT value, using ephemeral port")
+				Int("default_port", wgPort).
+				Msg("Invalid CORAL_WIREGUARD_PORT value, using default Agent WireGuard port")
 		}
+	} else {
+		n.logger.Info().
+			Int("port", wgPort).
+			Msg("Using default Agent WireGuard port")
 	}
 
 	// Step 6: Create and start WireGuard device (RFD 019: without peer, without IP).
@@ -127,7 +141,6 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 		return nil, fmt.Errorf("failed to setup WireGuard: %w", err)
 	}
 	result.WireGuardDevice = wgDevice
-	result.AgentObservedEndpoint = agentObservedEndpoint
 
 	n.logger.Debug().Msg("Agent running with elevated privileges for eBPF/Beyla operations")
 
@@ -139,14 +152,96 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 			Uint32("public_port", agentObservedEndpoint.Port).
 			Msg("Registering agent with discovery service")
 
-		if err := RegisterAgentWithDiscovery(n.cfg, n.agentID, agentKeys.PublicKey, agentObservedEndpoint, n.logger); err != nil {
+		registeredEndpoint, err := RegisterAgentWithDiscovery(n.cfg, n.agentID, agentKeys.PublicKey, agentObservedEndpoint, n.logger)
+		if err != nil {
 			n.logger.Warn().Err(err).Msg("Failed to register agent with discovery service (continuing anyway)")
+		} else {
+			// Use the endpoint acknowledged by Discovery for bootstrap endpoint
+			// derivation and RFD 109, rather than assuming the submitted STUN
+			// observation was stored unchanged.
+			if registeredEndpoint != nil {
+				result.AgentObservedEndpoint = registeredEndpoint
+			} else {
+				result.AgentObservedEndpoint = agentObservedEndpoint
+			}
 		}
 	} else {
 		n.logger.Info().Msg("No observed endpoint available (STUN not configured or failed), skipping discovery service registration")
 	}
 
 	return result, nil
+}
+
+// loadOrGenerateAgentKeys restores the WireGuard identity from the
+// enrollment checkpoint if one exists and is well-formed, otherwise
+// generates a new keypair and persists it as a pending identity before it is
+// advertised anywhere. A corrupt or unsupported checkpoint is archived
+// rather than trusted.
+func (n *NetworkInitializer) loadOrGenerateAgentKeys() (*auth.WireGuardKeyPair, error) {
+	store := enrollmentstate.NewStore(certs.ResolveDir(n.agentCfg.Agent.Bootstrap.CertsDir), n.logger)
+
+	cp, err := store.Load()
+	switch {
+	case err == nil:
+		n.logger.Info().
+			Str("agent_pubkey", cp.WireGuardPublicKey).
+			Msg("Restored agent WireGuard identity from enrollment checkpoint")
+		return &auth.WireGuardKeyPair{PrivateKey: cp.WireGuardPrivateKey, PublicKey: cp.WireGuardPublicKey}, nil
+
+	case errors.Is(err, enrollmentstate.ErrNotExist):
+		// No prior identity; fall through to generate one.
+
+	default:
+		n.logger.Warn().
+			Err(err).
+			Msg("Enrollment checkpoint is invalid, archiving before generating a new WireGuard identity")
+		if archErr := store.ArchiveIncomplete("invalid_checkpoint"); archErr != nil {
+			return nil, fmt.Errorf("failed to archive invalid enrollment checkpoint: %w", archErr)
+		}
+	}
+
+	agentKeys, err := auth.GenerateWireGuardKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate WireGuard keys: %w", err)
+	}
+
+	if _, err := store.SavePendingIdentity(n.agentID, n.cfg.ColonyID, agentKeys); err != nil {
+		return nil, fmt.Errorf("failed to persist pending WireGuard identity: %w", err)
+	}
+
+	n.logger.Info().
+		Str("agent_pubkey", agentKeys.PublicKey).
+		Msg("Generated agent WireGuard keys")
+
+	return agentKeys, nil
+}
+
+// resolveAgentWireGuardPort resolves the optional environment override. Zero
+// and -1 are explicit opt-outs for deployments that require an ephemeral
+// port; positive values select a fixed, STUN-discoverable UDP port.
+func resolveAgentWireGuardPort(value string) (int, error) {
+	if value == "" {
+		return constants.DefaultAgentWireGuardPort, nil
+	}
+
+	return parseAgentWireGuardPort(value)
+}
+
+// parseAgentWireGuardPort parses a non-empty environment override. Zero and
+// -1 are explicit opt-outs for deployments that require an ephemeral port;
+// positive values select a fixed, STUN-discoverable UDP port.
+func parseAgentWireGuardPort(value string) (int, error) {
+	port, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid integer: %w", err)
+	}
+	if port == 0 || port == -1 {
+		return -1, nil
+	}
+	if port < 1 || port > 65535 {
+		return 0, fmt.Errorf("port must be between 1 and 65535, or 0/-1 for ephemeral")
+	}
+	return port, nil
 }
 
 // ConfigureMesh configures the agent mesh with permanent IP from colony.

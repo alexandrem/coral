@@ -112,9 +112,9 @@ type ServicesConfig struct {
 
 // WireGuardConfig contains WireGuard mesh configuration.
 //
-// For production deployments, you must set the CORAL_PUBLIC_ENDPOINT environment
-// variable to your colony's publicly reachable address. This tells agents where
-// to establish the WireGuard tunnel.
+// At startup, Colony registers its STUN-observed WireGuard address with
+// Discovery so Agents can establish the tunnel without static configuration.
+// CORAL_PUBLIC_ENDPOINT optionally overrides or supplements that address.
 //
 // Example production setup:
 //
@@ -608,9 +608,10 @@ type BootstrapConfig struct {
 
 	// BootstrapPublicEndpoint is this Agent's dialable ip:port, published via
 	// a PSK-encrypted rendezvous record so a NAT'd Colony (no inbound
-	// connectivity) can dial back and complete bootstrap (RFD 108). If
-	// unset, and direct dial to the colony fails, bootstrap fails fast
-	// instead of falling back to rendezvous.
+	// connectivity) can dial back and complete bootstrap (RFD 108). When
+	// unset, startup derives the endpoint from the Agent's STUN-observed
+	// public IP and BootstrapListenPort. Configure this explicitly when TCP
+	// port forwarding does not preserve that address/port.
 	BootstrapPublicEndpoint string `yaml:"bootstrap_public_endpoint,omitempty" env:"CORAL_BOOTSTRAP_PUBLIC_ENDPOINT"`
 
 	// VerifyBootstrapReachability opts into having Discovery synchronously

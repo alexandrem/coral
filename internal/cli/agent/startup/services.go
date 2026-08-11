@@ -458,7 +458,12 @@ func (s *ServiceRegistry) createHTTPServers(
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
 	serviceHandler.SetSessionID(s.sessionID)
 	serviceHandler.SetMeshInfoProvider(s.gatherMeshNetworkInfo)
-	systemMetricsHandler.SetSessionID(s.sessionID)
+	// System metrics are optional: when the shared database is unavailable
+	// during bootstrap, no metrics handler is created. The service handler
+	// already responds gracefully to QuerySystemMetrics in that case.
+	if systemMetricsHandler != nil {
+		systemMetricsHandler.SetSessionID(s.sessionID)
+	}
 	path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 	// Create debug service handler (RFD 059).

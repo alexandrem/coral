@@ -78,21 +78,15 @@ dialable side where to connect.
 1. The Agent tries the existing direct-dial flow against the Colony's
    Discovery-published endpoints (unchanged). If every endpoint is
    loopback/private/unreachable, it falls back to rendezvous mode.
-2. The Agent must know its own dialable endpoint. **This is not inferred from
-   RFD 023's STUN-observed endpoint** — that observation is a UDP mapping
-   for the WireGuard socket, doesn't imply anything about an unrelated TCP
-   port, and in any case doesn't exist yet at this point in the lifecycle
-   (STUN registration happens via `RegisterAgent`, which requires the mesh
-   membership this RFD is trying to bootstrap). Instead, the operator
-   explicitly configures a public bootstrap endpoint
-   (`--bootstrap-public-endpoint` / `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT`),
-   mirroring how the Colony's own dialable endpoint is already configured
-   today (`CORAL_PUBLIC_ENDPOINT`, RFD 085). If unset, bootstrap fails fast
-   with a clear error — this RFD covers "at least one side has a configured,
-   dialable endpoint," not automatic NAT detection or double-NAT (see Future
-   Work).
-3. The Agent opens a **single-use, short-lived TLS listener** on an ephemeral
-   port and publishes a **PSK-encrypted rendezvous record** — `{endpoint,
+2. The Agent must know its own dialable endpoint. Startup now initializes a
+   fixed WireGuard port and STUN registration before bootstrap (RFD 109), so
+   a public Agent derives the TCP listener as `STUN-observed-IP:8444` and
+   publishes it through the encrypted rendezvous record. Because a UDP STUN
+   mapping cannot prove that an unrelated TCP port is forwarded through NAT,
+   `--bootstrap-public-endpoint` / `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` remains
+   the authoritative override when the external TCP address or port differs.
+3. The Agent opens a **single-use, short-lived TLS listener** on TCP `8444` by
+   default and publishes a **PSK-encrypted rendezvous record** — `{endpoint,
    session_nonce, write_token, expires_at}` — to Discovery, keyed by
    `mesh_id`. The record is bound to a server-generated `record_id` (public,
    returned to the caller) and a client-generated `write_token` (secret,
@@ -215,7 +209,7 @@ sequenceDiagram
     Agent->>Agent: Direct HTTPS dial fails (loopback/unreachable)
 
     Note over Agent: Phase 2: Configured Endpoint Check
-    Agent->>Agent: --bootstrap-public-endpoint configured? -> proceed (else fail fast)
+    Agent->>Agent: explicit endpoint or STUN-observed public IP available? -> proceed (else fail fast)
 
     Note over Agent,Discovery: Phase 3: Publish Encrypted Rendezvous
     Agent->>Agent: listener = Listen(DefaultAgentBootstrapPort=8444)
@@ -810,17 +804,17 @@ No changes to `RequestCertificate` (RFD 048/088) or `CreateBootstrapToken`
   successfully decrypted the record (and therefore recovered
   `write_token`) before it can retire it.
 - Add structured audit logging for rendezvous decrypt attempts and nonce
-  validation results (success/failure counts only — never log plaintext
-  endpoints, nonces, or PSKs).
+  validation results, plus record receipt, dial/TLS milestones, routed request
+  completion, and acknowledgement. Correlate by `record_id`; never log the
+  decrypted rendezvous TCP endpoint, nonce, write token, or PSK.
 
 ### 3. Agent Bootstrap Client (`internal/agent/bootstrap`)
 - Reuse the existing loopback/unreachable detection that already triggers a
   fallback path.
-- Require an explicitly configured public bootstrap endpoint
-  (`--bootstrap-public-endpoint` / `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT`). If
-  unset, fail fast with an actionable error instead of attempting
-  rendezvous — do not infer dialability from RFD 023 STUN data (see
-  High-Level Approach).
+- Prefer an explicitly configured public bootstrap endpoint when present;
+  otherwise derive `STUN-observed-IP:bootstrap-listen-port` after Agent
+  Discovery registration. If neither is available, fail with an actionable
+  error instead of publishing an unusable rendezvous record.
 - Before the first publish, generate `write_token` (32 bytes, `crypto/rand`)
   and embed it in the plaintext payload alongside `endpoint`/`session_nonce`/
   `expires_at` (see Appendix) so it travels to the Colony only inside the
@@ -1175,10 +1169,11 @@ once that service implements it.
   `coral agent bootstrap` and the `coral agent start` startup path.
 
 **What Works Now:**
-- An Agent with a configured `--bootstrap-public-endpoint` automatically
-  falls back to PSK-encrypted rendezvous when direct dial to the Colony
-  fails, and completes certificate bootstrap once the Colony dials back —
-  verified end-to-end in
+- During `coral agent start`, an Agent with a Discovery-confirmed STUN address
+  automatically derives its `:8444` endpoint and falls back to PSK-encrypted
+  rendezvous when direct dial to the Colony fails. An explicitly configured
+  `--bootstrap-public-endpoint` overrides that derivation. The Colony then
+  dials back and completes certificate bootstrap — verified end-to-end in
   `tests/integration/rendezvous/e2e_test.go:TestNATColonyDialableAgentBootstrapViaRendezvous`.
 - PSK rotation grace period is honored on the Colony's decrypt path.
 - A misconfigured/unreachable `--bootstrap-public-endpoint` fails fast if

@@ -330,33 +330,64 @@ configured endpoint agent.example.com:8444 is not reachable from the internet
 
 **Solutions:**
 
-1. Configure the Agent's public address explicitly. It must be an externally
-   reachable `host:port`, not a mesh or private address:
+1. For `coral agent start`, confirm the Agent logged both a successful
+   STUN/Discovery registration and an automatically derived
+   `<public-IP>:8444` endpoint. The Agent must use a fixed WireGuard port;
+   `CORAL_WIREGUARD_PORT=0` or `-1` disables this discovery path.
+
+2. If the externally reachable TCP address or port differs from the automatic
+   endpoint, configure it explicitly. It must not be a mesh or private address:
 
    ```bash
    coral agent bootstrap ... \
      --bootstrap-public-endpoint agent.example.com:8444
    ```
 
-2. Permit and, where required, forward inbound **TCP 8444** to the Agent. If
+3. Permit and, where required, forward inbound **TCP 8444** to the Agent. If
    the local listener uses another port, set it with
    `--bootstrap-listen-port` / `CORAL_BOOTSTRAP_LISTEN_PORT` and ensure the
    public endpoint routes to that listener.
 
-3. Check the endpoint from a network that can reach the Agent, not from the
+4. Check the endpoint from a network that can reach the Agent, not from the
    Agent itself:
 
    ```bash
    nc -zv agent.example.com 8444
    ```
 
-4. For a direct, early validation, retry with
+5. For a direct, early validation, retry with
    `--verify-bootstrap-reachability`. This asks Discovery to perform a
    quota-limited TCP probe; it is a diagnostic, not a guarantee that the
    Colony will complete enrollment.
 
-5. Verify that the Colony is running and can reach Discovery. RFD 108 does not
+6. Verify that the Colony is running and can reach Discovery. RFD 108 does not
    solve a topology where neither the Colony nor the Agent has an inbound path.
+
+On the Colony, follow the structured `event` field for one `record_id`. A
+successful reverse-dial compound enrollment reports:
+
+```text
+rendezvous_records_received
+rendezvous_dial_started
+rendezvous_tcp_connected
+rendezvous_tls_established
+rendezvous_request_received
+rendezvous_enrollment_started
+rendezvous_enrollment_phase_changed
+rendezvous_endpoint_selected
+rendezvous_peer_added
+rendezvous_wireguard_handshake_started
+rendezvous_certificate_issued
+rendezvous_enrollment_completed
+rendezvous_bootstrap_register_completed
+rendezvous_request_completed
+rendezvous_record_acknowledged
+```
+
+Failures include the same `record_id`. Enrollment failures also include the
+last durable `phase` and a `failure_class`. The decrypted Agent TCP rendezvous
+endpoint, nonce, write token, and PSK are intentionally omitted from Colony
+logs.
 
 ### Timeout During Bootstrap
 

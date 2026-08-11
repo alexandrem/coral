@@ -80,7 +80,7 @@ but much simpler.
 - Works across NATs and firewalls (HTTP-friendly)
 - Minimal operational complexity (separate, standalone binary)
 - Low resource requirements ($5/mo VPS handles thousands of colonies)
-- Uses non-standard WireGuard port (41820) to avoid conflicts with other WG solutions
+- Uses non-standard Colony WireGuard port (41580) to avoid conflicts with other WG solutions
 - Independent deployment: Can be updated/scaled without affecting coral CLI
 
 **Architecture Overview:**
@@ -94,7 +94,7 @@ but much simpler.
 │  ┌────────────────────────────────────┐     │
 │  │ mesh-123 → Colony Info             │     │
 │  │   - pubkey: abc123...              │     │
-│  │   - endpoints: [1.2.3.4:41820]     │     │
+│  │   - endpoints: [1.2.3.4:41580]     │     │
 │  │   - last_seen: 2025-10-28T10:00    │     │
 │  │   - ttl: 300                       │     │
 │  └────────────────────────────────────┘     │
@@ -262,14 +262,14 @@ coral colony start --mesh-id my-app-prod
 Colony started
 Registered with discovery service via gRPC
 Mesh ID: my-app-prod
-Endpoints: [203.0.113.42:41820]
+Endpoints: [203.0.113.42:41580]
 
 # Agent lookup (automatic)
 coral connect api --mesh-id my-app-prod
 
 # Example output:
 Looking up colony my-app-prod...
-Found colony at 203.0.113.42:41820
+Found colony at 203.0.113.42:41580
 Connecting...
 Connected successfully
 
@@ -474,9 +474,9 @@ systemctl start coral-discovery
 **Port Selection:**
 
 - **Discovery service**: 8080 (gRPC/HTTP, configurable)
-- **Colony WireGuard**: 41820 (default, avoids conflict with standard WireGuard port 51820)
+- **Colony WireGuard**: 41580 (default, avoids conflict with standard WireGuard port 51820)
   - Standard WireGuard uses 51820, which conflicts with Talos Linux KubeSpan and other solutions
-  - 41820 is clearly different but still recognizable as WireGuard-related
+  - 41580 is clearly different but still recognizable as WireGuard-related
   - Can be overridden via configuration if needed
 
 **Prototype Limitations:**

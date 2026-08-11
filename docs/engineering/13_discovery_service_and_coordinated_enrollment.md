@@ -85,9 +85,11 @@ dials the Colony directly. RFD 108 adds a narrow fallback for when that direct
 HTTPS path is unavailable because the Colony is behind NAT. It does not turn
 Discovery into a certificate relay.
 
-1. After direct dialing fails, an Agent with an explicitly configured public
-   bootstrap endpoint opens a short-lived TLS listener and publishes an opaque
-   rendezvous record under the `mesh_id`.
+1. After direct dialing fails, the Agent opens a short-lived TLS listener and
+   publishes an opaque rendezvous record under the `mesh_id`. During normal
+   `coral agent start`, the public endpoint is derived from the
+   Discovery-confirmed STUN IP and bootstrap listen port; explicit endpoint
+   configuration remains an override.
 2. The record contains the Agent endpoint, a session nonce, a write capability,
    and an expiry. `internal/rendezvous` encrypts and authenticates it with an
    AES-GCM key derived from the Bootstrap PSK using HKDF-SHA256, salted by
@@ -97,8 +99,10 @@ Discovery into a certificate relay.
    Bootstrap PSK (and grace PSK during rotation), and dials only a valid
    endpoint.
 4. The Colony is still the TLS server over that outbound TCP connection. The
-   Agent performs the normal fingerprint and SPIFFE-SAN checks, then uses the
-   existing `RequestCertificate` RPC with its CSR, referral ticket, and PSK.
+   Agent performs the normal fingerprint and SPIFFE-SAN checks. A standalone
+   certificate bootstrap uses `RequestCertificate`; Agent startup uses RFD
+   109's `BootstrapAndRegister` to carry the CSR, referral ticket, PSK, and mesh
+   registration atomically.
 5. Once the connection-scoped nonce matches and enrollment succeeds, the
    Colony acknowledges the record. This removes it immediately rather than
    waiting for its TTL.
@@ -128,6 +132,51 @@ handshakes and a short handshake deadline. A scanner or an optional Discovery
 reachability probe therefore cannot occupy the one connection the Colony needs
 to complete enrollment.
 
+### Colony Logging and Correlation
+
+Every Colony-side reverse-dial log has a structured `event` field. Events that
+belong to a particular rendezvous attempt also carry `record_id`. The record ID
+is safe to log and is the primary correlation key across Discovery polling,
+TCP/TLS setup, RPC routing, compound enrollment, and acknowledgement.
+
+Logging is intentionally staged around authorization:
+
+| Stage | Correlation fields | Representative events |
+| --- | --- | --- |
+| Startup | `colony_id` or `mesh_id` | `rendezvous_dialer_started`, `rendezvous_poller_started`, `rendezvous_enrollment_ready` |
+| Discovery and dial | `record_id`, `attempt` | `rendezvous_records_received`, `rendezvous_dial_started`, `rendezvous_tcp_connected`, `rendezvous_dial_failed` |
+| TLS and routing | `record_id`, `procedure` | `rendezvous_tls_established`, `rendezvous_nonce_mismatch`, `rendezvous_request_received`, `rendezvous_request_completed` |
+| Authorized enrollment | `record_id`, `agent_id`, `phase`, optionally `mesh_ip` | `rendezvous_enrollment_started`, `rendezvous_enrollment_phase_changed`, `rendezvous_endpoint_selected`, `rendezvous_peer_added` |
+| Certificate and completion | `record_id`, `agent_id`, `mesh_ip` | `rendezvous_certificate_issued`, `rendezvous_enrollment_completed`, `rendezvous_bootstrap_register_completed` |
+| Record retirement | `record_id` | `rendezvous_record_acknowledged`, `rendezvous_ack_failed`, `rendezvous_ack_rejected` |
+
+The durable enrollment phases are `claimed`, `authorized`, `ip_allocated`,
+`old_peer_removed`, `new_peer_added`, `registry_updated`, and `completed`.
+`rendezvous_enrollment_failed` reports the last phase and one of these failure
+classes:
+
+| Last phase | Failure class |
+| --- | --- |
+| `claimed` | `authorization` |
+| `authorized` | `endpoint_or_ip_allocation` |
+| `ip_allocated` | `old_peer_removal` |
+| `old_peer_removed` | `new_peer_addition` |
+| `new_peer_added` | `registry_update` |
+| `registry_updated` | `certificate_issuance` |
+| `completed` | `response_replay` |
+
+Normal empty long-poll responses and records skipped during their backoff window
+are not logged, preventing an idle Colony from producing continuous noise.
+Successful lifecycle milestones use `INFO`, actionable failures and rejections
+use `WARN` or `ERROR`, and lower-level decrypt/session/lease details use
+`DEBUG`.
+
+The decrypted rendezvous TCP endpoint is not emitted, including inside dial
+errors. Nonces, write tokens, Bootstrap PSKs, referral-ticket contents, CSRs,
+certificate bodies, and private keys are also excluded. After authorization,
+`rendezvous_endpoint_selected` may include the Discovery-selected Agent
+WireGuard UDP endpoint because it is the actual mesh peer configuration.
+
 ### Discovery's Deliberate Boundary
 
 Discovery cannot decrypt or forge a valid rendezvous payload without the
@@ -139,10 +188,11 @@ primitive. When enabled, it is separately quota- and concurrency-limited, and
 failure is an actionable configuration signal rather than an enrollment
 authorization decision.
 
-The fallback requires an explicitly configured, dialable Agent endpoint
-(`CORAL_BOOTSTRAP_PUBLIC_ENDPOINT`). It does not perform automatic TCP NAT
-discovery and does not solve a topology in which both peers lack an inbound
-path.
+During `coral agent start`, the fallback derives a dial-back endpoint from the
+Agent's Discovery-confirmed STUN IP and bootstrap listen port. Operators use
+`CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` when TCP is exposed at a different address
+or port. This inference does not perform TCP NAT discovery and does not solve a
+topology in which both peers lack an inbound path.
 
 ## 4. Discovery Service Characteristics
 

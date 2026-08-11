@@ -115,6 +115,15 @@ func (d *Dialer) Stop() {
 
 func (d *Dialer) loop(ctx context.Context) {
 	defer d.wg.Done()
+	d.cfg.Logger.Info().
+		Str("event", "rendezvous_poller_started").
+		Str("mesh_id", d.cfg.MeshID).
+		Msg("rendezvous: Discovery long-poll loop started")
+	defer d.cfg.Logger.Info().
+		Str("event", "rendezvous_poller_stopped").
+		Str("mesh_id", d.cfg.MeshID).
+		Msg("rendezvous: Discovery long-poll loop stopped")
+
 	for {
 		select {
 		case <-d.stopCh:
@@ -128,11 +137,28 @@ func (d *Dialer) loop(ctx context.Context) {
 		resp, err := d.cfg.Client.PollBootstrapRendezvous(pollCtx, d.cfg.MeshID, int32(constants.DefaultRendezvousPollWaitSeconds))
 		cancel()
 		if err != nil {
-			d.cfg.Logger.Warn().Err(err).Msg("rendezvous: poll failed")
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-d.stopCh:
+				return
+			default:
+			}
+			d.cfg.Logger.Warn().
+				Str("event", "rendezvous_poll_failed").
+				Err(err).
+				Msg("rendezvous: poll failed")
 			if !d.sleep(2 * time.Second) {
 				return
 			}
 			continue
+		}
+		if len(resp.Records) > 0 {
+			d.cfg.Logger.Info().
+				Str("event", "rendezvous_records_received").
+				Int("record_count", len(resp.Records)).
+				Msg("rendezvous: bootstrap records received from Discovery")
 		}
 
 		attempted, soonest := d.processRecords(ctx, resp.Records)
@@ -209,7 +235,7 @@ func (d *Dialer) remainingBackoff(recordID string, now time.Time) (time.Duration
 	return wait - elapsed, true
 }
 
-func (d *Dialer) markAttempt(recordID string, now time.Time) {
+func (d *Dialer) markAttempt(recordID string, now time.Time) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	st, ok := d.backoff[recordID]
@@ -219,6 +245,7 @@ func (d *Dialer) markAttempt(recordID string, now time.Time) {
 	}
 	st.lastAttempt = now
 	st.attempts++
+	return st.attempts
 }
 
 func (d *Dialer) forget(recordID string) {
@@ -228,11 +255,20 @@ func (d *Dialer) forget(recordID string) {
 }
 
 func (d *Dialer) attempt(ctx context.Context, rec discovery.BootstrapRendezvousRecord) {
-	d.markAttempt(rec.RecordID, time.Now())
+	attemptNumber := d.markAttempt(rec.RecordID, time.Now())
+	d.cfg.Logger.Info().
+		Str("event", "rendezvous_dial_started").
+		Str("record_id", rec.RecordID).
+		Int("attempt", attemptNumber).
+		Msg("rendezvous: processing bootstrap record and starting dial-back")
 
 	keys, err := d.candidateKeys(ctx)
 	if err != nil {
-		d.cfg.Logger.Warn().Err(err).Msg("rendezvous: failed to derive candidate keys")
+		d.cfg.Logger.Warn().
+			Str("event", "rendezvous_key_derivation_failed").
+			Str("record_id", rec.RecordID).
+			Err(err).
+			Msg("rendezvous: failed to derive candidate keys")
 		return
 	}
 
@@ -241,17 +277,34 @@ func (d *Dialer) attempt(ctx context.Context, rec discovery.BootstrapRendezvousR
 	// nonce, or PSK material.
 	payload, err := rendezvous.OpenWithKeys(keys, rec.Ciphertext, rec.GCMNonce)
 	if err != nil {
-		d.cfg.Logger.Debug().Str("record_id", rec.RecordID).Msg("rendezvous: record did not decrypt with any known key, discarding")
+		d.cfg.Logger.Debug().
+			Str("event", "rendezvous_record_decryption_failed").
+			Str("record_id", rec.RecordID).
+			Msg("rendezvous: record did not decrypt with any known key, discarding")
 		return
 	}
+	d.cfg.Logger.Debug().
+		Str("event", "rendezvous_record_decrypted").
+		Str("record_id", rec.RecordID).
+		Msg("rendezvous: bootstrap record decrypted")
 
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, err := d.cfg.Dial(dialCtx, payload.Endpoint)
 	cancel()
 	if err != nil {
-		d.cfg.Logger.Warn().Err(err).Str("record_id", rec.RecordID).Msg("rendezvous: dial-back failed")
+		d.cfg.Logger.Warn().
+			Str("event", "rendezvous_dial_failed").
+			Str("record_id", rec.RecordID).
+			Int("attempt", attemptNumber).
+			Str("error", redactEndpoint(err, payload.Endpoint)).
+			Msg("rendezvous: dial-back failed")
 		return
 	}
+	d.cfg.Logger.Info().
+		Str("event", "rendezvous_tcp_connected").
+		Str("record_id", rec.RecordID).
+		Int("attempt", attemptNumber).
+		Msg("rendezvous: TCP dial-back connection established")
 
 	// Dial direction is decoupled from TLS role (RFD 108 Key Insight):
 	// the Colony dialed out, but still presents its certificate chain as
@@ -264,22 +317,52 @@ func (d *Dialer) attempt(ctx context.Context, rec discovery.BootstrapRendezvousR
 	// Handshake() here is required, or ServeConn observes a zero-value
 	// (pre-handshake) TLS version and immediately rejects the connection.
 	if err := tlsConn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		d.cfg.Logger.Warn().Err(err).Str("record_id", rec.RecordID).Msg("rendezvous: failed to set handshake deadline")
+		d.cfg.Logger.Warn().
+			Str("event", "rendezvous_tls_deadline_failed").
+			Err(err).
+			Str("record_id", rec.RecordID).
+			Msg("rendezvous: failed to set handshake deadline")
 		return
 	}
 	if err := tlsConn.Handshake(); err != nil {
-		d.cfg.Logger.Warn().Err(err).Str("record_id", rec.RecordID).Msg("rendezvous: TLS handshake failed")
+		d.cfg.Logger.Warn().
+			Str("event", "rendezvous_tls_handshake_failed").
+			Err(err).
+			Str("record_id", rec.RecordID).
+			Msg("rendezvous: TLS handshake failed")
 		return
 	}
 	if err := tlsConn.SetDeadline(time.Time{}); err != nil {
-		d.cfg.Logger.Warn().Err(err).Str("record_id", rec.RecordID).Msg("rendezvous: failed to clear handshake deadline")
+		d.cfg.Logger.Warn().
+			Str("event", "rendezvous_tls_deadline_failed").
+			Err(err).
+			Str("record_id", rec.RecordID).
+			Msg("rendezvous: failed to clear handshake deadline")
 		return
 	}
+	tlsState := tlsConn.ConnectionState()
+	d.cfg.Logger.Info().
+		Str("event", "rendezvous_tls_established").
+		Str("record_id", rec.RecordID).
+		Str("tls_version", tls.VersionName(tlsState.Version)).
+		Str("cipher_suite", tls.CipherSuiteName(tlsState.CipherSuite)).
+		Msg("rendezvous: TLS session established")
 
 	handler := d.nonceCheckHandler(rec.RecordID, payload.SessionNonce, payload.WriteToken)
 
 	srv := &http2.Server{}
 	srv.ServeConn(tlsConn, &http2.ServeConnOpts{Handler: handler})
+	d.cfg.Logger.Debug().
+		Str("event", "rendezvous_session_closed").
+		Str("record_id", rec.RecordID).
+		Msg("rendezvous: dial-back session closed")
+}
+
+func redactEndpoint(err error, endpoint string) string {
+	if err == nil {
+		return ""
+	}
+	return strings.ReplaceAll(err.Error(), endpoint, "<redacted>")
 }
 
 func (d *Dialer) candidateKeys(ctx context.Context) ([][]byte, error) {
@@ -315,10 +398,23 @@ func (d *Dialer) nonceCheckHandler(recordID string, expectedNonce, writeToken []
 		headerVal := r.Header.Get(constants.RendezvousNonceHeader)
 		got, err := base64.StdEncoding.DecodeString(headerVal)
 		if err != nil || len(got) == 0 || subtle.ConstantTimeCompare(got, expectedNonce) != 1 {
-			d.cfg.Logger.Warn().Str("record_id", recordID).Msg("rendezvous: RENDEZVOUS_NONCE_MISMATCH")
+			d.cfg.Logger.Warn().
+				Str("event", "rendezvous_nonce_mismatch").
+				Str("record_id", recordID).
+				Msg("rendezvous: RENDEZVOUS_NONCE_MISMATCH")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+
+		procedure := "request_certificate"
+		if strings.HasSuffix(r.URL.Path, "/BootstrapAndRegister") {
+			procedure = "bootstrap_and_register"
+		}
+		d.cfg.Logger.Info().
+			Str("event", "rendezvous_request_received").
+			Str("record_id", recordID).
+			Str("procedure", procedure).
+			Msg("rendezvous: authenticated bootstrap request received")
 
 		// Only reached after the nonce check above succeeds. Trusted proof
 		// to the handler (RFD 109) that this request arrived over an
@@ -330,19 +426,44 @@ func (d *Dialer) nonceCheckHandler(recordID string, expectedNonce, writeToken []
 		d.cfg.Handler.ServeHTTP(rw, r)
 
 		if rw.status < 200 || rw.status >= 300 {
+			d.cfg.Logger.Warn().
+				Str("event", "rendezvous_request_failed").
+				Str("record_id", recordID).
+				Str("procedure", procedure).
+				Int("status_code", rw.status).
+				Msg("rendezvous: bootstrap request failed")
 			return
 		}
+		d.cfg.Logger.Info().
+			Str("event", "rendezvous_request_completed").
+			Str("record_id", recordID).
+			Str("procedure", procedure).
+			Int("status_code", rw.status).
+			Msg("rendezvous: bootstrap request completed")
 
 		ackCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		ok, err := d.cfg.Client.AckBootstrapRendezvous(ackCtx, d.cfg.MeshID, recordID, writeToken)
 		if err != nil {
-			d.cfg.Logger.Warn().Err(err).Str("record_id", recordID).Msg("rendezvous: ack failed")
+			d.cfg.Logger.Warn().
+				Str("event", "rendezvous_ack_failed").
+				Err(err).
+				Str("record_id", recordID).
+				Msg("rendezvous: ack failed")
 			return
 		}
 		if ok {
 			d.forget(recordID)
+			d.cfg.Logger.Info().
+				Str("event", "rendezvous_record_acknowledged").
+				Str("record_id", recordID).
+				Msg("rendezvous: bootstrap record acknowledged")
+			return
 		}
+		d.cfg.Logger.Warn().
+			Str("event", "rendezvous_ack_rejected").
+			Str("record_id", recordID).
+			Msg("rendezvous: Discovery rejected bootstrap record acknowledgement")
 	})
 }
 

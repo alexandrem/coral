@@ -92,6 +92,10 @@ func (e *Enroller) BootstrapAndRegister(ctx context.Context, recordID, peerAddr 
 	if req.GetBootstrap() == nil || req.GetRegistration() == nil {
 		return nil, fmt.Errorf("enrollment: request must carry both bootstrap and registration")
 	}
+	e.logger.Info().
+		Str("event", "rendezvous_enrollment_started").
+		Str("record_id", recordID).
+		Msg("rendezvous: compound bootstrap and registration started")
 
 	ownerID := uuid.NewString()
 	row, outcome, err := e.store.Claim(ctx, recordID, ownerID, DefaultLease)
@@ -101,16 +105,94 @@ func (e *Enroller) BootstrapAndRegister(ctx context.Context, recordID, peerAddr 
 
 	switch outcome {
 	case OutcomeReplay:
-		return buildResponse(row)
+		e.logger.Info().
+			Str("event", "rendezvous_enrollment_replayed").
+			Str("record_id", recordID).
+			Str("agent_id", row.AgentID).
+			Str("phase", string(row.Phase)).
+			Msg("rendezvous: replaying completed enrollment")
+		resp, err := buildResponse(row)
+		if err == nil {
+			e.logCompleted(row, true)
+		}
+		return resp, err
 	case OutcomeWait:
+		e.logger.Info().
+			Str("event", "rendezvous_enrollment_waiting").
+			Str("record_id", recordID).
+			Str("phase", string(row.Phase)).
+			Msg("rendezvous: waiting for concurrent enrollment owner")
 		completed, err := e.store.WaitForCompletion(ctx, recordID, waitPollInterval, waitTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("enrollment: record_id=%s did not complete: %w", recordID, err)
 		}
-		return buildResponse(completed)
+		resp, err := buildResponse(completed)
+		if err == nil {
+			e.logCompleted(completed, true)
+		}
+		return resp, err
 	default: // OutcomeOwned
-		return e.process(ctx, row, ownerID, peerAddr, req)
+		e.logger.Debug().
+			Str("event", "rendezvous_enrollment_claimed").
+			Str("record_id", recordID).
+			Str("phase", string(row.Phase)).
+			Msg("rendezvous: enrollment lease acquired")
+		resp, err := e.process(ctx, row, ownerID, peerAddr, req)
+		if err != nil {
+			e.logger.Warn().
+				Str("event", "rendezvous_enrollment_failed").
+				Str("record_id", recordID).
+				Str("agent_id", row.AgentID).
+				Str("phase", string(row.Phase)).
+				Str("failure_class", enrollmentFailureClass(row.Phase)).
+				Err(err).
+				Msg("rendezvous: compound enrollment failed")
+		}
+		return resp, err
 	}
+}
+
+func enrollmentFailureClass(phase Phase) string {
+	switch phase {
+	case PhaseClaimed:
+		return "authorization"
+	case PhaseAuthorized:
+		return "endpoint_or_ip_allocation"
+	case PhaseIPAllocated:
+		return "old_peer_removal"
+	case PhaseOldPeerRemoved:
+		return "new_peer_addition"
+	case PhaseNewPeerAdded:
+		return "registry_update"
+	case PhaseRegistryUpdated:
+		return "certificate_issuance"
+	case PhaseCompleted:
+		return "response_replay"
+	default:
+		return "unknown"
+	}
+}
+
+func (e *Enroller) logPhase(row *Row) {
+	event := e.logger.Info().
+		Str("event", "rendezvous_enrollment_phase_changed").
+		Str("record_id", row.RecordID).
+		Str("agent_id", row.AgentID).
+		Str("phase", string(row.Phase))
+	if row.AllocatedIP != "" {
+		event = event.Str("mesh_ip", row.AllocatedIP)
+	}
+	event.Msg("rendezvous: enrollment phase advanced")
+}
+
+func (e *Enroller) logCompleted(row *Row, replayed bool) {
+	e.logger.Info().
+		Str("event", "rendezvous_enrollment_completed").
+		Str("record_id", row.RecordID).
+		Str("agent_id", row.AgentID).
+		Str("mesh_ip", row.AllocatedIP).
+		Bool("replayed", replayed).
+		Msg("rendezvous: compound bootstrap and registration completed")
 }
 
 // process advances row through the remaining phases, resuming from
@@ -140,11 +222,17 @@ func (e *Enroller) process(ctx context.Context, row *Row, ownerID, peerAddr stri
 				e.store.SetLastError(ctx, row.RecordID, ownerID, err.Error())
 				return nil, fmt.Errorf("enrollment: failed to remove prior peer for agent_id=%s: %w", row.AgentID, err)
 			}
+			e.logger.Info().
+				Str("event", "rendezvous_old_peer_removed").
+				Str("record_id", row.RecordID).
+				Str("agent_id", row.AgentID).
+				Msg("rendezvous: prior Agent WireGuard peer removed")
 		}
 		if err := e.store.SetPhase(ctx, row.RecordID, ownerID, PhaseOldPeerRemoved, DefaultLease); err != nil {
 			return nil, err
 		}
 		row.Phase = PhaseOldPeerRemoved
+		e.logPhase(row)
 	}
 
 	if before(row.Phase, PhaseNewPeerAdded) {
@@ -162,11 +250,29 @@ func (e *Enroller) process(ctx context.Context, row *Row, ownerID, peerAddr stri
 			return nil, err
 		}
 		row.Phase = PhaseNewPeerAdded
+		e.logger.Info().
+			Str("event", "rendezvous_peer_added").
+			Str("record_id", row.RecordID).
+			Str("agent_id", row.AgentID).
+			Str("mesh_ip", row.AllocatedIP).
+			Msg("rendezvous: Agent WireGuard peer added")
+		e.logPhase(row)
 
 		// Trigger an immediate handshake rather than waiting for the next
 		// keepalive interval; best-effort, non-fatal.
 		if err := e.wgDevice.TriggerHandshake(row.NewPubkey); err != nil {
-			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to trigger immediate handshake")
+			e.logger.Warn().
+				Str("event", "rendezvous_wireguard_handshake_failed").
+				Err(err).
+				Str("record_id", row.RecordID).
+				Str("agent_id", row.AgentID).
+				Msg("rendezvous: failed to trigger immediate handshake")
+		} else {
+			e.logger.Info().
+				Str("event", "rendezvous_wireguard_handshake_started").
+				Str("record_id", row.RecordID).
+				Str("agent_id", row.AgentID).
+				Msg("rendezvous: immediate WireGuard handshake triggered")
 		}
 	}
 
@@ -177,12 +283,24 @@ func (e *Enroller) process(ctx context.Context, row *Row, ownerID, peerAddr stri
 		reg := req.GetRegistration()
 		//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 		if _, err := e.registry.Register(row.AgentID, reg.ComponentName, row.AllocatedIP, "", reg.Services, reg.RuntimeContext, reg.ProtocolVersion); err != nil {
-			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to register agent in registry (non-fatal)")
+			e.logger.Warn().
+				Str("event", "rendezvous_registry_update_failed").
+				Err(err).
+				Str("record_id", row.RecordID).
+				Str("agent_id", row.AgentID).
+				Msg("rendezvous: failed to register agent in registry (non-fatal)")
+		} else {
+			e.logger.Info().
+				Str("event", "rendezvous_registry_updated").
+				Str("record_id", row.RecordID).
+				Str("agent_id", row.AgentID).
+				Msg("rendezvous: Agent registry updated")
 		}
 		if err := e.store.SetPhase(ctx, row.RecordID, ownerID, PhaseRegistryUpdated, DefaultLease); err != nil {
 			return nil, err
 		}
 		row.Phase = PhaseRegistryUpdated
+		e.logPhase(row)
 	}
 
 	return e.finish(ctx, row, ownerID, req)
@@ -244,6 +362,7 @@ func (e *Enroller) authorize(ctx context.Context, row *Row, ownerID string, req 
 	row.ColonyID = claims.ColonyID
 	row.TicketJTI = claims.ID
 	row.TicketExpiresAt = ticketExpiresAt
+	e.logPhase(row)
 	return nil
 }
 
@@ -269,11 +388,18 @@ func (e *Enroller) allocate(ctx context.Context, row *Row, ownerID, peerAddr str
 		}
 	}
 
-	selectedEp, _ := mesh.SelectBestAgentEndpoint(agentInfo.ObservedEndpoints, peerHost, e.logger, row.AgentID)
+	selectedEp, selectionType := mesh.SelectBestAgentEndpoint(agentInfo.ObservedEndpoints, peerHost, e.logger, row.AgentID)
 	if selectedEp == nil {
 		return fmt.Errorf("enrollment: no usable Discovery UDP endpoint for agent_id=%s; configure STUN or a publicly reachable WireGuard UDP port", row.AgentID)
 	}
 	resolvedEndpoint := net.JoinHostPort(selectedEp.IP, fmt.Sprintf("%d", selectedEp.Port))
+	e.logger.Info().
+		Str("event", "rendezvous_endpoint_selected").
+		Str("record_id", row.RecordID).
+		Str("agent_id", row.AgentID).
+		Str("endpoint", resolvedEndpoint).
+		Str("selection_type", selectionType).
+		Msg("rendezvous: selected Agent WireGuard endpoint from Discovery")
 
 	allocator := e.wgDevice.Allocator()
 	allocatedIP, err := allocator.Allocate(row.AgentID)
@@ -294,6 +420,7 @@ func (e *Enroller) allocate(ctx context.Context, row *Row, ownerID, peerAddr str
 	row.AllocatedIP = allocatedIP.String()
 	row.OldPubkey = oldPubkey
 	row.NewPubkey = reg.GetWireguardPubkey()
+	e.logPhase(row)
 	return nil
 }
 
@@ -321,6 +448,12 @@ func (e *Enroller) finish(ctx context.Context, row *Row, ownerID string, req *co
 	if err != nil {
 		return nil, fmt.Errorf("enrollment: failed to issue certificate for agent_id=%s: %w", row.AgentID, err)
 	}
+	e.logger.Info().
+		Str("event", "rendezvous_certificate_issued").
+		Str("record_id", row.RecordID).
+		Str("agent_id", row.AgentID).
+		Time("expires_at", expiresAt).
+		Msg("rendezvous: Agent certificate issued")
 
 	registerResp := e.buildRegisterResponse(row)
 	registerRespBytes, err := proto.Marshal(registerResp)
@@ -331,6 +464,9 @@ func (e *Enroller) finish(ctx context.Context, row *Row, ownerID string, req *co
 	if err := e.store.SetCompleted(ctx, row.RecordID, ownerID, certPEM, caChain, expiresAt, registerRespBytes); err != nil {
 		return nil, err
 	}
+	row.Phase = PhaseCompleted
+	e.logPhase(row)
+	e.logCompleted(row, false)
 
 	return &colonyv1.BootstrapAndRegisterResponse{
 		Certificate: &colonyv1.RequestCertificateResponse{

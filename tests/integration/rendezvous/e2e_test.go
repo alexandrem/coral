@@ -35,6 +35,7 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 
 	agentbootstrap "github.com/coral-mesh/coral/internal/agent/bootstrap"
 	colonyrendezvous "github.com/coral-mesh/coral/internal/colony/rendezvous"
@@ -230,8 +231,33 @@ func genColonyCert(meshID string) (tls.Certificate, string, error) {
 // real Colony's RequestCertificate handler does at the CSR-signing level.
 type fakeColonyService struct {
 	colonyv1connect.UnimplementedColonyServiceHandler
-	requestCount int32
-	mu           sync.Mutex
+	requestCount  int32
+	compoundCount int32
+	lastCompound  *colonyv1.BootstrapAndRegisterRequest
+	mu            sync.Mutex
+}
+
+func (f *fakeColonyService) BootstrapAndRegister(
+	ctx context.Context,
+	req *connect.Request[colonyv1.BootstrapAndRegisterRequest],
+) (*connect.Response[colonyv1.BootstrapAndRegisterResponse], error) {
+	f.mu.Lock()
+	f.compoundCount++
+	f.lastCompound = req.Msg
+	f.mu.Unlock()
+
+	certResp, err := f.RequestCertificate(ctx, connect.NewRequest(req.Msg.Bootstrap))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&colonyv1.BootstrapAndRegisterResponse{
+		Certificate: certResp.Msg,
+		Registration: &meshv1.RegisterResponse{
+			Accepted:   true,
+			AssignedIp: "100.64.0.42",
+			MeshSubnet: "100.64.0.0/10",
+		},
+	}), nil
 }
 
 func (f *fakeColonyService) RequestCertificate(
@@ -397,5 +423,128 @@ func TestNATColonyDialableAgentBootstrapViaRendezvous(t *testing.T) {
 	fakeDiscovery.mu.Unlock()
 	if stillPresent {
 		t.Fatal("expected the rendezvous record to be acked and removed after a successful bootstrap")
+	}
+}
+
+// TestNATColonyCompoundMeshEnrollmentViaRendezvous extends the RFD 108
+// transport E2E through RFD 109: the Agent advertises its WireGuard identity,
+// the reverse connection carries BootstrapAndRegister, and the returned mesh
+// assignment is available to startup without a pre-mesh Register call.
+func TestNATColonyCompoundMeshEnrollmentViaRendezvous(t *testing.T) {
+	meshID := "mesh-e2e-109"
+	psk := "coral-psk:" + fmt.Sprintf("%064x", 109)
+
+	fakeDiscovery := newFakeDiscoveryServer()
+	path, handler := discoveryv1connect.NewDiscoveryServiceHandler(fakeDiscovery)
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	discoverySrv := httptest.NewServer(mux)
+	defer discoverySrv.Close()
+
+	colonyCert, rootFingerprint, err := genColonyCert(meshID)
+	if err != nil {
+		t.Fatalf("genColonyCert: %v", err)
+	}
+
+	colonySvc := &fakeColonyService{}
+	_, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
+	dialer := colonyrendezvous.NewDialer(colonyrendezvous.Config{
+		MeshID: meshID,
+		Client: discovery.NewClient(discoverySrv.URL),
+		PSKs:   &fakePSKProvider{psk: psk},
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{colonyCert},
+			MinVersion:   tls.VersionTLS13,
+		},
+		Handler: colonyHandler,
+		Logger:  zerolog.Nop(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dialer.Start(ctx)
+	defer dialer.Stop()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve a port: %v", err)
+	}
+	agentPort := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	agentClient := agentbootstrap.NewClient(agentbootstrap.Config{
+		AgentID:                 "agent-e2e-109",
+		ColonyID:                meshID,
+		CAFingerprint:           rootFingerprint,
+		BootstrapPSK:            psk,
+		DiscoveryEndpoint:       discoverySrv.URL,
+		BootstrapPublicEndpoint: fmt.Sprintf("127.0.0.1:%d", agentPort),
+		BootstrapListenPort:     agentPort,
+		WireGuardPubkey:         "agent-wireguard-public-key",
+		Services: []*meshv1.ServiceInfo{{
+			Name: "api",
+			Port: 8080,
+		}},
+		ProtocolVersion: "test-version",
+		Logger:          zerolog.Nop(),
+	})
+
+	resultCh := make(chan struct {
+		result *agentbootstrap.Result
+		err    error
+	}, 1)
+	go func() {
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer bootstrapCancel()
+		result, bootstrapErr := agentClient.Bootstrap(bootstrapCtx)
+		resultCh <- struct {
+			result *agentbootstrap.Result
+			err    error
+		}{result: result, err: bootstrapErr}
+	}()
+
+	var result *agentbootstrap.Result
+	select {
+	case outcome := <-resultCh:
+		if outcome.err != nil {
+			t.Fatalf("compound rendezvous enrollment failed: %v", outcome.err)
+		}
+		result = outcome.result
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for compound rendezvous enrollment")
+	}
+
+	if result == nil || result.Registration == nil {
+		t.Fatal("expected compound bootstrap registration result")
+	}
+	if result.Registration.AssignedIp != "100.64.0.42" || result.Registration.MeshSubnet != "100.64.0.0/10" {
+		t.Fatalf("unexpected registration result: %+v", result.Registration)
+	}
+
+	colonySvc.mu.Lock()
+	compoundCount := colonySvc.compoundCount
+	compoundReq := colonySvc.lastCompound
+	colonySvc.mu.Unlock()
+	if compoundCount != 1 {
+		t.Fatalf("expected exactly one BootstrapAndRegister call, got %d", compoundCount)
+	}
+	if compoundReq == nil || compoundReq.Registration == nil {
+		t.Fatal("expected registration payload in compound request")
+	}
+	if compoundReq.Registration.WireguardPubkey != "agent-wireguard-public-key" {
+		t.Fatalf("wireguard pubkey = %q", compoundReq.Registration.WireguardPubkey)
+	}
+	if compoundReq.Registration.ProtocolVersion != "test-version" {
+		t.Fatalf("protocol version = %q", compoundReq.Registration.ProtocolVersion)
+	}
+	if len(compoundReq.Registration.Services) != 1 || compoundReq.Registration.Services[0].Name != "api" {
+		t.Fatalf("services not carried through compound request: %+v", compoundReq.Registration.Services)
+	}
+
+	fakeDiscovery.mu.Lock()
+	_, stillPresent := fakeDiscovery.records[meshID]
+	fakeDiscovery.mu.Unlock()
+	if stillPresent {
+		t.Fatal("expected compound rendezvous record to be acked")
 	}
 }

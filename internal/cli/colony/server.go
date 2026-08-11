@@ -69,7 +69,10 @@ func startRendezvousDialer(
 
 	certPEM, keyPEM, err := caManager.IssueServerCertificate([]string{"localhost", colonyID})
 	if err != nil {
-		rzLogger.Warn().Err(err).Msg("Failed to issue rendezvous TLS certificate, rendezvous bootstrap disabled")
+		rzLogger.Warn().
+			Str("event", "rendezvous_startup_failed").
+			Err(err).
+			Msg("Failed to issue rendezvous TLS certificate, rendezvous bootstrap disabled")
 		return
 	}
 	serverIntPEM := caManager.GetServerIntermediateCertPEM()
@@ -79,7 +82,10 @@ func startRendezvousDialer(
 
 	cert, err := tls.X509KeyPair(fullChainPEM, keyPEM)
 	if err != nil {
-		rzLogger.Warn().Err(err).Msg("Failed to load rendezvous TLS certificate, rendezvous bootstrap disabled")
+		rzLogger.Warn().
+			Str("event", "rendezvous_startup_failed").
+			Err(err).
+			Msg("Failed to load rendezvous TLS certificate, rendezvous bootstrap disabled")
 		return
 	}
 
@@ -95,7 +101,10 @@ func startRendezvousDialer(
 		Logger:  rzLogger,
 	})
 	dialer.Start(ctx)
-	rzLogger.Info().Msg("PSK-encrypted rendezvous dial-back loop started (RFD 108)")
+	rzLogger.Info().
+		Str("event", "rendezvous_dialer_started").
+		Str("colony_id", colonyID).
+		Msg("PSK-encrypted rendezvous dial-back loop started (RFD 108)")
 }
 
 // blockBootstrapAndRegister wraps a ColonyService handler so the
@@ -222,14 +231,23 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	if discoveryClient != nil && caManager != nil {
 		enrollmentStore, err := enrollment.NewStore(db.DB())
 		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to initialize rendezvous enrollment store, RFD 109 enrollment disabled")
+			logger.Warn().
+				Str("event", "rendezvous_enrollment_startup_failed").
+				Err(err).
+				Msg("Failed to initialize rendezvous enrollment store, RFD 109 enrollment disabled")
 		} else if keyStore, err := enrollment.NewKeyStore(db.DB()); err != nil {
-			logger.Warn().Err(err).Msg("Failed to initialize agent WireGuard key store, RFD 109 enrollment disabled")
+			logger.Warn().
+				Str("event", "rendezvous_enrollment_startup_failed").
+				Err(err).
+				Msg("Failed to initialize agent WireGuard key store, RFD 109 enrollment disabled")
 		} else {
 			colonySvc.SetEnroller(enrollment.NewEnroller(
 				caManager, wgDevice, agentRegistry, discoveryClient, enrollmentStore, keyStore, cfg,
 				logger.With().Str("component", "rendezvous-enrollment").Logger(),
 			))
+			logger.Info().
+				Str("event", "rendezvous_enrollment_ready").
+				Msg("RFD 109 compound rendezvous enrollment initialized")
 		}
 	}
 

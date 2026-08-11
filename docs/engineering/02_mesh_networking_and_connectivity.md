@@ -42,15 +42,15 @@ WireGuard mapping to reach a Colony. RFD 108 adds a reverse-dial fallback for
 the common local-first topology: a Colony behind NAT and an Agent with a
 publicly reachable TCP endpoint.
 
-The Agent first attempts the ordinary direct bootstrap path using the Colony
-endpoints returned by Discovery. Only after those attempts fail does
-`internal/agent/bootstrap` enter rendezvous mode. The operator must configure
-the Agent's publicly dialable TCP endpoint with
-`--bootstrap-public-endpoint` / `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT`; it must not
-be inferred from STUN, because a WireGuard UDP mapping says nothing about a
-separate bootstrap TCP listener. The temporary listener defaults to port
-`8444` and can be changed with `--bootstrap-listen-port` /
-`CORAL_BOOTSTRAP_LISTEN_PORT`.
+At startup, both peers bind fixed WireGuard UDP ports, discover their observed
+addresses through STUN, and register those addresses with Discovery. The Agent
+first attempts ordinary direct bootstrap using the Colony record. If that
+fails, `internal/agent/bootstrap` enters rendezvous mode and derives the
+Agent's temporary TCP endpoint from the Discovery-confirmed public IP plus
+port `8444`. `--bootstrap-public-endpoint` /
+`CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` remains an override for load balancers and
+NAT rules whose external TCP address or port differs from that default. A UDP
+STUN observation cannot prove that TCP `8444` is reachable.
 
 `internal/colony/rendezvous` independently long-polls Discovery and dials the
 decrypted Agent endpoint. This loop is deliberately separate from Colony
@@ -61,9 +61,29 @@ the Agent remains the TLS client. Consequently, the existing Root-CA
 fingerprint and Colony SPIFFE-SAN validation are unchanged.
 
 This is a bootstrap-only transport adaptation, not a WireGuard relay or a
-general reverse proxy. It covers deployments where at least one side has an
-explicitly configured, dialable endpoint; two NAT-bound peers without such an
-endpoint remain out of scope.
+general reverse proxy. It covers deployments where the Agent is publicly
+dialable on the inferred or explicitly configured TCP endpoint. Two NAT-bound
+peers without an inbound path remain out of scope.
+
+### Reverse-Dial Observability
+
+Colony logs model reverse dial as one correlated lifecycle. Before the Agent is
+authorized, `record_id` is the only request identity. After referral-ticket,
+PSK, CSR, and registration identities agree, enrollment logs also include
+`agent_id`, the durable RFD 109 `phase`, and the assigned `mesh_ip`.
+
+The principal milestones are Discovery record receipt, dial attempt, TCP and
+TLS establishment, authenticated RPC routing, endpoint selection, WireGuard
+peer mutation, certificate issuance, enrollment completion, and Discovery
+acknowledgement. Failures retain the same `record_id`; enrollment failures add
+a `failure_class` derived from the last durable phase. This makes a retry or
+crash-resume distinguishable from a new attempt.
+
+The decrypted rendezvous TCP endpoint, session nonce, write token, Bootstrap
+PSK, CSR, certificate contents, and private keys are never logged. Dial errors
+redact the decrypted endpoint. The Agent WireGuard UDP endpoint selected from
+Discovery may be logged after authorization because it is operational peer
+configuration, not rendezvous plaintext.
 
 ## Multi-Platform Abstraction
 
