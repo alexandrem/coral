@@ -804,8 +804,9 @@ No changes to `RequestCertificate` (RFD 048/088) or `CreateBootstrapToken`
   successfully decrypted the record (and therefore recovered
   `write_token`) before it can retire it.
 - Add structured audit logging for rendezvous decrypt attempts and nonce
-  validation results (success/failure counts only — never log plaintext
-  endpoints, nonces, or PSKs).
+  validation results, plus record receipt, dial/TLS milestones, routed request
+  completion, and acknowledgement. Correlate by `record_id`; never log the
+  decrypted rendezvous TCP endpoint, nonce, write token, or PSK.
 
 ### 3. Agent Bootstrap Client (`internal/agent/bootstrap`)
 - Reuse the existing loopback/unreachable detection that already triggers a

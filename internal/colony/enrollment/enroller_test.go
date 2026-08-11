@@ -1,6 +1,7 @@
 package enrollment
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -151,6 +152,8 @@ func validRequest(tc *testCA, t *testing.T, jti string) *colonyv1.BootstrapAndRe
 func TestAuthorize_ValidRequestTransitionsToAuthorized(t *testing.T) {
 	tc := newTestCA(t)
 	e, store := newTestEnroller(t, tc)
+	var logBuf bytes.Buffer
+	e.logger = zerolog.New(&logBuf)
 	e.cfg = &config.ResolvedConfig{ColonyID: tc.colonyID}
 	ctx := context.Background()
 
@@ -167,6 +170,10 @@ func TestAuthorize_ValidRequestTransitionsToAuthorized(t *testing.T) {
 	persisted, err := store.Get(ctx, "rec-1")
 	require.NoError(t, err)
 	require.Equal(t, PhaseAuthorized, persisted.Phase)
+	require.Contains(t, logBuf.String(), `"event":"rendezvous_enrollment_phase_changed"`)
+	require.Contains(t, logBuf.String(), `"record_id":"rec-1"`)
+	require.Contains(t, logBuf.String(), `"agent_id":"agent-1"`)
+	require.Contains(t, logBuf.String(), `"phase":"authorized"`)
 }
 
 func TestAuthorize_WrongPSKFails(t *testing.T) {
@@ -231,6 +238,8 @@ func TestAuthorize_ExpiredTicketFails(t *testing.T) {
 func TestProcess_ClaimedPhaseFailureDeletesRow(t *testing.T) {
 	tc := newTestCA(t)
 	e, store := newTestEnroller(t, tc)
+	var logBuf bytes.Buffer
+	e.logger = zerolog.New(&logBuf)
 	e.cfg = &config.ResolvedConfig{ColonyID: tc.colonyID}
 	ctx := context.Background()
 
@@ -242,6 +251,10 @@ func TestProcess_ClaimedPhaseFailureDeletesRow(t *testing.T) {
 
 	_, err = store.Get(ctx, "rec-1")
 	require.ErrorIs(t, err, ErrNotFound)
+	require.Contains(t, logBuf.String(), `"event":"rendezvous_enrollment_started"`)
+	require.Contains(t, logBuf.String(), `"event":"rendezvous_enrollment_failed"`)
+	require.Contains(t, logBuf.String(), `"phase":"claimed"`)
+	require.Contains(t, logBuf.String(), `"failure_class":"authorization"`)
 }
 
 func TestBuildResponse_ReplaysStoredData(t *testing.T) {

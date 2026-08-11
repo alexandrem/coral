@@ -1,6 +1,7 @@
 package rendezvous
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -20,6 +21,23 @@ import (
 	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/rendezvous"
 )
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // fakePSKProvider implements PSKProvider for tests.
 type fakePSKProvider struct {
@@ -165,6 +183,7 @@ func TestDialerDecryptsDialsAndAcksOnSuccess(t *testing.T) {
 		}},
 		ackAllowed: map[string][]byte{"rec-1": writeToken},
 	}
+	var logBuf lockedBuffer
 
 	d := NewDialer(Config{
 		MeshID:    meshID,
@@ -172,7 +191,7 @@ func TestDialerDecryptsDialsAndAcksOnSuccess(t *testing.T) {
 		PSKs:      &fakePSKProvider{psks: []string{psk}},
 		TLSConfig: selfSignedTLSConfig(t),
 		Handler:   handler,
-		Logger:    zerolog.Nop(),
+		Logger:    zerolog.New(&logBuf).Level(zerolog.DebugLevel),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -214,6 +233,77 @@ func TestDialerDecryptsDialsAndAcksOnSuccess(t *testing.T) {
 	defer pollClient.mu.Unlock()
 	if len(pollClient.acked) != 1 || pollClient.acked[0] != "rec-1" {
 		t.Fatalf("expected record rec-1 to be acked, got %v", pollClient.acked)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(logBuf.String(), `"event":"rendezvous_record_acknowledged"`) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	logOutput := logBuf.String()
+	for _, event := range []string{
+		"rendezvous_records_received",
+		"rendezvous_dial_started",
+		"rendezvous_record_decrypted",
+		"rendezvous_tcp_connected",
+		"rendezvous_tls_established",
+		"rendezvous_request_received",
+		"rendezvous_request_completed",
+		"rendezvous_record_acknowledged",
+	} {
+		if !strings.Contains(logOutput, `"event":"`+event+`"`) {
+			t.Errorf("expected lifecycle event %q in logs:\n%s", event, logOutput)
+		}
+	}
+}
+
+func TestDialerRedactsDecryptedEndpointFromDialFailureLog(t *testing.T) {
+	meshID := "mesh-1"
+	psk := "coral-psk:abc123"
+	key, err := rendezvous.DeriveKey(psk, meshID)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+
+	endpoint := "203.0.113.10:8444"
+	payload := rendezvous.Payload{
+		Endpoint:     endpoint,
+		SessionNonce: []byte("session-nonce"),
+		WriteToken:   []byte("write-token"),
+		ExpiresAt:    time.Now().Add(time.Minute),
+	}
+	ciphertext, gcmNonce, err := rendezvous.Seal(key, payload)
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	var logBuf lockedBuffer
+	d := NewDialer(Config{
+		MeshID: meshID,
+		PSKs:   &fakePSKProvider{psks: []string{psk}},
+		Dial: func(context.Context, string) (net.Conn, error) {
+			return nil, fmt.Errorf("dial tcp %s: connect: connection refused", endpoint)
+		},
+		Logger: zerolog.New(&logBuf).Level(zerolog.DebugLevel),
+	})
+
+	d.attempt(context.Background(), discovery.BootstrapRendezvousRecord{
+		RecordID:   "rec-redacted",
+		Ciphertext: ciphertext,
+		GCMNonce:   gcmNonce,
+	})
+
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, `"event":"rendezvous_dial_failed"`) {
+		t.Fatalf("expected dial failure event in logs: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"record_id":"rec-redacted"`) {
+		t.Fatalf("expected record correlation in logs: %s", logOutput)
+	}
+	if strings.Contains(logOutput, endpoint) {
+		t.Fatalf("decrypted endpoint leaked into logs: %s", logOutput)
+	}
+	if strings.Contains(logOutput, psk) {
+		t.Fatalf("PSK leaked into logs: %s", logOutput)
 	}
 }
 

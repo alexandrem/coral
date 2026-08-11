@@ -511,15 +511,22 @@ func (s *Server) RequestCertificate(
 ) (*connect.Response[colonyv1.RequestCertificateResponse], error) {
 	// Validate request.
 	if req.Msg.Jwt == "" {
-		s.logger.Warn().Msg("Certificate request rejected: jwt is required")
+		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "missing_jwt").
+			Msg("Certificate request rejected: jwt is required")
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("jwt is required"))
 	}
 	if len(req.Msg.Csr) == 0 {
-		s.logger.Warn().Msg("Certificate request rejected: csr is required")
+		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "missing_csr").
+			Msg("Certificate request rejected: csr is required")
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("csr is required"))
 	}
 
 	s.logger.Info().
+		Str("event", "bootstrap_certificate_request_received").
 		Int("csr_size", len(req.Msg.Csr)).
 		Msg("Certificate request received")
 
@@ -527,6 +534,8 @@ func (s *Server) RequestCertificate(
 	claims, err := s.caManager.ValidateReferralTicket(req.Msg.Jwt)
 	if err != nil {
 		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "invalid_referral_ticket").
 			Err(err).
 			Msg("Invalid referral ticket")
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid referral ticket: %w", err))
@@ -535,6 +544,8 @@ func (s *Server) RequestCertificate(
 	// Verify colony match.
 	if claims.ColonyID != s.config.ColonyID {
 		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "colony_id_mismatch").
 			Str("ticket_colony_id", claims.ColonyID).
 			Str("server_colony_id", s.config.ColonyID).
 			Msg("Colony ID mismatch")
@@ -545,12 +556,16 @@ func (s *Server) RequestCertificate(
 	if claims.Intent != "renew" {
 		if req.Msg.BootstrapPsk == "" {
 			s.logger.Warn().
+				Str("event", "bootstrap_certificate_request_rejected").
+				Str("reason", "missing_bootstrap_psk").
 				Str("agent_id", claims.AgentID).
 				Msg("Certificate request rejected: bootstrap PSK required")
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("bootstrap PSK is required"))
 		}
 		if err := s.caManager.ValidateBootstrapPSK(ctx, req.Msg.BootstrapPsk); err != nil {
 			s.logger.Warn().
+				Str("event", "bootstrap_certificate_request_rejected").
+				Str("reason", "invalid_bootstrap_psk").
 				Err(err).
 				Str("agent_id", claims.AgentID).
 				Msg("Certificate request rejected: invalid bootstrap PSK")
@@ -562,6 +577,7 @@ func (s *Server) RequestCertificate(
 	certPEM, caChain, expiresAt, err := s.caManager.IssueCertificate(claims.AgentID, claims.ColonyID, req.Msg.Csr)
 	if err != nil {
 		s.logger.Error().
+			Str("event", "bootstrap_certificate_issuance_failed").
 			Err(err).
 			Str("agent_id", claims.AgentID).
 			Msg("Failed to issue certificate")
@@ -579,6 +595,7 @@ func (s *Server) RequestCertificate(
 		authMethod = "mtls"
 	}
 	s.logger.Info().
+		Str("event", "bootstrap_certificate_issued").
 		Str("agent_id", claims.AgentID).
 		Str("auth_method", authMethod).
 		Time("expires_at", expiresAt).
@@ -601,13 +618,25 @@ func (s *Server) BootstrapAndRegister(
 	req *connect.Request[colonyv1.BootstrapAndRegisterRequest],
 ) (*connect.Response[colonyv1.BootstrapAndRegisterResponse], error) {
 	if s.enroller == nil {
+		s.logger.Warn().
+			Str("event", "rendezvous_bootstrap_register_rejected").
+			Str("reason", "enrollment_unavailable").
+			Msg("rendezvous: BootstrapAndRegister rejected because enrollment is unavailable")
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("rendezvous enrollment is not available on this colony"))
 	}
 
 	recordID := req.Header().Get(constants.RendezvousRecordIDHeader)
 	if recordID == "" {
+		s.logger.Warn().
+			Str("event", "rendezvous_bootstrap_register_rejected").
+			Str("reason", "not_rendezvous_connection").
+			Msg("rendezvous: BootstrapAndRegister rejected outside a rendezvous connection")
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("BootstrapAndRegister is only available over an RFD 108 rendezvous connection"))
 	}
+	s.logger.Info().
+		Str("event", "rendezvous_bootstrap_register_received").
+		Str("record_id", recordID).
+		Msg("rendezvous: BootstrapAndRegister request received")
 
 	var peerAddr string
 	if req.Peer().Addr != "" {
@@ -616,9 +645,19 @@ func (s *Server) BootstrapAndRegister(
 
 	resp, err := s.enroller.BootstrapAndRegister(ctx, recordID, peerAddr, req.Msg)
 	if err != nil {
-		s.logger.Warn().Err(err).Str("record_id", recordID).Msg("rendezvous: BootstrapAndRegister failed")
+		s.logger.Warn().
+			Str("event", "rendezvous_bootstrap_register_failed").
+			Err(err).
+			Str("record_id", recordID).
+			Msg("rendezvous: BootstrapAndRegister failed")
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	s.logger.Info().
+		Str("event", "rendezvous_bootstrap_register_completed").
+		Str("record_id", recordID).
+		Str("agent_id", req.Msg.GetRegistration().GetAgentId()).
+		Str("mesh_ip", resp.GetRegistration().GetAssignedIp()).
+		Msg("rendezvous: BootstrapAndRegister completed")
 
 	return connect.NewResponse(resp), nil
 }

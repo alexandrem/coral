@@ -606,8 +606,12 @@ the rendezvous record TTL. Existing endpoint validation and rate limits apply.
 
 Required structured events and metrics:
 
-- `rendezvous_enrollment_started`, `rendezvous_enrollment_succeeded`, and
-  `rendezvous_enrollment_failed` with record ID, agent ID, and failure class.
+- `rendezvous_enrollment_started`, `rendezvous_enrollment_phase_changed`,
+  `rendezvous_enrollment_completed`, and `rendezvous_enrollment_failed` with
+  record ID, authorized Agent ID, durable phase, and failure class.
+- `rendezvous_endpoint_selected`, `rendezvous_old_peer_removed`,
+  `rendezvous_peer_added`, `rendezvous_registry_updated`, and
+  `rendezvous_certificate_issued` for the enrollment mutations.
 - `rendezvous_wireguard_handshake_started` and elapsed time to first handshake.
 - A distinct error for missing Agent UDP endpoint; never report it as a generic
   mesh registration timeout.

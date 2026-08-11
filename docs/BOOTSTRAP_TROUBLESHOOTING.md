@@ -355,13 +355,39 @@ configured endpoint agent.example.com:8444 is not reachable from the internet
    nc -zv agent.example.com 8444
    ```
 
-4. For a direct, early validation, retry with
+5. For a direct, early validation, retry with
    `--verify-bootstrap-reachability`. This asks Discovery to perform a
    quota-limited TCP probe; it is a diagnostic, not a guarantee that the
    Colony will complete enrollment.
 
-5. Verify that the Colony is running and can reach Discovery. RFD 108 does not
+6. Verify that the Colony is running and can reach Discovery. RFD 108 does not
    solve a topology where neither the Colony nor the Agent has an inbound path.
+
+On the Colony, follow the structured `event` field for one `record_id`. A
+successful reverse-dial compound enrollment reports:
+
+```text
+rendezvous_records_received
+rendezvous_dial_started
+rendezvous_tcp_connected
+rendezvous_tls_established
+rendezvous_request_received
+rendezvous_enrollment_started
+rendezvous_enrollment_phase_changed
+rendezvous_endpoint_selected
+rendezvous_peer_added
+rendezvous_wireguard_handshake_started
+rendezvous_certificate_issued
+rendezvous_enrollment_completed
+rendezvous_bootstrap_register_completed
+rendezvous_request_completed
+rendezvous_record_acknowledged
+```
+
+Failures include the same `record_id`. Enrollment failures also include the
+last durable `phase` and a `failure_class`. The decrypted Agent TCP rendezvous
+endpoint, nonce, write token, and PSK are intentionally omitted from Colony
+logs.
 
 ### Timeout During Bootstrap
 

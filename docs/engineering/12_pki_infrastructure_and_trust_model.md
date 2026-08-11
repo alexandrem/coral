@@ -81,12 +81,19 @@ opens a short-lived listener. The Colony decrypts the payload with a key
 derived from the Bootstrap PSK, then dials the Agent back while continuing to
 present the Colony TLS certificate as the server.
 
-The certificate protocol is intentionally unchanged. The Agent still validates
-the configured Root CA fingerprint and Colony SPIFFE SAN before it sends its
-CSR, referral ticket, and Bootstrap PSK through `RequestCertificate`. A
-connection-scoped rendezvous nonce binds that request to the record that caused
-the dial-back. Discovery never receives the PSK, CSR, referral ticket, or
-issued certificate.
+The certificate trust protocol is unchanged. The Agent still validates the
+configured Root CA fingerprint and Colony SPIFFE SAN before sending its CSR,
+referral ticket, and Bootstrap PSK. Certificate-only bootstrap uses
+`RequestCertificate`; RFD 109 Agent startup uses `BootstrapAndRegister` so the
+certificate and mesh assignment are returned together. A connection-scoped
+rendezvous nonce binds either request to the record that caused the dial-back.
+Discovery never receives the PSK, CSR, referral ticket, or issued certificate.
+
+Colony audit logs preserve the same trust boundary. Before ticket and CSR
+authorization, reverse-dial activity is correlated only by `record_id`. The
+authorized `agent_id` is added afterward. Logs exclude decrypted rendezvous
+endpoints, nonces, write tokens, PSKs, referral-ticket contents, CSRs,
+certificate bodies, and private keys.
 
 This preserves the distinction between **reachability** and **authorization**:
 decrypting a record is not sufficient to obtain a certificate, and changing

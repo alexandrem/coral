@@ -65,6 +65,26 @@ general reverse proxy. It covers deployments where the Agent is publicly
 dialable on the inferred or explicitly configured TCP endpoint. Two NAT-bound
 peers without an inbound path remain out of scope.
 
+### Reverse-Dial Observability
+
+Colony logs model reverse dial as one correlated lifecycle. Before the Agent is
+authorized, `record_id` is the only request identity. After referral-ticket,
+PSK, CSR, and registration identities agree, enrollment logs also include
+`agent_id`, the durable RFD 109 `phase`, and the assigned `mesh_ip`.
+
+The principal milestones are Discovery record receipt, dial attempt, TCP and
+TLS establishment, authenticated RPC routing, endpoint selection, WireGuard
+peer mutation, certificate issuance, enrollment completion, and Discovery
+acknowledgement. Failures retain the same `record_id`; enrollment failures add
+a `failure_class` derived from the last durable phase. This makes a retry or
+crash-resume distinguishable from a new attempt.
+
+The decrypted rendezvous TCP endpoint, session nonce, write token, Bootstrap
+PSK, CSR, certificate contents, and private keys are never logged. Dial errors
+redact the decrypted endpoint. The Agent WireGuard UDP endpoint selected from
+Discovery may be logged after authorization because it is operational peer
+configuration, not rendezvous plaintext.
+
 ## Multi-Platform Abstraction
 
 Managing network interfaces varies significantly across operating systems.
