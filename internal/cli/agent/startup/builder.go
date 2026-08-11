@@ -335,9 +335,8 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 	b.connectionManager = connMgr
 
 	// RFD 109 already registered the Agent while the NAT-local Colony held
-	// the reverse rendezvous connection. Configure the returned assignment
-	// with an empty peer endpoint and skip ordinary HTTP registration, which
-	// cannot reach a loopback/mesh-only Colony before WireGuard is up.
+	// the reverse rendezvous connection. Skip ordinary HTTP registration,
+	// which cannot reach a loopback/mesh-only Colony before WireGuard is up.
 	if b.bootstrapResult != nil && b.bootstrapResult.Registration != nil {
 		registration := b.bootstrapResult.Registration
 		if err := connMgr.ApplyBootstrapRegistration(registration); err != nil {
@@ -364,11 +363,16 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 			b.configResult.ServiceSpecs,
 			b.agentID,
 		)
+		// Compound enrollment adds the Agent peer to the Colony, but WireGuard
+		// still needs one side to know where to send the first packet. The
+		// Colony can only learn a roaming Agent endpoint after that packet, so
+		// prefer the dynamically discovered Colony endpoint here.
+		colonyEndpoint := connMgr.GetColonyEndpoint()
 		if err := networkInitializer.ConfigureMesh(
 			b.networkResult,
 			registration.AssignedIp,
 			registration.MeshSubnet,
-			"",
+			colonyEndpoint,
 		); err != nil {
 			return fmt.Errorf("failed to configure mesh from compound bootstrap registration: %w", err)
 		}
