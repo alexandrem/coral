@@ -15,8 +15,9 @@ distributed systems principles that power the platform.
 ## 2. The Observable Edge
 
 - **[03_ebpf_instrumentation_engine](03_ebpf_instrumentation_engine.md)**:
-  Zero-instrumentation monitoring, kernel-side filtering, and stateful edge
-  correlation.
+  Zero-instrumentation monitoring, kernel-side filtering, stateful edge
+  correlation, and pluggable per-process discovery for Beyla's `--monitor-all`
+  mode (RFD 102).
 - **[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)**:
   3-tier discovery pipeline, SDK-assisted introspection, semantic enrichment
   (xxHash3 SimHash), and DuckDB symbol caching.

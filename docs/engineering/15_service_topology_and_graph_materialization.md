@@ -40,6 +40,17 @@ OTel SDKs and Beyla sometimes produce mismatched identifiers, Coral also employs
 fallback correlation strategies (Trace ID and Temporal proximity) to ensure
 topology completeness.
 
+**Precondition: distinct `service_name` per process (RFD 102).** Every join
+strategy below filters on `child.service_name != parent.service_name`. This
+only produces edges if the agent actually attributes different names to
+different processes in the first place. Under Beyla's pre-RFD-102
+`open_ports: "1-65535"` catch-all (the old `--monitor-all` zero-config path),
+every process on the host was grouped under one name, so this inequality was
+never true and the join silently returned zero rows even with real traffic
+flowing. `internal/agent/beyla/discovery`'s `DiscoveryManager` now generates
+one named Beyla rule per process (see chapter 3), which is what makes the
+join below actually produce edges in zero-config mode.
+
 #### Why Beyla Owns the Traceparent
 
 Beyla operates at the socket level via eBPF uprobes on `net/http` internals. It
@@ -393,7 +404,15 @@ topology     tool           consumers
 
 - **`cli_query_test.go::TestCLIQueryTopology`** — drives real `otel-app →
   cpu-app` traffic, polls until the L7 edge appears, asserts `LAYER` column
-  header and JSON `layer` field.
+  header and JSON `layer` field. `agent-0` runs on plain `--monitor-all` (no
+  per-service fixture config, RFD 102), so this exercises the real
+  `DiscoveryManager` naming path end to end rather than a static workaround.
+- **`cli_query_test.go::TestClientOnlyWorkerDiscovery`** — a `worker-app`
+  fixture with no listening socket and `OTEL_SERVICE_NAME` set asserts that
+  Beyla's live-generated config (fetched via `ComposeFixture.GetBeylaConfig`)
+  contains an `exe_path`-only rule for it, validating the client-only
+  discovery path (RFD 102) that makes such processes visible in topology at
+  all.
 - **`topology_l4_test.go::L4TopologySuite`** — injects synthetic L4 edges via
   `ReportConnections` RPC and validates:
   - `TestL4EdgesAppearInTopology`: L4 edge appears in text output with `LAYER=L4`.
@@ -441,3 +460,4 @@ last materialization checkpoint — would keep the operation O(new-spans).
 - [**RFD 084**: Dual-Source Service Discovery](../../RFDs/084-dual-source-service-discovery.md)
 - [**RFD 036**: Beyla Distributed Tracing](../../RFDs/036-beyla-distributed-tracing.md)
 - [**RFD 100**: CLI Dispatch Mode](../../RFDs/100-cli-dispatch-mode.md)
+- [**RFD 102**: Pluggable Service Discovery Providers](../../RFDs/102-pluggable-service-discovery-providers.md)
