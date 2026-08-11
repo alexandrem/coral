@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
@@ -428,6 +430,68 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	}
 
 	s.T().Log("✓ coral query topology CLI validated with real cross-service connections")
+}
+
+// TestClientOnlyWorkerDiscovery verifies RFD 102's client-only discovery
+// path end to end: worker-app (tests/e2e/distributed/fixtures/apps/worker-app)
+// never binds a listening socket, only makes outbound HTTP calls, and sets
+// OTEL_SERVICE_NAME=e2e-worker-app. Under plain MonitorAll (no fixture
+// config file — see docker-compose.e2e.yml), DiscoveryManager must still
+// name it via EnvVarProvider and mark it IsClientOnly via ProcFSProvider's
+// process walk, so generateBeylaConfig emits an exe_path rule for it rather
+// than an open_ports rule (which would never match, since it has no port).
+func (s *CLIQuerySuite) TestClientOnlyWorkerDiscovery() {
+	s.T().Log("Testing client-only worker discovery via EnvVarProvider/ProcFSProvider (RFD 102)...")
+
+	const workerServiceName = "e2e-worker-app"
+	const (
+		discoveryTimeout  = 60 * time.Second
+		discoveryInterval = 5 * time.Second
+	)
+
+	var beylaConfig string
+	err := helpers.WaitForCondition(s.ctx, func() bool {
+		cfg, err := s.fixture.GetBeylaConfig(s.ctx, "agent-0")
+		if err != nil {
+			return false
+		}
+		beylaConfig = cfg
+		return strings.Contains(cfg, workerServiceName)
+	}, discoveryTimeout, discoveryInterval)
+
+	if err != nil {
+		s.T().Logf("Beyla config on agent-0 (last seen):\n%s", beylaConfig)
+		s.Require().Fail("timed out waiting for worker-app's exe_path rule to appear in Beyla config")
+		return
+	}
+
+	s.T().Logf("Beyla config on agent-0:\n%s", beylaConfig)
+
+	var cfg struct {
+		Discovery struct {
+			Services []struct {
+				Name      string `yaml:"name"`
+				OpenPorts string `yaml:"open_ports"`
+				ExePath   string `yaml:"exe_path"`
+			} `yaml:"services"`
+		} `yaml:"discovery"`
+	}
+	s.Require().NoError(yaml.Unmarshal([]byte(beylaConfig), &cfg), "Beyla config must be valid YAML")
+
+	var found bool
+	for _, svc := range cfg.Discovery.Services {
+		if svc.Name != workerServiceName {
+			continue
+		}
+		found = true
+		s.Require().Empty(svc.OpenPorts,
+			"client-only worker must not get an open_ports rule — it has no listening socket")
+		s.Require().Contains(svc.ExePath, workerServiceName,
+			"client-only worker must be matched via an exe_path rule")
+	}
+	s.Require().True(found, "expected a Beyla service rule named %q for the client-only worker", workerServiceName)
+
+	s.T().Log("✓ Client-only worker discovered via EnvVarProvider and instrumented with an exe_path rule")
 }
 
 // debugBeylaTracesLocal queries beyla_traces_local on the agent that runs

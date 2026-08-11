@@ -3,6 +3,7 @@ package beyla
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,9 @@ import (
 
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
+	"gopkg.in/yaml.v3"
+
+	"github.com/coral-mesh/coral/internal/agent/beyla/discovery"
 )
 
 func TestNewManager(t *testing.T) {
@@ -307,86 +311,56 @@ func TestManagerChannels(t *testing.T) {
 	}
 }
 
-// TestUpdateDiscovery tests the dynamic discovery update functionality (RFD 053).
-func TestUpdateDiscovery(t *testing.T) {
+// TestSetStaticCandidates tests the dynamic discovery update functionality
+// (RFD 053/102). SetStaticCandidates always receives the FULL current set of
+// connected services (mirroring how agent.go's ConnectService/
+// DisconnectService handlers recompute it on every call), so each call fully
+// replaces the dynamic candidate set.
+func TestSetStaticCandidates(t *testing.T) {
 	ctx := context.Background()
 	logger := zerolog.Nop()
 
 	tests := []struct {
-		name         string
-		initialPorts []int
-		updatePorts  []int
-		wantChanged  bool
+		name        string
+		updatePorts []int
 	}{
-		{
-			name:         "add new port",
-			initialPorts: []int{8080},
-			updatePorts:  []int{8080, 9090},
-			wantChanged:  true,
-		},
-		{
-			name:         "remove port",
-			initialPorts: []int{8080, 9090},
-			updatePorts:  []int{8080},
-			wantChanged:  true,
-		},
-		{
-			name:         "no change",
-			initialPorts: []int{8080, 9090},
-			updatePorts:  []int{8080, 9090},
-			wantChanged:  false,
-		},
-		{
-			name:         "different order (no change)",
-			initialPorts: []int{8080, 9090},
-			updatePorts:  []int{9090, 8080},
-			wantChanged:  false,
-		},
-		{
-			name:         "replace all ports",
-			initialPorts: []int{8080, 9090},
-			updatePorts:  []int{3000, 4000},
-			wantChanged:  true,
-		},
+		{name: "add services", updatePorts: []int{8080, 9090}},
+		{name: "shrink to one service", updatePorts: []int{8080}},
+		{name: "replace all services", updatePorts: []int{3000, 4000}},
+		{name: "clear all services", updatePorts: nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &Config{
-				Enabled: true,
-				Discovery: DiscoveryConfig{
-					OpenPorts: tt.initialPorts,
-				},
-			}
-
+			config := &Config{Enabled: true}
 			mgr, err := NewManager(ctx, config, logger)
 			if err != nil {
 				t.Fatalf("NewManager() error = %v", err)
 			}
 
-			// Verify initial ports.
-			initialConfigPorts := mgr.GetDiscoveryPorts()
-			if len(initialConfigPorts) != len(tt.initialPorts) {
-				t.Errorf("Initial ports count = %d, want %d", len(initialConfigPorts), len(tt.initialPorts))
+			// No candidates configured initially.
+			if got := mgr.GetDiscoveryPorts(); len(got) != 0 {
+				t.Fatalf("initial ports = %v, want empty", got)
 			}
 
-			// Update discovery.
-			expectedMap := make(map[int]string)
+			// Each connected service has a unique name, as agent.go's
+			// ConnectService guarantees (service names key a.monitors).
+			candidates := make([]discovery.ProcessCandidate, 0, len(tt.updatePorts))
 			for _, port := range tt.updatePorts {
-				expectedMap[port] = "test-service"
+				candidates = append(candidates, discovery.ProcessCandidate{
+					Ports: []int{port},
+					Name:  fmt.Sprintf("test-service-%d", port),
+				})
 			}
-			err = mgr.UpdateDiscovery(expectedMap)
-			if err != nil {
-				t.Fatalf("UpdateDiscovery() error = %v", err)
+			if err := mgr.SetStaticCandidates(candidates); err != nil {
+				t.Fatalf("SetStaticCandidates() error = %v", err)
 			}
 
-			// Verify ports were updated.
 			updatedPorts := mgr.GetDiscoveryPorts()
 			if len(updatedPorts) != len(tt.updatePorts) {
 				t.Errorf("Updated ports count = %d, want %d", len(updatedPorts), len(tt.updatePorts))
 			}
 
-			// Verify all expected ports are present.
 			portMap := make(map[int]bool)
 			for _, port := range updatedPorts {
 				portMap[port] = true
@@ -400,8 +374,65 @@ func TestUpdateDiscovery(t *testing.T) {
 	}
 }
 
-// TestUpdateDiscoveryDisabled tests that UpdateDiscovery is a no-op when Beyla is disabled.
-func TestUpdateDiscoveryDisabled(t *testing.T) {
+// TestConfigStaticCandidatesPersistAcrossSetStaticCandidates verifies that
+// named ports from the initial config file's ServiceMap (RFD 110) survive
+// every SetStaticCandidates call, since a `coral connect`/`coral disconnect`
+// call only ever supplies the currently-connected-via-RPC services, not the
+// config file's permanent entries.
+func TestConfigStaticCandidatesPersistAcrossSetStaticCandidates(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	config := &Config{
+		Enabled: true,
+		Discovery: DiscoveryConfig{
+			OpenPorts:  []int{8080},
+			ServiceMap: map[int]string{8080: "config-service"},
+		},
+	}
+
+	mgr, err := NewManager(ctx, config, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if got := mgr.GetDiscoveryPorts(); len(got) != 1 || got[0] != 8080 {
+		t.Fatalf("initial ports = %v, want [8080] from config ServiceMap", got)
+	}
+
+	// A `coral connect` for an unrelated service must not evict the
+	// config-file entry.
+	if err := mgr.SetStaticCandidates([]discovery.ProcessCandidate{
+		{Ports: []int{9090}, Name: "connected-service"},
+	}); err != nil {
+		t.Fatalf("SetStaticCandidates() error = %v", err)
+	}
+
+	ports := mgr.GetDiscoveryPorts()
+	portMap := make(map[int]bool, len(ports))
+	for _, p := range ports {
+		portMap[p] = true
+	}
+	if !portMap[8080] {
+		t.Errorf("config ServiceMap port 8080 was evicted by SetStaticCandidates, ports = %v", ports)
+	}
+	if !portMap[9090] {
+		t.Errorf("dynamically connected port 9090 missing, ports = %v", ports)
+	}
+
+	// Even an empty dynamic set (all RPC-connected services disconnected)
+	// must not evict the config-file entry.
+	if err := mgr.SetStaticCandidates(nil); err != nil {
+		t.Fatalf("SetStaticCandidates(nil) error = %v", err)
+	}
+	if got := mgr.GetDiscoveryPorts(); len(got) != 1 || got[0] != 8080 {
+		t.Errorf("config ServiceMap port did not survive clearing dynamic candidates, ports = %v", got)
+	}
+}
+
+// TestSetStaticCandidatesDisabled tests that SetStaticCandidates is a no-op
+// when Beyla is disabled.
+func TestSetStaticCandidatesDisabled(t *testing.T) {
 	ctx := context.Background()
 	logger := zerolog.Nop()
 
@@ -414,10 +445,13 @@ func TestUpdateDiscoveryDisabled(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	// UpdateDiscovery should not fail when Beyla is disabled.
-	err = mgr.UpdateDiscovery(map[int]string{8080: "service-1", 9090: "service-2"})
+	// SetStaticCandidates should not fail when Beyla is disabled.
+	err = mgr.SetStaticCandidates([]discovery.ProcessCandidate{
+		{Ports: []int{8080}, Name: "service-1"},
+		{Ports: []int{9090}, Name: "service-2"},
+	})
 	if err != nil {
-		t.Errorf("UpdateDiscovery() on disabled manager should not error, got: %v", err)
+		t.Errorf("SetStaticCandidates() on disabled manager should not error, got: %v", err)
 	}
 }
 
@@ -559,6 +593,144 @@ func TestGenerateBeylaConfigMonitorAllFallback(t *testing.T) {
 
 	if !strings.Contains(string(data), "1-65535") {
 		t.Errorf("generated Beyla config missing catch-all rule (1-65535) for MonitorAll mode.\nConfig:\n%s", string(data))
+	}
+}
+
+// TestGenerateBeylaConfigFromDiscoveryCandidates verifies the RFD 102
+// candidate-to-rule mapping directly: server candidates (with ports) become
+// open_ports rules, client-only candidates become exe_path-only rules, and
+// no residual catch-all is emitted since every candidate resolved to a
+// named rule.
+func TestGenerateBeylaConfigFromDiscoveryCandidates(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{
+		Enabled:    true,
+		DB:         db,
+		MonitorAll: true,
+	}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	// Simulate DiscoveryManager having merged a server candidate (e.g. from
+	// ProcFSProvider) and a client-only candidate (e.g. a Kafka consumer
+	// with no listening socket) — the two categories called out by RFD 102.
+	mgr.mu.Lock()
+	mgr.discoveryCandidates = []discovery.ProcessCandidate{
+		{PID: 100, Name: "otel-app", Ports: []int{8090}},
+		{PID: 200, Name: "kafka-consumer", IsClientOnly: true},
+	}
+	mgr.mu.Unlock()
+
+	configPath, err := mgr.generateBeylaConfig()
+	if err != nil {
+		t.Fatalf("generateBeylaConfig() error = %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read generated config: %v", err)
+	}
+	_ = os.Remove(configPath)
+	content := string(data)
+
+	if strings.Contains(content, "1-65535") {
+		t.Errorf("generated config must not fall back to the catch-all when every candidate resolved.\nConfig:\n%s", content)
+	}
+	if !strings.Contains(content, "open_ports: \"8090\"") {
+		t.Errorf("expected an open_ports rule for the server candidate.\nConfig:\n%s", content)
+	}
+	if !strings.Contains(content, "otel-app") {
+		t.Errorf("expected the server candidate's name in the config.\nConfig:\n%s", content)
+	}
+	if !strings.Contains(content, "kafka-consumer") {
+		t.Errorf("expected the client-only candidate's name in the config.\nConfig:\n%s", content)
+	}
+	if !strings.Contains(content, "exe_path: .*kafka-consumer.*") {
+		t.Errorf("expected an exe_path rule for the client-only candidate.\nConfig:\n%s", content)
+	}
+
+	// The client-only candidate must not have picked up an open_ports rule.
+	var cfg BeylaConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("failed to parse generated config: %v", err)
+	}
+	for _, svc := range cfg.Discovery.Services {
+		if svc.Name == "kafka-consumer" && svc.OpenPorts != "" {
+			t.Errorf("client-only candidate must not get an open_ports rule, got %+v", svc)
+		}
+		if svc.Name == "otel-app" && svc.OpenPorts == "" {
+			t.Errorf("server candidate must get an open_ports rule, got %+v", svc)
+		}
+	}
+}
+
+// TestStaticAndProviderCandidatesCoexistWithoutDuplicateRules verifies that
+// two independently `coral connect`-registered services produce exactly one
+// Beyla rule apiece — never two rules claiming the same port, which would
+// cause eBPF probe attachment conflicts (RFD 102).
+func TestStaticAndProviderCandidatesCoexistWithoutDuplicateRules(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{
+		Enabled: true,
+		DB:      db,
+	}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := mgr.SetStaticCandidates([]discovery.ProcessCandidate{
+		{Ports: []int{8080}, Name: "cpu-app"},
+		{Ports: []int{8090}, Name: "otel-app"},
+	}); err != nil {
+		t.Fatalf("SetStaticCandidates() error = %v", err)
+	}
+
+	configPath, err := mgr.generateBeylaConfig()
+	if err != nil {
+		t.Fatalf("generateBeylaConfig() error = %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read generated config: %v", err)
+	}
+	_ = os.Remove(configPath)
+
+	var cfg BeylaConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("failed to parse generated config: %v", err)
+	}
+
+	portRuleCount := make(map[string]int)
+	for _, svc := range cfg.Discovery.Services {
+		if svc.OpenPorts != "" {
+			portRuleCount[svc.OpenPorts]++
+		}
+	}
+	for port, count := range portRuleCount {
+		if count > 1 {
+			t.Errorf("port %q claimed by %d rules, want exactly 1 (would cause eBPF probe conflicts): %+v",
+				port, count, cfg.Discovery.Services)
+		}
+	}
+	if len(cfg.Discovery.Services) != 2 {
+		t.Errorf("expected exactly 2 service rules (one per connected service), got %d: %+v",
+			len(cfg.Discovery.Services), cfg.Discovery.Services)
 	}
 }
 

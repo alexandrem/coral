@@ -280,6 +280,50 @@ protocols **without requiring code changes** to your applications.
 - Agent ingests Beyla's output through this dedicated OTLP receiver to avoid
   conflicts with application traces
 
+### MonitorAll and Pluggable Process Discovery (RFD 102)
+
+`--monitor-all` (or `coral agent start --monitor-all`) tells the agent to
+instrument every process on the host without any per-service config. Under
+the hood this is driven by `DiscoveryManager`, which runs a
+priority-ordered set of `ProcessDiscoveryProvider` implementations on a poll
+interval and merges their results into named Beyla rules — one `open_ports`
+rule per listening server and one `exe_path` rule per client-only process
+(e.g. a worker or consumer that only makes outbound calls and never binds a
+port). This replaces the older single `open_ports: 1-65535` catch-all rule,
+which grouped every process under one service name and produced no usable
+topology edges.
+
+Built-in providers, evaluated in priority order:
+
+1. **Explicit registrations** (`coral connect`) — always highest priority,
+   and immune to poll timing.
+2. **`envvar`** — reads `OTEL_SERVICE_NAME` (falling back to
+   `SERVICE_NAME`) from each process's environment. Ranks above the ProcFS
+   binary name, so an operator-set name is always respected.
+3. **`procfs`** — scans the socket table (`/proc/net/tcp[6]`) for listening
+   servers, and a full `/proc/<pid>/comm` walk for every other running
+   process, reported as client-only. This is the fallback that guarantees
+   every process is named something, even with no other signal available.
+
+Configuration (agent config file, `beyla` block):
+
+```yaml
+beyla:
+  monitor_all: true
+  # How often DiscoveryManager polls all providers. Defaults to 30s.
+  discovery_sync_interval: 30s
+
+  # Per-provider enable/disable ("enabled", "disabled", or "auto" — enabled
+  # if the provider's availability probe succeeds). Both default to enabled.
+  discovery_providers:
+    procfs: enabled
+    envvar: enabled
+```
+
+A changed candidate set triggers a debounced Beyla restart (the same
+debounce window used for `coral connect`/`coral disconnect`, RFD 053), so a
+burst of process churn doesn't cause repeated restarts.
+
 ### How Beyla Works
 
 ```

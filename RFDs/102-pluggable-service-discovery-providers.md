@@ -1,7 +1,7 @@
 ---
 rfd: "102"
 title: "Pluggable Service Discovery Providers"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "observability", "ebpf", "beyla", "service-discovery" ]
 
 # RFD 102 - Pluggable Service Discovery Providers
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -246,14 +246,14 @@ beyla:
 
 ### Phase 1: Provider interface and DiscoveryManager
 
-- [ ] Create `internal/agent/beyla/discovery/` package
-- [ ] Define `ProcessDiscoveryProvider` interface (`Probe`, `Discover`, `Name`)
-- [ ] Define `ProcessCandidate` struct with all fields
-- [ ] Implement `DiscoveryManager`: provider list, a pinned static-candidate
+- [x] Create `internal/agent/beyla/discovery/` package
+- [x] Define `ProcessDiscoveryProvider` interface (`Probe`, `Discover`, `Name`)
+- [x] Define `ProcessCandidate` struct with all fields
+- [x] Implement `DiscoveryManager`: provider list, a pinned static-candidate
       slot (`SetStaticCandidates`, priority above all providers, not aged out
       by a poll cycle), priority merge by PID, change detection (added/removed
       PIDs), `applyDiscovery` callback on change
-- [ ] Unit tests: merge with two providers (higher-priority name wins), static
+- [x] Unit tests: merge with two providers (higher-priority name wins), static
       candidate always wins over provider candidates for the same PID, static
       candidate survives a poll cycle where no provider reports that PID,
       change detection fires callback on add/remove, no callback when map
@@ -261,50 +261,50 @@ beyla:
 
 ### Phase 2: ProcFSProvider
 
-- [ ] Implement `ProcFSProvider` in `internal/agent/beyla/discovery/procfs.go`
-- [ ] Socket table path (`/proc/net/tcp[6]`): resolve inodes → PIDs → names
-- [ ] Process walk path: scan `/proc/<pid>/comm` for all running PIDs; mark
+- [x] Implement `ProcFSProvider` in `internal/agent/beyla/discovery/procfs.go`
+- [x] Socket table path (`/proc/net/tcp[6]`): resolve inodes → PIDs → names
+- [x] Process walk path: scan `/proc/<pid>/comm` for all running PIDs; mark
       candidates not found in socket table as `IsClientOnly=true`
-- [ ] `Probe()` always returns `true` (Linux-only, but agent is Linux-only)
-- [ ] Unit tests: server process (appears in socket table), client-only process
+- [x] `Probe()` always returns `true` (Linux-only, but agent is Linux-only)
+- [x] Unit tests: server process (appears in socket table), client-only process
       (comm scan only), process exits between scans (graceful skip), IPv6 hex
       parsing
 
 ### Phase 3: EnvVarProvider
 
-- [ ] Implement `EnvVarProvider` in `internal/agent/beyla/discovery/envvar.go`
-- [ ] Read `/proc/<pid>/environ` (null-delimited) for each known PID
-- [ ] Extract `OTEL_SERVICE_NAME` first, fall back to `SERVICE_NAME`
-- [ ] Return `ProcessCandidate` with name hint and PID only (no port data)
-- [ ] `Probe()` always returns `true`
-- [ ] Unit tests: env var present, env var absent, malformed environ file,
+- [x] Implement `EnvVarProvider` in `internal/agent/beyla/discovery/envvar.go`
+- [x] Read `/proc/<pid>/environ` (null-delimited) for each known PID
+- [x] Extract `OTEL_SERVICE_NAME` first, fall back to `SERVICE_NAME`
+- [x] Return `ProcessCandidate` with name hint and PID only (no port data)
+- [x] `Probe()` always returns `true`
+- [x] Unit tests: env var present, env var absent, malformed environ file,
       process disappears between scan and read
 
 ### Phase 4: Integration, config, and documentation
 
-- [ ] Wire `DiscoveryManager` into `Manager.Start()`
-- [ ] Replace `Manager.UpdateDiscovery(map[int]string)` with
+- [x] Wire `DiscoveryManager` into `Manager.Start()`
+- [x] Replace `Manager.UpdateDiscovery(map[int]string)` with
       `Manager.SetStaticCandidates([]discovery.ProcessCandidate)`; update the
       `ConnectService`/`DisconnectService` handlers in
       `internal/agent/agent.go` to build candidates instead of a port map
-- [ ] Update `generateBeylaConfig` to accept `[]ProcessCandidate`; emit
+- [x] Update `generateBeylaConfig` to accept `[]ProcessCandidate`; emit
       `exe_path` rules (`.*<name>.*`) for `IsClientOnly=true` candidates
-- [ ] Add `DiscoverySyncInterval` and `DiscoveryProviders` to `Config` struct
-- [ ] Unit tests for `generateBeylaConfig`: server rule, client-only rule,
+- [x] Add `DiscoverySyncInterval` and `DiscoveryProviders` to `Config` struct
+- [x] Unit tests for `generateBeylaConfig`: server rule, client-only rule,
       residual catch-all absent when all ports resolved, static `ServiceMap`
       override
-- [ ] Unit tests for the static/provider merge: a `coral connect`-registered
+- [x] Unit tests for the static/provider merge: a `coral connect`-registered
       service and a provider-discovered service coexist without duplicate
       rules or restart races
-- [ ] Update E2E topology test to use `MonitorAll` without a fixture config
+- [x] Update E2E topology test to use `MonitorAll` without a fixture config
       file; assert `coral query topology` returns the `otel-app → cpu-app`
       edge within the polling window
-- [ ] E2E test: run a client-only process (no listening port) with
+- [x] E2E test: run a client-only process (no listening port) with
       `OTEL_SERVICE_NAME` set; assert Beyla config contains an `exe_path`
       rule for it
-- [ ] Update `docs/AGENT.md`: document `MonitorAll` behaviour,
+- [x] Update `docs/AGENT.md`: document `MonitorAll` behaviour,
       `discovery_sync_interval`, and `discovery_providers` config keys
-- [ ] Update `docs/SERVICE_DISCOVERY.md`: document provider priority chain
+- [x] Update `docs/SERVICE_DISCOVERY.md`: document provider priority chain
       and `OTEL_SERVICE_NAME` support
 
 ## API Changes
@@ -392,13 +392,60 @@ discovery:
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
 `DiscoveryManager` and two built-in providers (`ProcFSProvider`,
-`EnvVarProvider`) will replace the `open_ports: 1-65535` catch-all rule in
+`EnvVarProvider`) replace the `open_ports: 1-65535` catch-all rule in
 `MonitorAll` mode. Every listening server gets a named `open_ports` rule;
 every client-only process gets a named `exe_path` rule. `OTEL_SERVICE_NAME`
 is respected automatically in all Linux environments.
+
+**What was built:**
+
+- ✅ `internal/agent/beyla/discovery/` package: `ProcessDiscoveryProvider`
+  interface, `ProcessCandidate` struct, `DiscoveryManager` (priority merge
+  by PID, with a port-based join so a `coral connect` registration made
+  before the real PID is known still collapses onto the process a provider
+  later discovers on that port — never two competing rules for one port).
+- ✅ `ProcFSProvider`: socket-table scan (`/proc/net/tcp[6]`) for listening
+  servers, plus a full `/proc/<pid>/comm` walk for client-only processes.
+- ✅ `EnvVarProvider`: `OTEL_SERVICE_NAME` (falling back to `SERVICE_NAME`)
+  from `/proc/<pid>/environ`.
+- ✅ `beyla.Manager` wired to `DiscoveryManager`: `Start()` runs one
+  synchronous poll before the first `startBeyla()` call, then polls in the
+  background on `discovery_sync_interval` (default 30s); changes flow
+  through the existing RFD 053 debounced restart.
+  `UpdateDiscovery(map[int]string)` is replaced by
+  `SetStaticCandidates([]discovery.ProcessCandidate)`; `ConnectService`/
+  `DisconnectService` in `internal/agent/agent.go` build one candidate per
+  connected service. Config-file `ServiceMap` entries are captured once as
+  permanent static candidates (RFD 110 semantics preserved) and always
+  merged with the dynamic set.
+- ✅ `generateBeylaConfig` now maps the merged candidate list directly to
+  Beyla rules — `open_ports` (+ `exe_path`) for servers, `exe_path`-only for
+  client-only candidates — with the residual catch-all only added when
+  `MonitorAll` is set and no candidate resolved to a named rule.
+- ✅ Config schema: `beyla.discovery.discovery_sync_interval` and
+  `beyla.discovery.discovery_providers.{procfs,envvar}` (also settable via
+  `CORAL_BEYLA_DISCOVERY_SYNC_INTERVAL`), wired through
+  `internal/cli/agent/startup/storage.go`.
+- ✅ Unit tests across the `discovery` package and `beyla` package covering
+  the full test list in the Implementation Plan, plus a port-join regression
+  test and a duplicate-rule regression test.
+- ✅ E2E: `docker-compose.e2e.yml`'s `agent-0` no longer mounts a
+  per-service fixture config — it runs on `--monitor-all` alone, so
+  `TestCLIQueryTopology` now exercises the real `DiscoveryManager` path for
+  the `otel-app → cpu-app` edge instead of the old static-config workaround.
+  A new `worker-app` fixture (no listening socket, `OTEL_SERVICE_NAME` set)
+  and `TestClientOnlyWorkerDiscovery` test assert Beyla's generated config
+  contains an `exe_path`-only rule for it.
+- ✅ `docs/AGENT.md` and `docs/SERVICE_DISCOVERY.md` document the provider
+  priority chain and configuration keys.
+
+**Note:** the E2E changes (removing the static fixture config, adding the
+`worker-app` container) could not be run end-to-end in this environment (no
+Docker/eBPF available); they're verified for syntax and Go compilation only
+— run `make test-e2e` before merging to confirm the live behavior.
 
 ## Future Work
 

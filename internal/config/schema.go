@@ -411,6 +411,23 @@ type BeylaConfig struct {
 type BeylaDiscoveryConfig struct {
 	Services          []BeylaServiceConfig `yaml:"services,omitempty"`
 	NetworkInterfaces []string             `yaml:"network_interfaces,omitempty"`
+
+	// SyncInterval controls how often DiscoveryManager polls its providers
+	// in MonitorAll mode (RFD 102). Defaults to 30s.
+	SyncInterval time.Duration `yaml:"discovery_sync_interval,omitempty" env:"CORAL_BEYLA_DISCOVERY_SYNC_INTERVAL"`
+
+	// Providers enables or disables the built-in discovery providers used
+	// in MonitorAll mode (RFD 102).
+	Providers BeylaDiscoveryProvidersConfig `yaml:"discovery_providers,omitempty"`
+}
+
+// BeylaDiscoveryProvidersConfig enables or disables the built-in
+// ProcessDiscoveryProvider implementations used in MonitorAll mode (RFD
+// 102). Each field accepts "enabled", "disabled", or "auto"; an empty value
+// defaults to "enabled".
+type BeylaDiscoveryProvidersConfig struct {
+	Procfs string `yaml:"procfs,omitempty"`
+	Envvar string `yaml:"envvar,omitempty"`
 }
 
 // BeylaServiceConfig defines a service to instrument.

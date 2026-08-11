@@ -281,6 +281,7 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
 	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
 	s.Run("CLI_QueryTopology", cliQuerySuite.TestCLIQueryTopology)
+	s.Run("CLI_ClientOnlyWorkerDiscovery", cliQuerySuite.TestClientOnlyWorkerDiscovery)
 
 	// Run L4TopologySuite (RFD 033 — L4 network topology via ReportConnections)
 	l4Suite := &L4TopologySuite{

@@ -117,6 +117,37 @@ Services are automatically observed when they:
 - No health status (just presence in data)
 - Useful for discovering unregistered services
 
+### Process Naming for Auto-Observed Services (RFD 102)
+
+The service name attached to eBPF-observed traffic (`beyla_http_metrics`,
+`beyla_traces`) is decided *inside the agent*, before the data ever reaches
+the colony. In `--monitor-all` mode, this is `DiscoveryManager`'s job: it
+runs a priority-ordered set of `ProcessDiscoveryProvider` implementations on
+a poll interval and merges their results, so the same process is never named
+two different things by two different sources.
+
+**Provider priority chain** (highest wins):
+
+1. **Explicit registrations** (`coral connect` / `--connect`) — Source 1
+   above. Always wins, and is immune to poll timing: a registered name is
+   pinned regardless of what any provider reports for the same process.
+2. **`OTEL_SERVICE_NAME`** (or `SERVICE_NAME` as a fallback), read from the
+   process's environment (`envvar` provider). Lets an operator name a
+   process without registering it explicitly.
+3. **ProcFS binary name** (`procfs` provider) — the process's
+   `/proc/<pid>/comm`. The universal fallback: every process gets *some*
+   name, even with no other signal.
+
+This also covers **client-only processes** — workers, consumers, and batch
+jobs that make outbound calls but never bind a listening socket. Before RFD
+102 these fell into the residual `open_ports: 1-65535` catch-all and were
+invisible in topology; now `procfs`'s process walk finds them directly (not
+just its socket-table scan) and Beyla matches them via an `exe_path` rule
+instead of `open_ports`.
+
+See [`docs/AGENT.md`](AGENT.md#monitorall-and-pluggable-process-discovery-rfd-102)
+for the `discovery_sync_interval`/`discovery_providers` configuration keys.
+
 ## Service Lifecycle States
 
 ### State Diagram
