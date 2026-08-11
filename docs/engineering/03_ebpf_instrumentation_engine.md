@@ -71,10 +71,12 @@ The `Manager` is responsible for the end-to-end lifecycle of the Beyla binary:
 - **Embedded Distribution**: Beyla binaries (x86_64, ARM64) are embedded into the
   Coral Agent binary during build-time using `go generate`. On startup, the
   Agent extracts the appropriate binary to a temporary directory.
-- **Dynamic Configuration**: On every service discovery change (e.g., a new port
-  becomes active), the `Manager` generates a fresh Beyla YAML configuration
-  file. This enables **Runtime Service Tracking (RFD 053)** without manual
-  restarts.
+- **Dynamic Configuration**: On every discovery change (a new process observed,
+  a `coral connect`/`disconnect` call), the `Manager` generates a fresh Beyla
+  YAML configuration file and restarts Beyla after a debounce window. This is
+  **Runtime Service Tracking (RFD 053)**; see **Pluggable Process Discovery
+  (RFD 102)** below for how the candidate set feeding this generation is
+  produced.
 - **Sub-process Supervision**: Beyla runs as an external process supervised via
   `os/exec`. Terminal output (`stdout`/`stderr`) is wrapped and piped into
   Coral's `zerolog` system for unified debugging.
@@ -97,6 +99,85 @@ Coral bridges this data into its own engine via a local gRPC/HTTP loopback:
     converted into `EbpfEvent` protobufs.
   - **Traces**: Distributed trace spans are captured and routed to dedicated
     Beyla trace storage.
+
+### Pluggable Process Discovery (RFD 102)
+
+#### The Problem: One Name for Every Process
+
+Before RFD 102, `--monitor-all` (zero-config mode) emitted a single Beyla
+discovery rule: `open_ports: "1-65535"`. Beyla groups every process matching
+the *same* rule into one logical service, named after the first binary it
+encounters — typically `coral-agent`. Every call between two real services
+therefore appeared in trace data as originating from the same name, and the
+topology materialization join (`child.service_name != parent.service_name`,
+see chapter 15) always evaluated false, so `coral query topology` reported no
+edges at all despite traffic flowing. Client-only processes (workers,
+consumers — anything that never binds a listening socket) were invisible
+entirely, since the socket-table-based fallback had nothing to key on.
+
+#### Architecture (`internal/agent/beyla/discovery`)
+
+A `ProcessDiscoveryProvider` interface abstracts "how do we find and name a
+process":
+
+```go
+type ProcessDiscoveryProvider interface {
+    Name() string
+    Probe() bool                                          // is this provider usable here?
+    Discover(ctx context.Context) ([]ProcessCandidate, error)
+}
+```
+
+`ProcessCandidate` carries `PID`, `Ports`, `Name`, `Source`, `Labels`, and
+`IsClientOnly`. A `DiscoveryManager` polls every registered provider on an
+interval (`discovery_sync_interval`, default 30s), merges their candidates,
+detects changes against the previous merge, and — on change — invokes an
+`applyDiscovery` callback that feeds the existing RFD 053 debounced-restart
+path.
+
+**Merge priority** (highest wins per process):
+
+1. **Static candidates** (`SetStaticCandidates`) — pinned entries from
+   `coral connect`/`coral disconnect` and the agent's config-file
+   `beyla.discovery.services` map. Re-applied on *every* poll, so they are
+   never aged out by a cycle where no provider currently reports the same
+   process.
+2. **`EnvVarProvider`** — reads `OTEL_SERVICE_NAME` (falling back to
+   `SERVICE_NAME`) from `/proc/<pid>/environ`. Respects an operator-set name
+   in any environment (bare metal, Docker Compose, Kubernetes) without
+   requiring `coral connect`.
+3. **`ProcFSProvider`** — the universal fallback. A socket-table scan
+   (`/proc/net/tcp[6]`, resolving listening-socket inodes to PIDs via each
+   process's `fd` directory) finds every listening server; a full
+   `/proc/<pid>/comm` walk finds every *other* running process and reports it
+   with `IsClientOnly=true`. This is what makes client-only processes visible
+   at all — they were structurally unreachable under the old catch-all.
+
+**Merge mechanics** (`internal/agent/beyla/discovery/manager.go`): candidates
+are joined primarily by PID, so an `EnvVarProvider` name hint and a
+`ProcFSProvider` port list for the same running process collapse into one
+entry. Static candidates registered before the real PID is known (a
+`coral connect` call made ahead of the process starting) are additionally
+joined by **port**, once a provider reports a real process there — this
+prevents the static entry and the provider-discovered entry from producing
+two separate, conflicting Beyla rules for the same port.
+
+#### From Candidates to Beyla Rules (`generateBeylaConfig`)
+
+`beyla.Manager.generateBeylaConfig` maps the merged candidate list directly to
+Beyla `discovery.services` rules:
+
+- A candidate with `Ports` becomes a named `open_ports` rule (plus an
+  `exe_path: .*<name>.*` clause, so outbound calls on other ports are still
+  attributed to the same service).
+- A candidate with `IsClientOnly=true` becomes a named `exe_path`-only rule —
+  there is no port to match on.
+- The residual `open_ports: "1-65535"` catch-all is only emitted when
+  `MonitorAll` is set **and** no candidate resolved to a named rule (e.g. the
+  very first poll cycle, before `ProcFSProvider` has run). Mixing named rules
+  with the catch-all causes Beyla to attach eBPF uprobes to the same process
+  twice, which silently drops all spans for it — so the two are always
+  mutually exclusive.
 
 ### Distributed Pull-Based Storage
 
@@ -207,13 +288,25 @@ start, implementing a local cache of `RET` offsets (keyed by binary `mtime` and
 symbol offset) would optimize startup time for high-frequency debugging
 sessions.
 
+### Container-Aware Discovery Providers
+
+The `ProcessDiscoveryProvider` chain (RFD 102) is designed so that
+container-aware sources slot in above `EnvVarProvider` without touching
+existing code: a planned `ContainerRuntimeProvider` (Docker/Compose service
+labels) and `KubernetesProvider` (pod name/namespace via the downward API)
+are pure additions — `RegisterProvider` order is the only integration point.
+`KubernetesProvider` would also let `coral query topology` show pod/namespace
+boundaries directly.
+
 ## Related Design Documents (RFDs)
 
 - [**RFD 013**: eBPF Introspection](../../RFDs/013-ebpf-introspection.md)
 - [**RFD 032**: BEYLA RED Metrics Integration](../../RFDs/032-beyla-red-metrics-integration.md)
 - [**RFD 036**: BEYLA Distributed Tracing](../../RFDs/036-beyla-distributed-tracing.md)
+- [**RFD 053**: Beyla Dynamic Service Discovery](../../RFDs/053-beyla-dynamic-service-discovery.md)
 - [**RFD 061**: eBPF Uprobe Mechanism](../../RFDs/061-ebpf-uprobe-mechanism.md)
 - [**RFD 063**: Intelligent Function Discovery](../../RFDs/063-intelligent-function-discovery.md)
 - [**RFD 073**: Return-Instruction Uprobes for Go](../../RFDs/073-return-instruction-uprobes.md)
 - [**RFD 090**: eBPF Probe Runtime Filtering](../../RFDs/090-ebpf-probe-runtime-filtering.md)
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)
+- [**RFD 102**: Pluggable Service Discovery Providers](../../RFDs/102-pluggable-service-discovery-providers.md)

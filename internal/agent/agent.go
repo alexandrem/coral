@@ -12,6 +12,7 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/beyla/discovery"
 	"github.com/coral-mesh/coral/internal/agent/correlation"
 	"github.com/coral-mesh/coral/internal/agent/debug"
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
@@ -361,10 +362,10 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 		Int32("port", service.Port).
 		Msg("Service connected")
 
-	// Update Beyla discovery with new port (RFD 053/110).
+	// Update Beyla discovery with the new service (RFD 053/102).
 	if a.beylaManager != nil {
-		portMap := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
+		candidates := a.collectDiscoveryCandidatesLocked()
+		if err := a.beylaManager.SetStaticCandidates(candidates); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service connect")
@@ -402,10 +403,10 @@ func (a *Agent) DisconnectService(serviceName string) error {
 		Str("service", serviceName).
 		Msg("Service disconnected")
 
-	// Update Beyla discovery with remaining ports (RFD 053/110).
+	// Update Beyla discovery with the remaining services (RFD 053/102).
 	if a.beylaManager != nil {
-		portMap := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
+		candidates := a.collectDiscoveryCandidatesLocked()
+		if err := a.beylaManager.SetStaticCandidates(candidates); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service disconnect")
@@ -426,14 +427,19 @@ func (a *Agent) GetBeylaManager() *beyla.Manager {
 	return a.beylaManager
 }
 
-// collectPortsLocked collects all service port-to-name mappings from monitors (RFD 053/110).
+// collectDiscoveryCandidatesLocked builds one discovery.ProcessCandidate per
+// currently connected service, for Manager.SetStaticCandidates (RFD 102).
 // Caller must hold a.mu lock.
-func (a *Agent) collectPortsLocked() map[int]string {
-	portMap := make(map[int]string)
+func (a *Agent) collectDiscoveryCandidatesLocked() []discovery.ProcessCandidate {
+	candidates := make([]discovery.ProcessCandidate, 0, len(a.monitors))
 	for name, monitor := range a.monitors {
-		portMap[int(monitor.service.Port)] = name
+		candidates = append(candidates, discovery.ProcessCandidate{
+			Ports:        []int{int(monitor.service.Port)},
+			Name:         name,
+			IsClientOnly: false,
+		})
 	}
-	return portMap
+	return candidates
 }
 
 // Resolve resolves service name to address (ServiceResolver interface).

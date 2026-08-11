@@ -121,6 +121,11 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 				DBPath:                sharedDBPath,
 				StorageRetentionHours: 1, // Default: 1 hour (TODO: make configurable)
 				MonitorAll:            s.monitorAll,
+				DiscoverySyncInterval: s.agentCfg.Beyla.Discovery.SyncInterval,
+				DiscoveryProviders: beyla.DiscoveryProvidersConfig{
+					Procfs: s.agentCfg.Beyla.Discovery.Providers.Procfs,
+					Envvar: s.agentCfg.Beyla.Discovery.Providers.Envvar,
+				},
 			}
 
 			// Ensure ServiceMap is initialised before adding entries.

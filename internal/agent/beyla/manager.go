@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/beyla/discovery"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/constants"
 )
@@ -50,11 +52,19 @@ type Manager struct {
 	tracesCh  chan *BeylaTrace       // Beyla traces ready for Colony
 	metricsCh chan *ebpfpb.EbpfEvent // Beyla metrics ready for Colony
 
-	// Dynamic discovery configuration (RFD 053).
-	configuredPorts  []int       // Currently configured discovery ports
-	debounceTimer    *time.Timer // Timer for debounced restarts
+	// Pluggable process discovery (RFD 102). discoveryManager merges
+	// configStaticCandidates (captured once from the initial config, RFD
+	// 110) with any dynamic candidates set via SetStaticCandidates (`coral
+	// connect`) and, in MonitorAll mode, ProcFSProvider/EnvVarProvider
+	// results. discoveryCandidates holds the latest merged set, consumed by
+	// generateBeylaConfig.
+	discoveryManager       *discovery.DiscoveryManager
+	configStaticCandidates []discovery.ProcessCandidate
+	discoveryCandidates    []discovery.ProcessCandidate
+
+	// Dynamic discovery restart debouncing (RFD 053).
+	debounceTimer    *time.Timer
 	debounceInterval time.Duration
-	staticServiceMap map[int]string // Preservation of initial config file mappings (RFD 110).
 }
 
 // BeylaTrace represents a processed Beyla trace ready for Colony.
@@ -105,6 +115,27 @@ type Config struct {
 	// MonitorAll enables catch-all discovery (all listening ports 1-65535).
 	// If false and no specific ports are configured, Beyla will not start (RFD 053).
 	MonitorAll bool
+
+	// DiscoverySyncInterval controls how often DiscoveryManager polls its
+	// providers in MonitorAll mode (RFD 102). Defaults to 30s.
+	DiscoverySyncInterval time.Duration
+
+	// DiscoveryProviders controls which built-in discovery providers are
+	// active in MonitorAll mode (RFD 102).
+	DiscoveryProviders DiscoveryProvidersConfig
+}
+
+// DiscoveryProvidersConfig enables or disables the built-in
+// ProcessDiscoveryProvider implementations used in MonitorAll mode (RFD
+// 102). Each field accepts "enabled", "disabled", or "auto" (enabled if the
+// provider's Probe() reports availability); an empty value defaults to
+// "enabled".
+type DiscoveryProvidersConfig struct {
+	// Procfs controls ProcFSProvider (socket table + process walk).
+	Procfs string
+
+	// Envvar controls EnvVarProvider (OTEL_SERVICE_NAME/SERVICE_NAME).
+	Envvar string
 }
 
 // DiscoveryConfig specifies which processes to instrument.
@@ -152,24 +183,40 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 	ctx, cancel := context.WithCancel(ctx)
 
 	m := &Manager{
-		ctx:              ctx,
-		cancel:           cancel,
-		config:           config,
-		logger:           logger.With().Str("component", "beyla_manager").Logger(),
-		transformer:      NewTransformer(logger),
-		tracesCh:         make(chan *BeylaTrace, 100),
-		metricsCh:        make(chan *ebpfpb.EbpfEvent, 100),
-		configuredPorts:  append([]int{}, config.Discovery.OpenPorts...), // Copy initial ports (RFD 053)
-		debounceInterval: constants.DefaultBeylaDebounceInterval,         // Default debounce window (RFD 053)
-		staticServiceMap: make(map[int]string),
+		ctx:                    ctx,
+		cancel:                 cancel,
+		config:                 config,
+		logger:                 logger.With().Str("component", "beyla_manager").Logger(),
+		transformer:            NewTransformer(logger),
+		tracesCh:               make(chan *BeylaTrace, 100),
+		metricsCh:              make(chan *ebpfpb.EbpfEvent, 100),
+		debounceInterval:       constants.DefaultBeylaDebounceInterval, // Default debounce window (RFD 053)
+		configStaticCandidates: staticCandidatesFromConfig(config.Discovery),
 	}
 
-	// Capture static mappings (RFD 110).
-	if config.Discovery.ServiceMap != nil {
-		for k, v := range config.Discovery.ServiceMap {
-			m.staticServiceMap[k] = v
+	// DiscoveryManager merges m.configStaticCandidates, any dynamic
+	// candidates set via SetStaticCandidates (`coral connect`), and — in
+	// MonitorAll mode — ProcFSProvider/EnvVarProvider results, driving the
+	// existing debounced-restart logic on change (RFD 053/102).
+	m.discoveryManager = discovery.NewDiscoveryManager(m.logger, config.DiscoverySyncInterval, m.applyDiscovery)
+	m.discoveryManager.SetStaticCandidates(m.configStaticCandidates)
+
+	if config.MonitorAll {
+		// EnvVarProvider is registered before ProcFSProvider so an
+		// OTEL_SERVICE_NAME hint outranks the ProcFS binary-name fallback.
+		if providerEnabled(config.DiscoveryProviders.Envvar) {
+			m.discoveryManager.RegisterProvider(discovery.NewEnvVarProvider())
+		}
+		if providerEnabled(config.DiscoveryProviders.Procfs) {
+			m.discoveryManager.RegisterProvider(discovery.NewProcFSProvider())
 		}
 	}
+
+	// Poll once synchronously so the static candidate set (config file +
+	// initial services) is reflected immediately, without waiting for
+	// Start(). m.running is false at this point, so applyDiscovery stores
+	// the result without scheduling a restart.
+	m.discoveryManager.Poll(m.ctx)
 
 	// Initialize OTLP receiver storage (RFD 025).
 	if config.DB != nil {
@@ -194,11 +241,50 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 	return m, nil
 }
 
+// staticCandidatesFromConfig converts the initial config-file service map
+// (RFD 110) into permanently pinned ProcessCandidate entries, one per named
+// port. Unlike ServiceMap, a plain OpenPorts entry with no name is not
+// pinned here: it is a seed for the very first discovery round, not a
+// permanent floor, so a later `coral disconnect` for that port can still
+// remove it — matching the pre-RFD-102 UpdateDiscovery behavior, where only
+// named ServiceMap entries survived a dynamic update.
+func staticCandidatesFromConfig(cfg DiscoveryConfig) []discovery.ProcessCandidate {
+	candidates := make([]discovery.ProcessCandidate, 0, len(cfg.ServiceMap))
+	for port, name := range cfg.ServiceMap {
+		if name == "" || name == "-" {
+			continue
+		}
+		candidates = append(candidates, discovery.ProcessCandidate{
+			Ports: []int{port},
+			Name:  name,
+		})
+	}
+	return candidates
+}
+
+// providerEnabled interprets a DiscoveryProvidersConfig field value.
+// "disabled" turns the provider off; "enabled", "auto", and "" (the
+// zero-value default) turn it on. Coral's built-in providers always report
+// Probe()==true, so "auto" is currently equivalent to "enabled".
+func providerEnabled(setting string) bool {
+	return setting != "disabled"
+}
+
 // Start begins Beyla instrumentation.
 func (m *Manager) Start() error {
 	if !m.config.Enabled {
 		m.logger.Info().Msg("Beyla is disabled, skipping start")
 		return nil
+	}
+
+	// Run one synchronous discovery poll before acquiring m.mu, so the
+	// initial merged candidate set (static + any MonitorAll providers) is
+	// ready before startBeyla() generates the first config (RFD 102).
+	// applyDiscovery (the poll's onChange callback) also acquires m.mu, so
+	// this must happen outside the critical section below to avoid
+	// deadlocking against ourselves.
+	if m.discoveryManager != nil {
+		m.discoveryManager.Poll(m.ctx)
 	}
 
 	m.mu.Lock()
@@ -227,6 +313,16 @@ func (m *Manager) Start() error {
 	// This will use Beyla's Go library API when integrated.
 	if err := m.startBeyla(); err != nil {
 		return fmt.Errorf("failed to start Beyla: %w", err)
+	}
+
+	// Continue polling providers in the background for as long as Beyla
+	// runs; subsequent changes flow through applyDiscovery (RFD 102).
+	if m.discoveryManager != nil {
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			m.discoveryManager.Run(m.ctx)
+		}()
 	}
 
 	m.running = true
@@ -704,51 +800,53 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		{ExePath: ".*beyla.*"},
 	}
 
-	// Discovery: open ports and service maps.
-	if len(m.config.Discovery.OpenPorts) > 0 || len(m.config.Discovery.ServiceMap) > 0 {
+	// Discovery: process candidates merged by DiscoveryManager — static
+	// (config file + `coral connect`), and, in MonitorAll mode,
+	// ProcFSProvider/EnvVarProvider results (RFD 102).
+	m.mu.RLock()
+	candidates := append([]discovery.ProcessCandidate{}, m.discoveryCandidates...)
+	m.mu.RUnlock()
+
+	if len(candidates) > 0 {
 		servicePorts := make(map[string][]string)
-		var unnamedPorts []string
+		clientOnlyNames := make(map[string]bool)
 
-		// Process explicit OpenPorts list.
-		for _, port := range m.config.Discovery.OpenPorts {
-			portStr := strconv.Itoa(port)
-			if name, ok := m.config.Discovery.ServiceMap[port]; ok && name != "" && name != "-" {
-				servicePorts[name] = append(servicePorts[name], portStr)
-			} else {
-				unnamedPorts = append(unnamedPorts, portStr)
+		for _, c := range candidates {
+			name := c.Name
+			if name == "" || name == "-" {
+				name = fmt.Sprintf("pid-%d", c.PID)
 			}
-		}
 
-		// Process any remaining ports in ServiceMap not in OpenPorts.
-		for port, name := range m.config.Discovery.ServiceMap {
-			var found bool
-			for _, p := range m.config.Discovery.OpenPorts {
-				if p == port {
-					found = true
-					break
+			if len(c.Ports) > 0 {
+				for _, port := range c.Ports {
+					portStr := strconv.Itoa(port)
+					if !containsStr(servicePorts[name], portStr) {
+						servicePorts[name] = append(servicePorts[name], portStr)
+					}
 				}
-			}
-			if !found && name != "" && name != "-" {
-				servicePorts[name] = append(servicePorts[name], strconv.Itoa(port))
+			} else if c.IsClientOnly {
+				clientOnlyNames[name] = true
 			}
 		}
 
-		// Create rules for named services.
-		for name, ports := range servicePorts {
-			// Combining OpenPorts and ExePath ensures we instrument the whole process.
-			// OpenPorts handles incoming traffic on specific ports.
-			// ExePath ensures we instrument all outgoing calls regardless of port.
+		// Named open_ports rules for server processes. Combining OpenPorts
+		// and ExePath ensures we instrument the whole process: OpenPorts
+		// handles incoming traffic on specific ports, ExePath ensures we
+		// instrument all outgoing calls regardless of port.
+		for _, name := range sortedKeys(servicePorts) {
 			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
-				OpenPorts: strings.Join(ports, ","),
+				OpenPorts: strings.Join(servicePorts[name], ","),
 				ExePath:   ".*" + name + ".*",
 				Name:      name,
 			})
 		}
 
-		// Create catch-all rules for unnamed ports.
-		if len(unnamedPorts) > 0 {
+		// Named exe_path rules for client-only processes (no listening
+		// socket to match on), e.g. workers and consumers (RFD 102).
+		for _, name := range sortedBoolKeys(clientOnlyNames) {
 			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
-				OpenPorts: strings.Join(unnamedPorts, ","),
+				ExePath: ".*" + name + ".*",
+				Name:    name,
 			})
 		}
 	}
@@ -904,46 +1002,56 @@ func (w *beylaLogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// UpdateDiscovery updates Beyla's discovery configuration dynamically (RFD 053/110).
-// If the list of ports or service names changes, Beyla is restarted with the new config.
-func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+// SetStaticCandidates replaces the dynamic (agent-managed) static candidate
+// set — one ProcessCandidate per currently connected service, e.g. from
+// `coral connect`/`coral disconnect` (RFD 102). It is merged with the
+// immutable candidates captured from the initial config at startup (RFD
+// 110) and forwarded to DiscoveryManager, then an immediate poll is
+// triggered so the change is picked up without waiting for the next
+// scheduled tick. Static candidates always outrank provider-discovered
+// candidates for the same process; if the merged set changes, Beyla is
+// restarted after the debounce window (RFD 053).
+//
+// This replaces the pre-RFD-102 UpdateDiscovery(map[int]string), which could
+// not represent client-only candidates because it was keyed by port.
+func (m *Manager) SetStaticCandidates(candidates []discovery.ProcessCandidate) error {
 	if !m.config.Enabled {
 		return nil
 	}
-
-	// Combine dynamic map with static mappings from config file (RFD 110).
-	mergedMap := make(map[int]string)
-	for k, v := range m.staticServiceMap {
-		mergedMap[k] = v
-	}
-	for k, v := range serviceMap {
-		mergedMap[k] = v
+	if m.discoveryManager == nil {
+		return nil
 	}
 
-	// Extract ports and check for changes.
-	ports := make([]int, 0, len(mergedMap))
-	for port := range mergedMap {
-		ports = append(ports, port)
-	}
+	m.mu.RLock()
+	merged := append([]discovery.ProcessCandidate{}, m.configStaticCandidates...)
+	m.mu.RUnlock()
+	merged = append(merged, candidates...)
 
-	mappingChanged := !mapsEqual(m.config.Discovery.ServiceMap, mergedMap)
+	m.discoveryManager.SetStaticCandidates(merged)
+	m.discoveryManager.Poll(m.ctx)
 
-	if portsEqual(m.configuredPorts, ports) && !mappingChanged {
-		return nil // No changes needed
+	return nil
+}
+
+// applyDiscovery is DiscoveryManager's onChange callback (RFD 102): it
+// stores the newly merged candidate set and, once Beyla has completed its
+// initial start, schedules a debounced restart (RFD 053) so
+// generateBeylaConfig picks up the change. During Start()'s initial
+// synchronous poll (before m.running is set), no restart is scheduled —
+// Start() calls startBeyla() directly right after with the same candidates.
+func (m *Manager) applyDiscovery(candidates []discovery.ProcessCandidate) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.discoveryCandidates = candidates
+
+	if !m.running {
+		return
 	}
 
 	m.logger.Info().
-		Ints("old_ports", m.configuredPorts).
-		Ints("new_ports", ports).
-		Int("mapping_size", len(mergedMap)).
+		Int("candidate_count", len(candidates)).
 		Msg("Discovery configuration changed")
-
-	m.configuredPorts = ports
-	m.config.Discovery.OpenPorts = ports
-	m.config.Discovery.ServiceMap = mergedMap
 
 	// Cancel existing debounce timer if any.
 	if m.debounceTimer != nil {
@@ -953,7 +1061,6 @@ func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 	// Schedule debounced restart.
 	m.debounceTimer = time.AfterFunc(m.debounceInterval, func() {
 		m.logger.Info().
-			Ints("ports", ports).
 			Dur("debounce_interval", m.debounceInterval).
 			Msg("Debounce window expired, restarting Beyla")
 
@@ -962,20 +1069,22 @@ func (m *Manager) UpdateDiscovery(serviceMap map[int]string) error {
 				Err(err).
 				Msg("Failed to restart Beyla with updated discovery config")
 		} else {
-			m.logger.Info().
-				Ints("ports", ports).
-				Msg("Beyla restarted successfully with updated discovery")
+			m.logger.Info().Msg("Beyla restarted successfully with updated discovery")
 		}
 	})
-
-	return nil
 }
 
-// GetDiscoveryPorts returns the currently configured discovery ports (RFD 053).
+// GetDiscoveryPorts returns every port across the currently merged discovery
+// candidates (RFD 053/102).
 func (m *Manager) GetDiscoveryPorts() []int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return append([]int{}, m.configuredPorts...)
+
+	var ports []int
+	for _, c := range m.discoveryCandidates {
+		ports = append(ports, c.Ports...)
+	}
+	return ports
 }
 
 // restartBeyla stops and restarts Beyla with the current configuration (RFD 053).
@@ -1032,15 +1141,34 @@ func portsEqual(a, b []int) bool {
 	return true
 }
 
-// mapsEqual checks if two maps are identical.
-func mapsEqual(a, b map[int]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
+// containsStr reports whether s contains needle.
+func containsStr(s []string, needle string) bool {
+	for _, v := range s {
+		if v == needle {
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+// sortedKeys returns the keys of a map[string][]string in ascending order,
+// for deterministic Beyla config generation.
+func sortedKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// sortedBoolKeys returns the keys of a map[string]bool in ascending order,
+// for deterministic Beyla config generation.
+func sortedBoolKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
