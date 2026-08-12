@@ -155,3 +155,63 @@ DuckDB provides the ideal characteristics for this architecture:
 - Colony stores only compressed summaries (60x reduction vs. raw data)
 - On-demand detail queries avoid continuous streaming overhead
 - Agents can be added/removed without central bottleneck
+
+---
+
+## Vortex Export (Investigation Snapshots)
+
+Agents support exporting any registered DuckDB table or custom SQL query
+as a [Vortex](https://vortex.rs) (`.vx`) file via the `/vortex/` HTTP
+endpoint (RFD 097). The `coral duckdb export` CLI command downloads these
+snapshots through the colony proxy.
+
+### Why Vortex
+
+Parquet reads full row-groups even for narrow column access. Vortex uses
+late materialization: only the requested columns are fetched from disk,
+making selective queries (e.g., "all rows where `http.status_code >= 500`"
+across a 30-column Beyla table) significantly faster. This matters for
+LLM investigation sessions that issue many narrow queries.
+
+Vortex files are natively readable by the `vortex` Python package and any
+Apache Arrow-compatible tool — no Coral installation needed on the recipient
+machine.
+
+### Agent Configuration
+
+```yaml
+agent:
+  storage:
+    # Enable or disable the /vortex export endpoint (default: true).
+    vortex_enabled: true
+
+    # Refuse export if projected temp-dir usage would exceed this fraction (default: 0.80).
+    vortex_disk_threshold: 0.80
+```
+
+Set `vortex_enabled: false` to disable the `/vortex` endpoint entirely.
+
+### How It Works
+
+1. CLI calls `coral duckdb export <agent-id> <table>`.
+2. Colony proxy forwards `GET /agent/{id}/vortex/<db>/<table>` to the agent.
+3. Agent performs a disk safety pre-flight check (available bytes vs. projected
+   source database size; returns `413` if threshold would be exceeded).
+4. Agent opens the database read-only, loads the community Vortex DuckDB
+   extension (`INSTALL vortex FROM community; LOAD vortex`), and runs
+   `COPY (SELECT * FROM <table>) TO <tmpfile> (FORMAT vortex)`.
+5. Agent streams the `.vx` file to the CLI and removes the temp file.
+6. CLI saves the file locally.
+
+If the Vortex extension cannot be installed (e.g., no internet access or
+unsupported DuckDB build), the agent returns `501 Not Implemented` and the
+CLI exits with a clear error message.
+
+### Discovery
+
+The `/duckdb` discovery endpoint now includes `vortex_enabled`:
+
+```bash
+curl http://<agent-mesh-ip>:9001/duckdb
+# {"databases":["metrics"],"vortex_enabled":true}
+```
