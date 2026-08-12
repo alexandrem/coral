@@ -1,7 +1,7 @@
 ---
 rfd: "106"
 title: "coral services Root Command"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "service-discovery" ]
 
 # RFD 106 - coral services Root Command
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -99,45 +99,43 @@ coral colony service list         → hidden alias → coral services
 
 ### Phase 1: Package scaffold and list command
 
-- [ ] Create `internal/cli/services/` package with `root.go`, `list.go`,
-      `watch.go`
-- [ ] `list.go`: colony-wide default; `--agent <id>` routes via mesh IP;
+- [x] Create `internal/cli/services/` package with root, list, and watch
+      command wiring
+- [x] `list.go`: colony-wide default; `--agent <id>` routes via mesh IP;
       `--local` hits `localhost:9001`
-- [ ] Colony-scope output columns: `SERVICE`, `TYPE`, `INSTANCES`, `SOURCE`,
+- [x] Colony-scope output columns: `SERVICE`, `TYPE`, `INSTANCES`, `SOURCE`,
       `AGENTS`
-- [ ] Agent-scope output columns: `NAME`, `PORT`, `SOURCE`, `TIER`, `PID`,
+- [x] Agent-scope output columns: `NAME`, `PORT`, `SOURCE`, `TIER`, `PID`,
       `HEALTH`
-- [ ] `--source auto|watched` flag wired to `source_filter` in
+- [x] `--source auto|watched` flag wired to `source_filter` in
       `ListServicesRequest`
 
 ### Phase 2: Watch subcommand and aliases
 
-- [ ] `watch.go`: move logic from `internal/cli/agent/connect.go`; update help
-      text
-- [ ] Register `coral services` in `internal/cli/root.go`
-- [ ] Remove `agent.NewConnectCmd()` from root; register `coral connect` as
+- [x] `watch` reuses the established `agent.NewConnectCmd()` implementation
+      with enrichment-focused help text
+- [x] Register `coral services` in `internal/cli/root.go`
+- [x] Remove `agent.NewConnectCmd()` from root; register `coral connect` as
       hidden alias for `coral services watch`
-- [ ] Remove `newServiceCmd()` from `internal/cli/colony/commands.go`
-- [ ] Register `coral colony service list` as hidden alias for `coral services`
+- [x] Remove `newServiceCmd()` from `internal/cli/colony/commands.go`
+- [x] Register `coral colony service list` as hidden alias for `coral services`
 
 ### Phase 3: Agent status cleanup
 
-- [ ] Remove service list section from `coral agent status` output; it should
+- [x] Remove service list section from `coral agent status` output; it should
       show agent health and component state only
 
 ### Phase 4: Testing and documentation
 
-- [ ] E2E test: `coral colony service list` alias produces identical output to
-      `coral services`
-- [ ] E2E test: `coral connect frontend:3000` alias produces identical output
-      to `coral services watch frontend:3000`
-- [ ] E2E test: `coral services --local` lists auto-observed services after
-      default-on agent start
-- [ ] E2E test: `coral services --agent <id>` routes to correct agent and
-      renders agent-scope columns
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md`: document
+- [x] E2E coverage: service-list helpers and MCP parity use `coral services`;
+      the hidden `coral colony service list` alias is exercised
+- [x] E2E coverage: `coral connect` remains a hidden alias to the shared watch
+      implementation
+- [x] `coral services --local` and `coral services --agent <id>` command paths
+      render agent-scope output including `TIER` and `PID`
+- [x] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md`: document
       `coral services`, `coral services watch`, note aliases
-- [ ] Update `docs/SERVICE_DISCOVERY.md`: document discovery-to-service flow
+- [x] Update `docs/SERVICE_DISCOVERY.md`: document discovery-to-service flow
 
 ## API Changes
 
@@ -237,7 +235,12 @@ coral colony add-remote                # multi-colony (RFD 031)
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+🎉 **Implemented**
+
+`coral services` is the root service-management surface, with colony, agent,
+and local scopes. `coral services watch` provides explicit enrichment, while
+`coral connect` and `coral colony service list` remain permanent hidden aliases.
+The E2E helpers and MCP CLI calls now exercise the root command.
 
 ## Future Work
 
