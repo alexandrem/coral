@@ -26,7 +26,7 @@ observability data.
 │  │                           │    │                            │  │
 │  │ • ConnectService API      │    │ • eBPF HTTP/gRPC metrics   │  │
 │  │ • agent --connect flag    │    │ • OTLP traces              │  │
-│  │ • coral connect command   │    │ • OTLP metrics             │  │
+│  │ • coral services watch    │    │ • OTLP metrics             │  │
 │  │                           │    │ • beyla_http_metrics table │  │
 │  │ Storage:                  │    │                            │  │
 │  │ • services table          │    │ Storage:                   │  │
@@ -73,7 +73,7 @@ coral agent start --connect api:8080 --connect frontend:3000
 **Via Connect Command:**
 
 ```bash
-coral connect api:8080
+coral services watch api:8080
 ```
 
 **Via SDK:**
@@ -128,7 +128,7 @@ two different things by two different sources.
 
 **Provider priority chain** (highest wins):
 
-1. **Explicit registrations** (`coral connect` / `--connect`) — Source 1
+1. **Explicit registrations** (`coral services watch` / `--connect`) — Source 1
    above. Always wins, and is immune to poll timing: a registered name is
    pinned regardless of what any provider reports for the same process.
 2. **`OTEL_SERVICE_NAME`** (or `SERVICE_NAME` as a fallback), read from the
@@ -262,7 +262,7 @@ ORDER BY last_seen DESC
 **Default Behavior:**
 
 ```bash
-coral service list  # Uses 1 hour lookback for telemetry
+coral services  # Uses a 1 hour lookback for colony telemetry
 ```
 
 **How It Works:**
@@ -278,7 +278,7 @@ coral service list  # Uses 1 hour lookback for telemetry
 **Goal:** See what's currently running and healthy
 
 ```bash
-coral service list
+coral services
 ```
 
 **Output:**
@@ -307,7 +307,7 @@ Found 3 service(s):
 
 ```bash
 # Check service status
-coral service list
+coral services
 
 # Output shows:
 ○ payment-api (default) - 1 instance(s) [UNHEALTHY]
@@ -326,7 +326,7 @@ coral service list
 **Goal:** Discover services sending traffic but not explicitly monitored
 
 ```bash
-coral service list --source observed
+coral services --source auto
 ```
 
 **Output:**
@@ -345,8 +345,8 @@ Found 2 service(s):
 
 ```bash
 # Explicitly connect them for better monitoring
-coral connect redis-proxy:6379
-coral connect kafka-consumer:9092
+coral services watch redis-proxy:6379
+coral services watch kafka-consumer:9092
 ```
 
 ### Case 4: Historical Analysis
@@ -354,7 +354,7 @@ coral connect kafka-consumer:9092
 **Goal:** See what services were running during an incident
 
 ```bash
-coral service list
+coral services
 ```
 
 The telemetry lookback is 1 hour. For incidents older than that, query the raw
@@ -365,7 +365,7 @@ telemetry tables directly with `coral query sql`.
 **Filter by explicitly connected services only:**
 
 ```bash
-coral service list --source registered
+coral services --source watched
 ```
 
 **Why:** In production, you may want to only see services you've explicitly
@@ -377,14 +377,14 @@ configured, ignoring auto-discovered development services.
 
 ```bash
 # Basic discovery
-coral service list
+coral services
 
 # With filters
-coral service list --source verified   # Only verified services
-coral service list --source observed   # Only telemetry-observed
+coral services --source watched         # Explicitly watched services
+coral services --source auto            # Auto-observed services
 
 # JSON output for automation
-coral service list --format json
+coral services
 ```
 
 ### AI Integration
@@ -439,14 +439,14 @@ resp, err := client.ListServices(ctx, &colonyv1.ListServicesRequest{
 
 ### Service Not Appearing
 
-**Symptom:** Expected service doesn't show in `coral service list`
+**Symptom:** Expected service doesn't show in `coral services`
 
 **Possible Causes:**
 
 1. **Not registered and no recent telemetry:**
     - Service hasn't been explicitly connected
     - No HTTP/gRPC traffic observed in last hour
-    - **Solution:** `coral connect <service>` or extend time range
+    - **Solution:** `coral services watch <service>` or extend time range
 
 2. **Outside time range:**
     - Telemetry data is older than the 1-hour lookback window
@@ -476,7 +476,7 @@ resp, err := client.ListServices(ctx, &colonyv1.ListServicesRequest{
 **How to connect:**
 
 ```bash
-coral connect <service-name>:<port>
+coral services watch <service-name>:<port>
 ```
 
 ### Service Shows as UNHEALTHY
@@ -497,7 +497,7 @@ coral query summary <service-name> --since 10m
 coral agent status
 
 # Reconnect if needed
-coral connect <service-name>:<port>
+coral services watch <service-name>:<port>
 ```
 
 ### Inconsistent Service Lists
@@ -506,7 +506,7 @@ coral connect <service-name>:<port>
 
 Before dual-source discovery, users experienced:
 
-- `coral service list` → Shows service A
+- `coral services` → Shows service A
 - `coral query summary` → Shows services A, B, C
 
 **Root Cause:** Separate query paths (registry-only vs telemetry-only)
@@ -515,7 +515,7 @@ Before dual-source discovery, users experienced:
 
 Both commands now use unified discovery:
 
-- `coral service list` → Shows A, B, C with source attribution
+- `coral services` → Shows A, B, C with source attribution
 - `coral query summary` → Shows A, B, C (consistent)
 
 If you still see inconsistencies, check:

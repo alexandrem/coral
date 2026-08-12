@@ -280,13 +280,13 @@ func (s *CLIMeshSuite) TestMeshPingCommand() {
 	s.T().Log("✓ Mesh ping command validated")
 }
 
-// TestServiceListCommand tests 'coral service list' output.
+// TestServiceListCommand tests 'coral services' output.
 //
 // Validates:
 // - Service list command works
 // - Output formatting
 func (s *CLIMeshSuite) TestServiceListCommand() {
-	s.T().Log("Testing 'coral colony service list' command...")
+	s.T().Log("Testing 'coral services' command...")
 
 	// Test with table output
 	result := helpers.ServiceList(s.ctx, s.cliEnv)

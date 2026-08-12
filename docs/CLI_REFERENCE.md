@@ -146,25 +146,27 @@ detailed interpretation of results and remediation steps.
 ## Service Connections
 
 Since RFD 103, the agent observes every process on the host by default — no
-`coral connect` call is required to start collecting eBPF RED metrics.
-`coral connect` remains useful for explicitly naming/pinning a service
+`coral services watch` call is required to start collecting eBPF RED metrics.
+`coral services watch` remains useful for explicitly naming/pinning a service
 (taking priority over auto-discovered names) or adding a health check.
 
 ```bash
 # Connect agent to services dynamically after startup (triggers eBPF restart)
-coral connect <service-spec>...
-coral connect frontend:3000
-coral connect api:8080:/health:http
-coral connect frontend:3000 api:8080:/health redis:6379
+coral services watch <service-spec>...
+coral services watch frontend:3000
+coral services watch api:8080:/health:http
+coral services watch frontend:3000 api:8080:/health redis:6379
 
 # Format: name:port[:health][:type]
 # Examples:
-coral connect frontend:3000                    # HTTP service on port 3000
-coral connect api:8080:/health:http           # With health check endpoint
-coral connect frontend:3000 api:8080:/health  # Multiple services
+coral services watch frontend:3000                    # HTTP service on port 3000
+coral services watch api:8080:/health:http           # With health check endpoint
+coral services watch frontend:3000 api:8080:/health  # Multiple services
 
 # Legacy syntax (single service)
-coral connect <name> --port <port> [--health <path>]
+coral services watch <name> --port <port> [--health <path>]
+
+# coral connect is a permanent hidden alias for coral services watch.
 ```
 
 ---
@@ -384,8 +386,9 @@ interface. They're designed for:
 - Service discovery
 
 ```bash
-# Service discovery (operational view with agents/health)
-coral colony service list [--service <name>] [--type <type>] [--source <type>]
+# Service management and discovery
+coral services [--agent <id> | --local] [--source auto|watched]
+coral services watch <service-spec>...
 
 # Service telemetry summary
 coral query summary [service] [--since <duration>]
@@ -400,9 +403,9 @@ coral query topology [--since <duration>] [--format json] [--include-l4]
 coral query sql "<sql-query>" [--max-rows <n>]
 
 # Examples - Service discovery:
-coral colony service list                      # List all services (operational view)
-coral colony service list --source verified    # Only verified services
-coral colony service list --source observed    # Only auto-observed from telemetry
+coral services                                  # List colony services
+coral services --agent agent-1                 # List one agent's services
+coral services --local --source auto            # List local auto-observed services
 coral query summary                            # Telemetry summary for all services
 coral query summary api --since 10m            # Detailed metrics for specific service
 
