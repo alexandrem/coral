@@ -50,17 +50,17 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	query := `
 		WITH candidates AS (
 			-- All spans within the relevant window (since - 60s)
-			SELECT * FROM beyla_traces 
+			SELECT * FROM beyla_traces
 			WHERE start_time >= ?
 		),
 		child_spans AS (
 			-- Destination spans to be matched (since)
-			SELECT * FROM candidates 
+			SELECT * FROM candidates
 			WHERE start_time >= ?
 		),
 		matches AS (
 			-- STRATEGY 1: Direct parent_span_id link (Precise)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
 				LOWER(c.service_name) as to_service,
@@ -74,56 +74,47 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			UNION ALL
 
 			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
-				CASE 
-					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(p.service_name)
-					ELSE LOWER(c.service_name)
-				END as from_service,
-				CASE 
-					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(c.service_name)
-					ELSE LOWER(p.service_name)
-				END as to_service,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
 				c.start_time,
 				p.start_time as parent_time,
 				2 as priority
 			FROM child_spans c
 			JOIN candidates p ON c.trace_id = p.trace_id
 			WHERE c.trace_id != ''
+			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
 			  AND LOWER(c.service_name) != LOWER(p.service_name)
+			  AND c.parent_span_id != ''
 
 			UNION ALL
 
 			-- STRATEGY 3: Time-based correlation (Last resort fallback)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
-				CASE 
-					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(p.service_name)
-					ELSE LOWER(c.service_name)
-				END as from_service,
-				CASE 
-					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(c.service_name)
-					ELSE LOWER(p.service_name)
-				END as to_service,
+				LOWER(p.service_name) as from_service,
+				LOWER(c.service_name) as to_service,
 				c.start_time,
 				p.start_time as parent_time,
 				3 as priority
 			FROM child_spans c
 			JOIN candidates p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
-			WHERE LOWER(c.service_name) != LOWER(p.service_name)
+			WHERE UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
+			  AND LOWER(c.service_name) != LOWER(p.service_name)
 		),
 		best_matches AS (
 			SELECT from_service, to_service, start_time
 			FROM matches
 			QUALIFY row_number() OVER (
-				PARTITION BY child_id 
+				PARTITION BY child_id
 				ORDER BY priority ASC, ABS(EXTRACT(EPOCH FROM start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent_time::TIMESTAMP)) ASC
 			) = 1
 		),
 		aggregated AS (
-			SELECT 
-				from_service, 
-				to_service, 
+			SELECT
+				from_service,
+				to_service,
 				'http' as protocol,
 				COUNT(*) as connection_count,
 				MIN(start_time) as first_observed,
