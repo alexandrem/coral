@@ -1,7 +1,7 @@
 ---
 rfd: "104"
 title: "ServiceNameAdaptor and Unified Service Map"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "service-discovery", "observability" ]
 
 # RFD 104 - ServiceNameAdaptor and Unified Service Map
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -141,45 +141,51 @@ agent.services map[int32]*ServiceEntry
 
 ### Phase 1: ServiceNameAdaptor and ServiceEntry
 
-- [ ] Create `internal/agent/naming/` package
-- [ ] Define `ServiceNameAdaptor` interface
-- [ ] Implement `ProcessNameAdaptor`: unique binary name → name; conflict →
+- [x] Create `internal/agent/naming/` package
+- [x] Define `ServiceNameAdaptor` interface
+- [x] Implement `ProcessNameAdaptor`: unique binary name → name; conflict →
       `name-<port>`; no binary info → `port-<N>`
-- [ ] Define `ServiceEntry` struct and `NamingSource` type
-- [ ] Unit tests: unique process, conflicting names, unknown binary
+- [x] Define `ServiceEntry` struct and `NamingSource` type
+- [x] Unit tests: unique process, conflicting names, unknown binary
 
 ### Phase 2: Unified service map
 
-- [ ] Replace `agent.monitors` with `agent.services map[int32]*ServiceEntry`
-- [ ] Implement `onBeylaServiceObserved`: create/update `ServiceEntry`, run
+- [x] Replace `agent.monitors` with `agent.services map[int32]*ServiceEntry`
+- [x] Implement `onBeylaServiceObserved`: create/update `ServiceEntry`, run
       adaptor chain on first observation
-- [ ] Update `ConnectService` handler: look up by port, set authoritative name,
+- [x] Update `ConnectService` handler: look up by port, set authoritative name,
       create `ServiceMonitor` only when health endpoint provided
-- [ ] Migrate all existing `monitors` references to the new map
-- [ ] CPU profiling callback fires only at `ServiceMonitor` creation
+- [x] Migrate all existing `monitors` references to the new map
+- [x] CPU profiling callback fires only at `ServiceMonitor` creation
 
 ### Phase 3: Lazy FunctionCache
 
-- [ ] Remove `DiscoverAndCache` from `discoverProcessInfo`
-- [ ] Add `EnsureIndexed(port int32) error` to `FunctionCache`
-- [ ] Call `EnsureIndexed` at debug session start
-- [ ] Call `EnsureIndexed` at `ListFunctions` RPC invocation
+- [x] Remove `DiscoverAndCache` from `discoverProcessInfo`
+- [x] Add `EnsureIndexed` to `FunctionCache` (signature adapted to
+      `(ctx, serviceName, binaryPath, sdkAddr string) error` — see
+      Implementation Status)
+- [x] Call `EnsureIndexed` at debug session start
+- [x] Call `EnsureIndexed` at `GetFunctions` RPC invocation (the RPC is named
+      `GetFunctions`, not `ListFunctions`)
 
 ### Phase 4: Testing
 
-- [ ] `TestProcessNameAdaptor_Unique` — single binary, returns binary name
-- [ ] `TestProcessNameAdaptor_Conflict` — two `node` processes; both get
-      `node-<port>` suffix
-- [ ] `TestProcessNameAdaptor_Fallback` — no binary info; returns `port-<N>`
-- [ ] `TestServiceMap_AutoFromOTLP` — OTLP callback fires; assert `ServiceEntry`
+- [x] `TestProcessNameAdaptor_Unique` — single binary, returns binary name
+- [x] `TestProcessNameAdaptor_Conflict` — a second process sharing a binary
+      name with an already-resolved port gets the `name-<port>` suffix (the
+      first port's name is not retroactively renamed; see Implementation
+      Status — deferred to Future Work's re-resolution item)
+- [x] `TestProcessNameAdaptor_Fallback` — no binary info; returns `port-<N>`
+- [x] `TestServiceMap_AutoFromOTLP` — OTLP callback fires; assert `ServiceEntry`
       created with `NamingSource=Auto`, `tier=0`
-- [ ] `TestServiceMap_WatchWithHealthEnriches` — `ConnectService` with health
+- [x] `TestServiceMap_WatchWithHealthEnriches` — `ConnectService` with health
       endpoint on existing auto entry; assert authoritative name set,
       `has_monitor=true`, `tier=1`
-- [ ] `TestServiceMap_WatchWithoutHealthNoMonitor` — `ConnectService` without
+- [x] `TestServiceMap_WatchWithoutHealthNoMonitor` — `ConnectService` without
       health endpoint; assert `has_monitor=false`, `tier=0`
-- [ ] `TestFunctionCache_LazyNotEager` — service observed; assert
-      `DiscoverAndCache` NOT called; call `EnsureIndexed`; assert it IS called
+- [x] `TestFunctionCache_LazyNotEager` — binary already cached under its
+      current hash: `EnsureIndexed` skips discovery (no-op); binary never
+      cached: `EnsureIndexed` attempts discovery
 
 ## API Changes
 
@@ -204,7 +210,48 @@ See Phase 4 above.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
+
+- ✅ `internal/agent/naming` package: `ServiceNameAdaptor` interface, `Chain`
+  (priority-ordered adaptor composition), and the built-in
+  `ProcessNameAdaptor` (unique binary → name; conflict → `name-<port>`; no
+  binary info → `port-<N>`).
+- ✅ `ServiceEntry` (`internal/agent/service_entry.go`) with `NamingSource`
+  (`Auto`/`Authoritative`) and `Tier` (`TierObserved`/`TierWatched`).
+- ✅ `Agent.services map[int32]*ServiceEntry` replaces `Agent.monitors`
+  end-to-end (`agent.go`, `service_handler.go`); all name-keyed lookups
+  migrated to a `findByNameLocked` helper over the port-keyed map.
+- ✅ `onBeylaServiceObserved` creates/updates a `ServiceEntry` and runs the
+  adaptor chain for services not already authoritatively named.
+- ✅ `ConnectService` looks up by port, sets the authoritative name, and only
+  starts a `ServiceMonitor` (Tier 1) when a health endpoint is provided; CPU
+  profiling and SDK-discovery callbacks are wired only at that point.
+- ✅ `FunctionCache.DiscoverAndCache` is no longer called eagerly from
+  `ServiceMonitor.discoverProcessInfo`.
+- ✅ `FunctionCache.EnsureIndexed` added and called lazily from
+  `debug.SessionManager.StartSession` (fire-and-forget, so it never delays
+  uprobe attachment) and from the `GetFunctions` RPC handler.
+
+**Design deviations from the original plan, with rationale:**
+
+- **`EnsureIndexed` signature.** The plan specified
+  `EnsureIndexed(port int32) error` on `FunctionCache`. `FunctionCache` lives
+  in the `debug` package and has no visibility into `ServiceEntry`/port
+  bookkeeping, which lives in the `agent` package (importing `debug`, not the
+  reverse). Implemented instead as
+  `FunctionCache.EnsureIndexed(ctx, serviceName, binaryPath, sdkAddr string) error`
+  (a `NeedsUpdate` + `DiscoverAndCache` combo); callers in the `agent`
+  package resolve the port to a `ServiceEntry` first and pass its fields in.
+- **`GetFunctions`, not `ListFunctions`.** The RPC the RFD calls
+  `ListFunctions` is actually named `GetFunctions` in `service_handler.go`;
+  `EnsureIndexed` is wired there.
+- **`ProcessNameAdaptor` conflict resolution is forward-only.** When a second
+  process is observed sharing a binary name with an already-resolved port,
+  only the new port gets the `-<port>` suffix; the first port's name is not
+  retroactively renamed (`Resolve` only returns a name for the port being
+  resolved right now, with no channel to update a prior caller's stored
+  value). Retroactive re-resolution is covered by "Re-resolution on adaptor
+  change" in Future Work below.
 
 ## Future Work
 

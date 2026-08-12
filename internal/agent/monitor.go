@@ -212,38 +212,11 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 				m.onProcessDiscovered(m.service.Name, pid, path)
 			}
 
-			// Trigger function discovery (RFD 063).
-			// This happens once when service is first discovered, or when process restarts.
-			if m.functionCache != nil {
-				serviceName := m.service.Name
-				binaryPath := path
-
-				// Get SDK address if available.
-				sdkAddr := ""
-				if m.sdkCapabilities != nil && m.sdkCapabilities.SdkEnabled {
-					sdkAddr = m.sdkCapabilities.SdkAddr
-				}
-
-				m.logger.Info().
-					Str("service", serviceName).
-					Str("binary", binaryPath).
-					Str("sdk_addr", sdkAddr).
-					Msg("Triggering function discovery for newly discovered service")
-
-				// Trigger async discovery (don't block the monitor loop).
-				go func() {
-					if err := m.functionCache.DiscoverAndCache(context.Background(), serviceName, binaryPath, sdkAddr); err != nil {
-						m.logger.Error().
-							Err(err).
-							Str("service", serviceName).
-							Msg("Failed to discover and cache functions")
-					} else {
-						m.logger.Info().
-							Str("service", serviceName).
-							Msg("Function discovery completed successfully")
-					}
-				}()
-			}
+			// Function discovery is no longer triggered here: indexing a
+			// binary via DWARF parsing costs 100-500ms and is wasted work
+			// when no debug session or function query ever needs it.
+			// FunctionCache.EnsureIndexed is called lazily instead, at debug
+			// session start and on GetFunctions RPC invocation (RFD 104).
 		}
 	}
 	m.mu.Unlock()

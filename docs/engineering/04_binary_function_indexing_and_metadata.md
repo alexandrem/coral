@@ -8,8 +8,8 @@ high-level semantic tools.
 ## The Discovery Pipeline (`internal/agent/debug`)
 
 The agent maintains a persistent **Function Cache** powered by its local DuckDB.
-When a service is discovered or updated, the agent executes a 3-tier fallback
-strategy (RFD 065):
+When indexing actually runs for a service (see **Lazy Indexing** below), the
+agent executes a 3-tier fallback strategy (RFD 065):
 
 ### 1. SDK-Assisted Discovery (The "Primary" path)
 
@@ -47,6 +47,36 @@ or `debug/macho` packages.
 - **Deep Introspection**: If DWARF info is present, the agent extracts
   `TagFormalParameter` metadata, mapping arguments to stack/register offsets.
 
+## Lazy Indexing (RFD 104)
+
+Discovery is triggered on first explicit need, not eagerly whenever a
+service is discovered or its process is found. Before RFD 104,
+`ServiceMonitor.discoverProcessInfo` fired `FunctionCache.DiscoverAndCache`
+as soon as it found a PID — 100-500ms of DWARF parsing per binary, spent
+even when no debug session or function query ever needed the result. With
+default-on observation (RFD 103) potentially producing dozens of
+auto-discovered `ServiceEntry` records per host, that eager cost multiplies
+across processes nobody asked to introspect.
+
+- **`FunctionCache.EnsureIndexed(ctx, serviceName, binaryPath, sdkAddr)`**
+  checks `NeedsUpdate` (cached binary hash still current?) and only calls
+  `DiscoverAndCache` when the cache is missing or stale — a cheap DuckDB
+  read on the common "already indexed" path.
+- **Trigger 1 — debug session start**: `debug.SessionManager.StartSession`
+  fires `EnsureIndexed` in a background goroutine right after resolving
+  function metadata from the SDK, so the full binary gets indexed around the
+  same time a single function's uprobe is attached, without delaying that
+  attachment.
+- **Trigger 2 — `GetFunctions` RPC**: `ServiceHandler.GetFunctions`
+  (`internal/agent/service_handler.go`) — the RPC the Colony's
+  `FunctionPoller` calls — triggers `EnsureIndexed` asynchronously for every
+  `TierWatched` service (see chapter 03's Unified Service Map) matching the
+  request filter, before reading back whatever is currently cached.
+- **Auto-discovered (`TierObserved`) services are never indexed** by this
+  path — `EnsureIndexed` is only reachable through a `ServiceMonitor`
+  (`entry.Monitor`), which auto-discovered entries don't have until
+  `ConnectService` promotes them (chapter 03).
+
 ## Centralized Function Registry (`internal/colony/function_registry.go`)
 
 While discovery happens on the edge, the Colony maintains a **Centralized
@@ -54,7 +84,7 @@ Function Registry** in its primary DuckDB to enable global semantic search and
 cross-agent orchestrations.
 
 - **Polling Logic**: The `FunctionPoller` periodically pulls the discovered
-  function lists from all active agents using `ListFunctions` RPCs.
+  function lists from all active agents using the `GetFunctions` RPC.
 - **Change Detection**: To optimize bandwidth, the system uses a **SHA256
   Fingerprint** of the function list. Updates are only committed to the central
   registry if the binary version (`binary_hash`) or the symbol metadata has
@@ -124,3 +154,4 @@ candidate for specialized vector storage:
 - [**RFD 065**: Agentless Binary Scanning](../../RFDs/065-agentless-binary-scanning.md)
 - [**RFD 066**: SDK HTTP API](../../RFDs/066-sdk-http-api.md)
 - [**RFD 075**: Hybrid Function Metadata](../../RFDs/075-hybrid-function-metadata.md)
+- [**RFD 104**: ServiceNameAdaptor and Unified Service Map](../../RFDs/104-service-name-adaptor.md)

@@ -227,8 +227,8 @@ data already flowing through the system: every OTLP span Beyla emits.
   triggers it.
 - **Callback**: `Manager.SetServiceObservedHandler` lets `agent.New` wire
   `Agent.onBeylaServiceObserved(port, pid, serviceName)`
-  (`internal/agent/agent.go`). Today this just logs at DEBUG; RFD 105 is
-  where the callback becomes the write-path into the unified service map.
+  (`internal/agent/agent.go`). This is the write-path into the unified
+  service map — see **Unified Service Map and Naming (RFD 104)** below.
 - **Why spans and not metrics**: `Transformer.TransformMetrics` only
   threads `service.name` through to the `ebpfpb.EbpfEvent` payloads it
   emits — RFD 103 explicitly avoided adding protobuf fields, so
@@ -236,6 +236,88 @@ data already flowing through the system: every OTLP span Beyla emits.
   aggregated) won't trigger the callback. Not a coverage gap under Coral's
   default protocol/sampling config, since spans and metrics are emitted for
   the same requests.
+
+### Unified Service Map and Naming (RFD 104)
+
+#### The Problem: Anonymous Auto-Discovered Processes
+
+Default-on observation (RFD 103) means the agent sees traffic on ports it
+was never told about. Before RFD 104, `Agent.monitors` was a
+`map[string]*ServiceMonitor` keyed by name and populated only by explicit
+`coral connect` calls — an auto-discovered port had nowhere to live. There
+was no agent-level record of "what is listening on port 3000," which left
+`onBeylaServiceObserved` with nothing to write into, and left `coral
+services` (RFD 107) and topology joins (`service_name`, chapter 15) with no
+name to attach to auto-discovered traffic.
+
+#### `ServiceEntry` and the Port-Keyed Map (`internal/agent/service_entry.go`)
+
+`Agent.monitors` is replaced by `Agent.services map[int32]*ServiceEntry`,
+keyed by **port** rather than name — the one identifier every observed
+process has, whether or not it was ever named. A `ServiceEntry` is the
+single record of truth for a port:
+
+```go
+type ServiceEntry struct {
+    Port                        int32
+    AutoName, AuthoritativeName string
+    NamingSource                NamingSource // Auto | Authoritative
+    Tier                        Tier         // TierObserved (0) | TierWatched (1)
+    PID                         int32
+    BinaryPath, BinaryHash      string
+    Monitor                     *ServiceMonitor // nil until TierWatched
+}
+```
+
+- **`NamingSource`**: `Auto` (set by the naming adaptor chain from process
+  metadata) or `Authoritative` (set explicitly via `ConnectService` —
+  `coral connect` / `coral services watch`). Authoritative always wins:
+  `ServiceEntry.Name()` returns `AuthoritativeName` if set, else `AutoName`.
+- **`Tier`**: `TierObserved` (seen via OTLP feedback, no health checking) or
+  `TierWatched` (has a running `ServiceMonitor`). `ConnectService` only
+  constructs and starts a `ServiceMonitor` — and only then fires the CPU
+  (RFD 072) / memory (RFD 077) profiling callbacks — when the caller
+  supplies a `health_endpoint`. A bare `coral connect` with no health check
+  records an authoritative name but stays `TierObserved`; there is nothing
+  meaningful to poll.
+- **Promotion, not replacement**: `onBeylaServiceObserved` and
+  `ConnectService` share one code path (`connectServiceLocked`) that either
+  creates a fresh `ServiceEntry` or promotes an existing `TierObserved` entry
+  in place — an auto-named `node` process becomes `frontend` the moment
+  `coral services watch frontend:3000:/health` runs, without losing its PID
+  or binary path.
+
+#### `ServiceNameAdaptor` Chain (`internal/agent/naming`)
+
+A pluggable interface derives a name from process metadata:
+
+```go
+type ServiceNameAdaptor interface {
+    Resolve(port int32, pid int32, binaryPath string) (name string, ok bool)
+}
+```
+
+`Chain` runs a priority-ordered list of adaptors and returns the first
+`ok=true` result — the same "first non-empty wins" pattern `DiscoveryManager`
+(RFD 102) uses for provider merging, so a future `KubernetesAdaptor` or
+`DockerAdaptor` can be prepended without touching agent code. The only
+built-in today is `ProcessNameAdaptor`:
+
+- **Unique binary** → the binary's base name (e.g. `node`).
+- **Conflict** (a second port resolves to a binary name already claimed by
+  another port) → `<name>-<port>` for the *new* port. The first port keeps
+  its bare name — `ProcessNameAdaptor.Resolve` only returns a value for the
+  port being resolved right now, with no channel back to rename an earlier
+  caller's stored `AutoName`. Retroactive renaming of the first entry is
+  deferred (see Future Engineering Note).
+- **No binary info** (non-Linux, or `pid` didn't resolve via
+  `proc.GetBinaryPath`) → `port-<N>`.
+
+`onBeylaServiceObserved` resolves `binaryPath` via `proc.GetBinaryPath(pid)`
+(the same `/proc/<pid>/exe` helper `ServiceMonitor.discoverProcessInfo`
+uses) and only runs the chain when the entry isn't already
+`NamingSource=Authoritative` — an explicitly connected service's name is
+never overwritten by auto-discovery.
 
 ### Distributed Pull-Based Storage
 
@@ -357,6 +439,17 @@ callback — without adding fields to the `ebpfpb.EbpfEvent` protobufs — would
 close this gap; deferred because it's not a coverage gap under the default
 protocol/sampling configuration.
 
+### Retroactive Naming Conflict Resolution
+
+`ProcessNameAdaptor` (RFD 104) only suffixes the port it is actively
+resolving when a binary-name conflict appears; an earlier port that already
+resolved to the bare name keeps it until something re-triggers resolution
+for it. A `KubernetesAdaptor`'s pod labels can also change after the fact
+(a rolling deploy relabels a pod). Both cases need the same missing
+primitive: a way for an adaptor to signal "re-resolve these already-known
+ports," and for `Agent` to apply the update to entries whose `NamingSource`
+hasn't been pinned by `ConnectService` in the meantime.
+
 ### Container-Aware Discovery Providers
 
 The `ProcessDiscoveryProvider` chain (RFD 102) is designed so that
@@ -380,3 +473,4 @@ boundaries directly.
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)
 - [**RFD 102**: Pluggable Service Discovery Providers](../../RFDs/102-pluggable-service-discovery-providers.md)
 - [**RFD 103**: Default-On Observation](../../RFDs/103-default-on-observation.md)
+- [**RFD 104**: ServiceNameAdaptor and Unified Service Map](../../RFDs/104-service-name-adaptor.md)
