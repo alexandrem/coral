@@ -91,9 +91,9 @@ coral-colony query logs my-service --since 30m
 # Service topology (call graph)
 coral-colony query topology [--since 1h]
 
-# Historical CPU profiles (folded stack format, pipe to flamegraph.pl)
+# Historical CPU profiles (folded stack format, or native SVG flame graph)
 coral-colony query cpu-profile my-service --since 1h
-coral-colony query cpu-profile my-service --since 5m | flamegraph.pl > cpu.svg
+coral-colony query cpu-profile my-service --since 5m --format svg > cpu.svg
 
 # Historical memory profiles
 coral-colony query memory-profile my-service --since 1h --show-growth
