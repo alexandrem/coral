@@ -186,6 +186,28 @@ func InNamespacePath(pid int, path string) string {
 	return path
 }
 
+// ReadComm reads /proc/<pid>/comm and returns the process name, trimmed of whitespace.
+func ReadComm(pid int) (string, error) {
+	path := fmt.Sprintf("/proc/%d/comm", pid)
+	// #nolint G304 - Path is from /proc filesystem for system information.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// ReadCgroup reads /proc/<pid>/cgroup and returns the raw cgroup entry string.
+func ReadCgroup(pid int) (string, error) {
+	path := fmt.Sprintf("/proc/%d/cgroup", pid)
+	//nolint:gosec // G304: Path is from /proc filesystem for system information.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	return string(data), nil
+}
+
 // ListPids returns a list of all running process IDs from /proc.
 // Pids are sorted in ascending order.
 func ListPids() ([]int, error) {
