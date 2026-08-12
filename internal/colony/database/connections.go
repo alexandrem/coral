@@ -86,7 +86,6 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			WHERE c.trace_id != ''
 			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
 			  AND LOWER(c.service_name) != LOWER(p.service_name)
-			  AND c.parent_span_id != ''
 
 			UNION ALL
 
