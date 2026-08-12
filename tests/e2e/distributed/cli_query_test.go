@@ -396,8 +396,8 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	// s.debugBeylaTracesLocal()
 
 	if timedOut {
-		s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 		s.debugBeylaTracesLocal()
+		s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 		return
 	}
 

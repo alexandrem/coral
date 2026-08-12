@@ -76,15 +76,20 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
 			SELECT 
 				c.span_id as child_id,
-				LOWER(p.service_name) as from_service,
-				LOWER(c.service_name) as to_service,
+				CASE 
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(p.service_name)
+					ELSE LOWER(c.service_name)
+				END as from_service,
+				CASE 
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(c.service_name)
+					ELSE LOWER(p.service_name)
+				END as to_service,
 				c.start_time,
 				p.start_time as parent_time,
 				2 as priority
 			FROM child_spans c
 			JOIN candidates p ON c.trace_id = p.trace_id
 			WHERE c.trace_id != ''
-			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
 			  AND LOWER(c.service_name) != LOWER(p.service_name)
 
 			UNION ALL
@@ -92,15 +97,20 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			-- STRATEGY 3: Time-based correlation (Last resort fallback)
 			SELECT 
 				c.span_id as child_id,
-				LOWER(p.service_name) as from_service,
-				LOWER(c.service_name) as to_service,
+				CASE 
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(p.service_name)
+					ELSE LOWER(c.service_name)
+				END as from_service,
+				CASE 
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(c.service_name)
+					ELSE LOWER(p.service_name)
+				END as to_service,
 				c.start_time,
 				p.start_time as parent_time,
 				3 as priority
 			FROM child_spans c
 			JOIN candidates p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
-			WHERE UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
-			  AND LOWER(c.service_name) != LOWER(p.service_name)
+			WHERE LOWER(c.service_name) != LOWER(p.service_name)
 		),
 		best_matches AS (
 			SELECT from_service, to_service, start_time
