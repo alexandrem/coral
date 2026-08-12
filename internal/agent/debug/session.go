@@ -43,6 +43,7 @@ type SessionManager struct {
 	resolver         ServiceResolver
 	eventCh          chan *agentv1.DebugEvent
 	kernelSymbolizer *KernelSymbolizer // Shared kernel symbolizer for CPU profiling
+	functionCache    *FunctionCache    // RFD 104: lazily indexed on session start, if set
 	mu               sync.RWMutex
 }
 
@@ -70,6 +71,15 @@ func NewSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resolver S
 // Subscribe returns a read-only channel of debug events.
 func (m *SessionManager) Subscribe() <-chan *agentv1.DebugEvent {
 	return m.eventCh
+}
+
+// SetFunctionCache wires the function cache used to lazily index a service's
+// functions on debug session start (RFD 104). Optional; if never set,
+// StartSession skips indexing.
+func (m *SessionManager) SetFunctionCache(fc *FunctionCache) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.functionCache = fc
 }
 
 // StartSession starts a new debug session for a service function.
@@ -103,6 +113,20 @@ func (m *SessionManager) StartSession(sessionID string, serviceName string, func
 	metadata, err := sdkClient.GetFunctionMetadata(ctx, functionName)
 	if err != nil {
 		return fmt.Errorf("get function metadata: %w", err)
+	}
+
+	// Ensure the service's functions are indexed now that a debug session
+	// actually needs them, rather than eagerly at discovery time (RFD 104).
+	// Runs in the background so it never delays uprobe attachment.
+	if m.functionCache != nil && metadata.BinaryPath != "" {
+		go func() {
+			if err := m.functionCache.EnsureIndexed(context.Background(), serviceName, metadata.BinaryPath, addr); err != nil {
+				m.logger.Warn().
+					Err(err).
+					Str("service", serviceName).
+					Msg("Failed to ensure functions indexed")
+			}
+		}()
 	}
 
 	// 3. Create session object
