@@ -547,6 +547,11 @@ type AgentConfig struct {
 		} `yaml:"nat,omitempty"`
 		Bootstrap         BootstrapConfig `yaml:"bootstrap,omitempty"` // RFD 048
 		HeartbeatInterval time.Duration   `yaml:"heartbeat_interval,omitempty" env:"CORAL_HEARTBEAT_INTERVAL"`
+
+		// MonitorAll enables Beyla eBPF auto-instrumentation of every
+		// process on the host by default (RFD 103). Set to false (or pass
+		// --no-monitor-all) on resource-constrained hosts.
+		MonitorAll bool `yaml:"monitor_all" env:"CORAL_MONITOR_ALL"`
 	} `yaml:"agent"`
 	Telemetry struct {
 		Disabled              bool   `yaml:"disabled" env:"CORAL_TELEMETRY_DISABLED"`

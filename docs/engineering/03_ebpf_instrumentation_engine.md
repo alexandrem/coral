@@ -179,6 +179,64 @@ Beyla `discovery.services` rules:
   twice, which silently drops all spans for it — so the two are always
   mutually exclusive.
 
+### Default-On Observation and OTLP Feedback (RFD 103)
+
+#### Zero-Flag Startup
+
+Before RFD 103, `coral agent start` collected nothing unless the operator
+passed `--monitor-all` — a flag most users only discovered after filing a
+"why is nothing showing up?" issue. `--monitor-all` is now implicit: Beyla
+starts unconditionally unless the operator opts out.
+
+- **`internal/cli/agent/startup/storage.go`**: `StorageManager.Initialize`
+  reads `agentCfg.Agent.MonitorAll` (config field `agent.monitor_all`, env
+  `CORAL_MONITOR_ALL`, default `true`) instead of gating on a CLI-only flag.
+- **`--no-monitor-all`**: the supported escape hatch for resource-constrained
+  hosts, threaded through `AgentServerBuilder` → `ConfigValidator` →
+  `agentCfg.Agent.MonitorAll` (`internal/cli/agent/startup/{start,builder,
+  validator}.go`). It forces `MonitorAll` to `false` regardless of what the
+  config file/env set — CLI opt-out always wins.
+- **`--monitor-all` is now a no-op**: still accepted so existing scripts and
+  container images don't break, but `start.go`'s `RunE` checks
+  `cmd.Flags().Changed("monitor-all")` and emits a deprecation warning to
+  stderr rather than gating anything on the flag's value.
+- **`--connect` was removed** from `agent start` (it duplicated default
+  observation's job). The standalone `coral connect` command
+  (`internal/cli/agent/connect.go`) is unaffected — it remains the way to
+  pin an explicit name/health-check for a process ahead of
+  `ProcFSProvider`/`EnvVarProvider` naming it.
+
+#### OTLP Feedback Callback
+
+Default-on observation means the agent no longer knows in advance which
+ports it will see traffic on — RFD 102's `DiscoveryManager` poll loop still
+runs on a timer (`discovery_sync_interval`, default 30s), which is too slow
+to give upstream components (service map, RFD 105) *immediate* awareness of
+a newly observed process. Rather than add a second poll loop, RFD 103 reuses
+data already flowing through the system: every OTLP span Beyla emits.
+
+- **`beyla.Manager.HandleSpan`** (the `SpanHandler` callback that routes
+  every incoming span to `beyla_traces_local`) calls
+  `notifyServiceObserved` before the DuckDB write. `extractSpanPort` reads
+  the span's `server.port` attribute (falling back to the older
+  `net.host.port` semconv key) — the same attribute a `server`-kind HTTP
+  span from Beyla's OTel exporter always carries.
+- **Dedup**: `Manager.observedPorts` (guarded by `Manager.mu`) tracks which
+  ports have already fired this session, so a hot endpoint doesn't spam the
+  callback on every request — only the *first* span for a given port
+  triggers it.
+- **Callback**: `Manager.SetServiceObservedHandler` lets `agent.New` wire
+  `Agent.onBeylaServiceObserved(port, pid, serviceName)`
+  (`internal/agent/agent.go`). Today this just logs at DEBUG; RFD 105 is
+  where the callback becomes the write-path into the unified service map.
+- **Why spans and not metrics**: `Transformer.TransformMetrics` only
+  threads `service.name` through to the `ebpfpb.EbpfEvent` payloads it
+  emits — RFD 103 explicitly avoided adding protobuf fields, so
+  metric-only-sampled processes (traces sampled out but metrics still
+  aggregated) won't trigger the callback. Not a coverage gap under Coral's
+  default protocol/sampling config, since spans and metrics are emitted for
+  the same requests.
+
 ### Distributed Pull-Based Storage
 
 Unlike standard OTEL setups that "push" to a central collector, Coral implements
@@ -288,6 +346,17 @@ start, implementing a local cache of `RET` offsets (keyed by binary `mtime` and
 symbol offset) would optimize startup time for high-frequency debugging
 sessions.
 
+### Metric-Triggered Service Observation
+
+`onBeylaServiceObserved` (RFD 103) currently fires only from the span path
+(`Manager.HandleSpan`). A process whose spans are always sampled out but
+whose metrics still aggregate normally would not be observed until
+`DiscoveryManager`'s next poll. Extending `Manager.consumeMetrics` to
+extract `server.port` from metric data-point attributes and fire the same
+callback — without adding fields to the `ebpfpb.EbpfEvent` protobufs — would
+close this gap; deferred because it's not a coverage gap under the default
+protocol/sampling configuration.
+
 ### Container-Aware Discovery Providers
 
 The `ProcessDiscoveryProvider` chain (RFD 102) is designed so that
@@ -310,3 +379,4 @@ boundaries directly.
 - [**RFD 090**: eBPF Probe Runtime Filtering](../../RFDs/090-ebpf-probe-runtime-filtering.md)
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)
 - [**RFD 102**: Pluggable Service Discovery Providers](../../RFDs/102-pluggable-service-discovery-providers.md)
+- [**RFD 103**: Default-On Observation](../../RFDs/103-default-on-observation.md)

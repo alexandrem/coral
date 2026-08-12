@@ -29,23 +29,21 @@ type StorageManager struct {
 	logger       logging.Logger
 	agentCfg     *config.AgentConfig
 	serviceSpecs []*types.ServiceSpec
-	monitorAll   bool
 	agentID      string
 }
 
-// NewStorageManager creates a new storage manager.
+// NewStorageManager creates a new storage manager. Monitor-all is read from
+// agentCfg.Agent.MonitorAll, already resolved by ConfigValidator (RFD 103).
 func NewStorageManager(
 	logger logging.Logger,
 	agentCfg *config.AgentConfig,
 	serviceSpecs []*types.ServiceSpec,
-	monitorAll bool,
 	agentID string,
 ) *StorageManager {
 	return &StorageManager{
 		logger:       logger,
 		agentCfg:     agentCfg,
 		serviceSpecs: serviceSpecs,
-		monitorAll:   monitorAll,
 		agentID:      agentID,
 	}
 }
@@ -94,14 +92,15 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 		}
 	}
 
-	// Initialize Beyla configuration (RFD 032 + RFD 053).
+	// Initialize Beyla configuration (RFD 032 + RFD 053 + RFD 103).
+	monitorAll := s.agentCfg.Agent.MonitorAll
 	var beylaConfig *beyla.Config
 	if sharedDB != nil && !s.agentCfg.Beyla.Disabled {
 		// Check if we have any services to monitor (configured, dynamic, or monitor-all).
 		hasConfiguredServices := len(s.agentCfg.Beyla.Discovery.Services) > 0
 		hasDynamicServices := len(s.serviceSpecs) > 0
 
-		if s.monitorAll || hasConfiguredServices || hasDynamicServices {
+		if monitorAll || hasConfiguredServices || hasDynamicServices {
 			s.logger.Info().Msg("Initializing Beyla configuration")
 
 			// Convert config.BeylaConfig to beyla.Config.
@@ -120,7 +119,7 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 				DB:                    sharedDB,
 				DBPath:                sharedDBPath,
 				StorageRetentionHours: 1, // Default: 1 hour (TODO: make configurable)
-				MonitorAll:            s.monitorAll,
+				MonitorAll:            monitorAll,
 				DiscoverySyncInterval: s.agentCfg.Beyla.Discovery.SyncInterval,
 				DiscoveryProviders: beyla.DiscoveryProvidersConfig{
 					Procfs: s.agentCfg.Beyla.Discovery.Providers.Procfs,
@@ -156,11 +155,11 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 				}
 			}
 
-			if s.monitorAll {
+			if monitorAll {
 				s.logger.Info().Msg("Monitor-all mode enabled - Beyla will instrument all listening processes")
 			}
 		} else {
-			s.logger.Info().Msg("No services configured - Beyla will not start (use --monitor-all or --connect to enable)")
+			s.logger.Info().Msg("No services configured - Beyla will not start (use 'coral connect' or remove --no-monitor-all to enable)")
 		}
 	} else if s.agentCfg.Beyla.Disabled {
 		s.logger.Info().Msg("Beyla explicitly disabled in configuration")

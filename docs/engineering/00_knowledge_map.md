@@ -16,8 +16,9 @@ distributed systems principles that power the platform.
 
 - **[03_ebpf_instrumentation_engine](03_ebpf_instrumentation_engine.md)**:
   Zero-instrumentation monitoring, kernel-side filtering, stateful edge
-  correlation, and pluggable per-process discovery for Beyla's `--monitor-all`
-  mode (RFD 102).
+  correlation, and pluggable per-process discovery for Beyla's default-on
+  observation mode (RFD 102, RFD 103), including the OTLP-triggered
+  `onBeylaServiceObserved` feedback callback.
 - **[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)**:
   3-tier discovery pipeline, SDK-assisted introspection, semantic enrichment
   (xxHash3 SimHash), and DuckDB symbol caching.

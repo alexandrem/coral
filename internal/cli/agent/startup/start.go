@@ -15,11 +15,11 @@ import (
 // NewStartCmd creates the start command for agents.
 func NewStartCmd() *cobra.Command {
 	var (
-		configFile     string
-		colonyID       string
-		daemon         bool
-		monitorAll     bool
-		connectService []string // Service URIs to connect at startup (e.g., "frontend:3000")
+		configFile           string
+		colonyID             string
+		daemon               bool
+		monitorAllDeprecated bool
+		noMonitorAll         bool
 	)
 
 	cmd := &cobra.Command{
@@ -28,6 +28,7 @@ func NewStartCmd() *cobra.Command {
 		Long: `Start a Coral agent as a long-running daemon.
 
 The agent will:
+- Instrument every process on the host via eBPF (Beyla), unless opted out
 - Monitor configured services (if any)
 - Detect and report runtime context
 - Connect to colony (if configured)
@@ -36,9 +37,9 @@ The agent will:
 - Accept dynamic service connections via 'coral connect'
 
 Modes:
-  Passive mode:  Start without services (use 'coral connect' later)
-  Active mode:   Start with pre-configured services
-  Monitor all:   Auto-discover and monitor all processes (--monitor-all)
+  Default:       Auto-discover and monitor all processes (no flag required)
+  Opt-out:       Disable auto-instrumentation (--no-monitor-all)
+  Active mode:   Start with pre-configured services on top of the default
 
 Configuration sources (in order of precedence):
 1. Environment variables (CORAL_*)
@@ -50,12 +51,14 @@ Environment Variables:
   CORAL_CA_FINGERPRINT   - Root CA fingerprint for bootstrap (sha256:hex)
   CORAL_DISCOVERY_ENDPOINT - Discovery service URL
   CORAL_SERVICES         - Services to monitor (format: name:port[:health][:type],...)
+  CORAL_MONITOR_ALL      - Set to "false" to disable default-on eBPF observation
   CORAL_LOG_LEVEL        - Logging level (debug, info, warn, error)
   CORAL_LOG_FORMAT       - Logging format (json, pretty)
 
 Configuration File Format:
   agent:
     runtime: auto
+    monitor_all: true
     colony:
       id: "production"
       auto_discover: true
@@ -66,20 +69,20 @@ Configuration File Format:
       type: "http"
 
 Examples:
-  # Passive mode (no services, use 'coral connect' later)
+  # Default: observe everything, no flag required
   coral agent start
 
-  # Connect to services at startup
-  coral agent start --connect frontend:3000 --connect api:8080:/health
+  # Disable auto-instrumentation on a resource-constrained host
+  coral agent start --no-monitor-all
+
+  # Connect to services dynamically after startup
+  coral connect frontend:3000 api:8080:/health
 
   # With config file
   coral agent start --config /etc/coral/agent.yaml
 
   # With environment variables
   CORAL_COLONY_ID=prod CORAL_SERVICES=api:8080:/health coral agent start
-
-  # Monitor all processes (auto-discovery)
-  coral agent start --monitor-all
 
   # Development mode (pretty logging)
   coral agent start --config ./agent.yaml --log-format=pretty`,
@@ -90,14 +93,21 @@ Examples:
 				Pretty: true,
 			}, "agent")
 
+			// --monitor-all is now the default; the flag is a no-op kept for
+			// backward compatibility with existing scripts (RFD 103).
+			if cmd.Flags().Changed("monitor-all") {
+				logger.Warn().Msg("--monitor-all is deprecated and is now the default behavior; " +
+					"this flag is a no-op and will be removed in a future release. " +
+					"Use --no-monitor-all to opt out instead.")
+			}
+
 			// Create and configure builder.
 			builder := NewAgentServerBuilder(
 				cmd.Context(),
 				logger,
 				configFile,
 				colonyID,
-				connectService,
-				monitorAll,
+				noMonitorAll,
 			)
 
 			// Phase 1: Validate (preflight + config).
@@ -179,8 +189,8 @@ Examples:
 	cmd.Flags().StringVar(&configFile, "config", "", "Path to agent configuration file (default: /etc/coral/agent.yaml)")
 	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().BoolVar(&daemon, "daemon", false, "Run in background (requires PID file support)")
-	cmd.Flags().BoolVar(&monitorAll, "monitor-all", false, "Monitor all processes (auto-discovery mode)")
-	cmd.Flags().StringArrayVar(&connectService, "connect", []string{}, "Service to connect at startup (format: name:port[:health][:type], can be specified multiple times)")
+	cmd.Flags().BoolVar(&monitorAllDeprecated, "monitor-all", false, "Deprecated: monitoring all processes is now the default; this flag is a no-op")
+	cmd.Flags().BoolVar(&noMonitorAll, "no-monitor-all", false, "Disable automatic eBPF instrumentation of all processes (for resource-constrained hosts)")
 
 	return cmd
 }

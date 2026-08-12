@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-mesh/coral/internal/agent/beyla/discovery"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
 )
 
 func TestNewManager(t *testing.T) {
@@ -772,5 +773,141 @@ func TestGenerateBeylaConfigContextPropagation(t *testing.T) {
 
 	if !strings.Contains(string(data), "context_propagation: all") {
 		t.Errorf("generated Beyla config missing context_propagation: all; topology will not work.\nConfig:\n%s", data)
+	}
+}
+
+// observedService records one serviceObservedHandler invocation (RFD 103).
+type observedService struct {
+	port int32
+	pid  int32
+	name string
+}
+
+func TestHandleSpanServiceObservedCallbackFires(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{Enabled: true, DB: db}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	var observed []observedService
+	mgr.SetServiceObservedHandler(func(port int32, pid int32, serviceName string) {
+		observed = append(observed, observedService{port: port, pid: pid, name: serviceName})
+	})
+
+	span := telemetry.Span{
+		TraceID:     "abcd",
+		SpanID:      "1234",
+		ServiceName: "checkout",
+		SpanKind:    "server",
+		Timestamp:   time.Now(),
+		ProcessPID:  4242,
+		Attributes:  map[string]string{"server.port": "3000"},
+	}
+
+	if err := mgr.HandleSpan(ctx, span); err != nil {
+		t.Fatalf("HandleSpan() error = %v", err)
+	}
+
+	if len(observed) != 1 {
+		t.Fatalf("expected 1 observation, got %d: %+v", len(observed), observed)
+	}
+	if got := observed[0]; got.port != 3000 || got.pid != 4242 || got.name != "checkout" {
+		t.Errorf("unexpected observation: %+v", got)
+	}
+}
+
+func TestHandleSpanServiceObservedCallbackDeduplicatesPerPort(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{Enabled: true, DB: db}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	var observed []observedService
+	mgr.SetServiceObservedHandler(func(port int32, pid int32, serviceName string) {
+		observed = append(observed, observedService{port: port, pid: pid, name: serviceName})
+	})
+
+	base := telemetry.Span{
+		ServiceName: "checkout",
+		SpanKind:    "server",
+		Timestamp:   time.Now(),
+		ProcessPID:  4242,
+		Attributes:  map[string]string{"server.port": "3000"},
+	}
+
+	// Two spans on the same port: only the first should fire the callback.
+	first, second := base, base
+	first.SpanID, second.SpanID = "1111", "2222"
+	if err := mgr.HandleSpan(ctx, first); err != nil {
+		t.Fatalf("HandleSpan() error = %v", err)
+	}
+	if err := mgr.HandleSpan(ctx, second); err != nil {
+		t.Fatalf("HandleSpan() error = %v", err)
+	}
+	if len(observed) != 1 {
+		t.Fatalf("expected callback to fire once for repeated port, got %d calls: %+v", len(observed), observed)
+	}
+
+	// A span on a new port (via the older net.host.port key) fires again.
+	third := base
+	third.SpanID = "3333"
+	third.Attributes = map[string]string{"net.host.port": "4000"}
+	if err := mgr.HandleSpan(ctx, third); err != nil {
+		t.Fatalf("HandleSpan() error = %v", err)
+	}
+	if len(observed) != 2 {
+		t.Fatalf("expected 2 observations after new port, got %d: %+v", len(observed), observed)
+	}
+	if observed[1].port != 4000 {
+		t.Errorf("expected port 4000 from net.host.port fallback, got %d", observed[1].port)
+	}
+}
+
+func TestHandleSpanNoPortAttributeSkipsCallback(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open duckdb: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr, err := NewManager(ctx, &Config{Enabled: true, DB: db}, logger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	called := false
+	mgr.SetServiceObservedHandler(func(int32, int32, string) { called = true })
+
+	span := telemetry.Span{
+		ServiceName: "checkout",
+		Timestamp:   time.Now(),
+		Attributes:  map[string]string{},
+	}
+	if err := mgr.HandleSpan(ctx, span); err != nil {
+		t.Fatalf("HandleSpan() error = %v", err)
+	}
+	if called {
+		t.Error("callback should not fire when no port attribute is present")
 	}
 }

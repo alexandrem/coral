@@ -143,18 +143,18 @@ type ConfigValidator struct {
 	logger           logging.Logger
 	configFile       string
 	colonyIDOverride string
-	connectServices  []string
-	monitorAll       bool
+	noMonitorAll     bool
 }
 
-// NewConfigValidator creates a new config validator.
-func NewConfigValidator(logger logging.Logger, configFile, colonyIDOverride string, connectServices []string, monitorAll bool) *ConfigValidator {
+// NewConfigValidator creates a new config validator. noMonitorAll corresponds
+// to the --no-monitor-all opt-out flag (RFD 103); when set it forces Beyla
+// auto-instrumentation off regardless of config file/env defaults.
+func NewConfigValidator(logger logging.Logger, configFile, colonyIDOverride string, noMonitorAll bool) *ConfigValidator {
 	return &ConfigValidator{
 		logger:           logger,
 		configFile:       configFile,
 		colonyIDOverride: colonyIDOverride,
-		connectServices:  connectServices,
-		monitorAll:       monitorAll,
+		noMonitorAll:     noMonitorAll,
 	}
 }
 
@@ -174,16 +174,6 @@ func (v *ConfigValidator) Validate() (*ConfigResult, error) {
 		return nil, fmt.Errorf("failed to load agent configuration: %w", err)
 	}
 
-	// Parse services from --connect flag (RFD 053).
-	if len(v.connectServices) > 0 {
-		connectSpecs, err := types.ParseMultipleServiceSpecs(v.connectServices)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse --connect services: %w", err)
-		}
-		// Merge with config file services (--connect takes precedence).
-		serviceSpecs = append(serviceSpecs, connectSpecs...)
-	}
-
 	// Validate service specs (if any provided).
 	if len(serviceSpecs) > 0 {
 		if err := types.ValidateServiceSpecs(serviceSpecs); err != nil {
@@ -191,9 +181,15 @@ func (v *ConfigValidator) Validate() (*ConfigResult, error) {
 		}
 	}
 
+	// Resolve the final monitor-all setting (RFD 103): default-on unless
+	// --no-monitor-all opts out, regardless of what the config file/env set.
+	if v.noMonitorAll {
+		agentCfg.Agent.MonitorAll = false
+	}
+
 	// Determine agent mode.
 	agentMode := "passive"
-	if v.monitorAll {
+	if agentCfg.Agent.MonitorAll {
 		agentMode = "monitor-all"
 	} else if len(serviceSpecs) > 0 {
 		agentMode = "active"

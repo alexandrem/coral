@@ -304,7 +304,7 @@ func (s *Store) ListCompleted(ctx context.Context) ([]*Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("enrollment: failed to list completed records: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var completed []*Row
 	for rows.Next() {
