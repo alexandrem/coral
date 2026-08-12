@@ -171,40 +171,62 @@ func (h *ServiceHandler) ListServices(
 	ctx context.Context,
 	req *connect.Request[agentv1.ListServicesRequest],
 ) (*connect.Response[agentv1.ListServicesResponse], error) {
-	statuses := h.agent.GetServiceStatuses()
-
-	// Convert to protobuf response.
-	serviceStatuses := make([]*agentv1.ServiceStatus, 0, len(statuses))
-	for name, status := range statuses {
-		// Get the service info from the monitor.
-		h.agent.mu.RLock()
-		entry, exists := h.agent.findByNameLocked(name)
-		h.agent.mu.RUnlock()
-
-		if !exists || entry.Monitor == nil {
+	// Snapshot the unified service map so both auto-observed and watched
+	// entries are represented. The agent lock protects entry membership and
+	// metadata; ServiceMonitor.GetStatus takes its own lock for monitor state.
+	h.agent.mu.RLock()
+	serviceStatuses := make([]*agentv1.ServiceStatus, 0, len(h.agent.services))
+	for _, entry := range h.agent.services {
+		namingSource := serviceNamingSource(entry.NamingSource)
+		if req.Msg.SourceFilter != nil && namingSource != req.Msg.GetSourceFilter() {
 			continue
 		}
 
-		serviceInfo := entry.Monitor.service
+		serviceStatus := &agentv1.ServiceStatus{
+			Name:              entry.Name(),
+			Port:              entry.Port,
+			AutoName:          entry.AutoName,
+			AuthoritativeName: entry.AuthoritativeName,
+			NamingSource:      namingSource,
+			HasMonitor:        entry.Monitor != nil,
+			ObservationTier:   uint32(entry.Tier),
+			ProcessId:         entry.PID,
+			BinaryPath:        entry.BinaryPath,
+			BinaryHash:        entry.BinaryHash,
+		}
 
-		serviceStatuses = append(serviceStatuses, &agentv1.ServiceStatus{
-			Name:           serviceInfo.Name,
-			Port:           serviceInfo.Port,
-			HealthEndpoint: serviceInfo.HealthEndpoint,
-			ServiceType:    serviceInfo.ServiceType,
-			Labels:         serviceInfo.Labels,
-			Status:         string(status.Status),
-			LastCheck:      timestamppb.New(status.LastCheck),
-			Error:          status.Error,
-			ProcessId:      status.ProcessID,
-			BinaryPath:     status.BinaryPath,
-			BinaryHash:     status.BinaryHash,
-		})
+		if entry.Monitor != nil {
+			serviceInfo := entry.Monitor.service
+			monitorStatus := entry.Monitor.GetStatus()
+			serviceStatus.HealthEndpoint = serviceInfo.HealthEndpoint
+			serviceStatus.ServiceType = serviceInfo.ServiceType
+			serviceStatus.Labels = serviceInfo.Labels
+			serviceStatus.Status = string(monitorStatus.Status)
+			serviceStatus.LastCheck = timestamppb.New(monitorStatus.LastCheck)
+			serviceStatus.Error = monitorStatus.Error
+			serviceStatus.ProcessId = monitorStatus.ProcessID
+			serviceStatus.BinaryPath = monitorStatus.BinaryPath
+			serviceStatus.BinaryHash = monitorStatus.BinaryHash
+		}
+
+		serviceStatuses = append(serviceStatuses, serviceStatus)
 	}
+	h.agent.mu.RUnlock()
 
 	return connect.NewResponse(&agentv1.ListServicesResponse{
 		Services: serviceStatuses,
 	}), nil
+}
+
+func serviceNamingSource(source NamingSource) agentv1.ServiceNamingSource {
+	switch source {
+	case NamingSourceAuto:
+		return agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTO
+	case NamingSourceAuthoritative:
+		return agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE
+	default:
+		return agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_UNSPECIFIED
+	}
 }
 
 // QueryTelemetry retrieves filtered telemetry spans from the agent's local storage.

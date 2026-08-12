@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
 	"github.com/rs/zerolog"
@@ -321,6 +323,70 @@ func TestServiceMap_WatchWithoutHealthNoMonitor(t *testing.T) {
 	assert.Equal(t, NamingSourceAuthoritative, entry.NamingSource)
 	assert.Equal(t, TierObserved, entry.Tier)
 	assert.Nil(t, entry.Monitor)
+}
+
+func TestListServicesIncludesUnifiedServiceMapAndFiltersByNamingSource(t *testing.T) {
+	logger := zerolog.Nop()
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	// One observed service is promoted to watched; the other remains Tier 0.
+	agent.onBeylaServiceObserved(3000, 12345, "node")
+	agent.onBeylaServiceObserved(6379, 23456, "redis-server")
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:           "frontend",
+		Port:           3000,
+		HealthEndpoint: "/health",
+	}))
+
+	handler := NewServiceHandler(agent, nil, nil, nil, nil, nil, nil)
+	all, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, all.Msg.Services, 2)
+
+	servicesByPort := make(map[int32]*agentv1.ServiceStatus, len(all.Msg.Services))
+	for _, service := range all.Msg.Services {
+		servicesByPort[service.Port] = service
+	}
+
+	auto := servicesByPort[6379]
+	require.NotNil(t, auto)
+	assert.NotEmpty(t, auto.Name)
+	assert.Equal(t, auto.AutoName, auto.Name)
+	assert.Empty(t, auto.AuthoritativeName)
+	assert.Equal(t, agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTO, auto.NamingSource)
+	assert.False(t, auto.HasMonitor)
+	assert.Zero(t, auto.ObservationTier)
+	assert.Empty(t, auto.Status)
+
+	watched := servicesByPort[3000]
+	require.NotNil(t, watched)
+	assert.Equal(t, "frontend", watched.Name)
+	assert.NotEmpty(t, watched.AutoName)
+	assert.Equal(t, "frontend", watched.AuthoritativeName)
+	assert.Equal(t, agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE, watched.NamingSource)
+	assert.True(t, watched.HasMonitor)
+	assert.EqualValues(t, TierWatched, watched.ObservationTier)
+
+	autoSource := agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTO
+	autoOnly, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{
+		SourceFilter: &autoSource,
+	}))
+	require.NoError(t, err)
+	require.Len(t, autoOnly.Msg.Services, 1)
+	assert.Equal(t, int32(6379), autoOnly.Msg.Services[0].Port)
+
+	authoritativeSource := agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE
+	authoritativeOnly, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{
+		SourceFilter: &authoritativeSource,
+	}))
+	require.NoError(t, err)
+	require.Len(t, authoritativeOnly.Msg.Services, 1)
+	assert.Equal(t, int32(3000), authoritativeOnly.Msg.Services[0].Port)
 }
 
 // TestAgent_BeylaIntegration tests Beyla integration with agent (RFD 032).
