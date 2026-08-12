@@ -83,7 +83,7 @@ coral colony status [--format <format>]
 coral colony stop
 
 # Agent (local observer)
-coral agent start [--config <file>] [--colony <id>] [--connect <service>...] [--monitor-all]
+coral agent start [--config <file>] [--colony <id>] [--no-monitor-all]
 coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...> [--agent <id>] [--discovery <url>] [--force] [--bootstrap-public-endpoint <host:port>] [--bootstrap-listen-port <port>] [--verify-bootstrap-reachability]
 coral agent cert status [--certs-dir <path>]
 coral agent cert renew --colony-endpoint <url> [--fingerprint <sha256:hex>] [--force]
@@ -95,10 +95,10 @@ coral agent stop
 #   Show cert status:     coral agent cert status
 #   Manual renewal:       coral agent cert renew --colony-endpoint https://colony:9000
 
-# Agent startup modes:
-#   Passive:      coral agent start
-#   With services: coral agent start --connect frontend:3000 --connect api:8080
-#   Monitor all:  coral agent start --monitor-all
+# Agent startup modes (RFD 103 - default-on observation, no flags required):
+#   Default:              coral agent start
+#   Opt out (low-resource): coral agent start --no-monitor-all
+#   --monitor-all is accepted but is now a no-op (deprecated)
 ```
 
 ---
@@ -145,14 +145,14 @@ detailed interpretation of results and remediation steps.
 
 ## Service Connections
 
+Since RFD 103, the agent observes every process on the host by default — no
+`coral connect` call is required to start collecting eBPF RED metrics.
+`coral connect` remains useful for explicitly naming/pinning a service
+(taking priority over auto-discovered names) or adding a health check.
+
 ```bash
-# Connect agent to services (at startup or dynamically)
+# Connect agent to services dynamically after startup (triggers eBPF restart)
 coral connect <service-spec>...
-
-# At agent startup (automatic eBPF instrumentation)
-coral agent start --connect frontend:3000 --connect api:8080:/health
-
-# Dynamically after agent started (triggers eBPF restart)
 coral connect frontend:3000
 coral connect api:8080:/health:http
 coral connect frontend:3000 api:8080:/health redis:6379

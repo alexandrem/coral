@@ -110,8 +110,7 @@ type AgentServerBuilder struct {
 	logger           logging.Logger
 	configFile       string
 	colonyIDOverride string
-	connectServices  []string
-	monitorAll       bool
+	noMonitorAll     bool
 	ctx              context.Context
 
 	// Phase results.
@@ -128,22 +127,21 @@ type AgentServerBuilder struct {
 	agentInstance     *agent.Agent
 }
 
-// NewAgentServerBuilder creates a new agent server builder.
+// NewAgentServerBuilder creates a new agent server builder. noMonitorAll
+// corresponds to the --no-monitor-all opt-out flag (RFD 103).
 func NewAgentServerBuilder(
 	ctx context.Context,
 	logger logging.Logger,
 	configFile string,
 	colonyIDOverride string,
-	connectServices []string,
-	monitorAll bool,
+	noMonitorAll bool,
 ) *AgentServerBuilder {
 	return &AgentServerBuilder{
 		ctx:              ctx,
 		logger:           logger,
 		configFile:       configFile,
 		colonyIDOverride: colonyIDOverride,
-		connectServices:  connectServices,
-		monitorAll:       monitorAll,
+		noMonitorAll:     noMonitorAll,
 	}
 }
 
@@ -156,7 +154,7 @@ func (b *AgentServerBuilder) Validate() error {
 	}
 
 	// Phase 1b: Config validation.
-	configValidator := NewConfigValidator(b.logger, b.configFile, b.colonyIDOverride, b.connectServices, b.monitorAll)
+	configValidator := NewConfigValidator(b.logger, b.configFile, b.colonyIDOverride, b.noMonitorAll)
 	configResult, err := configValidator.Validate()
 	if err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
@@ -270,7 +268,6 @@ func (b *AgentServerBuilder) InitializeStorage() error {
 		b.logger,
 		b.configResult.AgentConfig,
 		b.configResult.ServiceSpecs,
-		b.monitorAll,
 		b.agentID,
 	)
 

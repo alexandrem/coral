@@ -36,12 +36,12 @@ registered directly at the root level:
 
 ```bash
 # Server binary (flat)
-coral-agent start --monitor-all
+coral-agent start
 coral-agent status
 coral-agent bootstrap --colony my-app --fingerprint sha256:abc123...
 
 # Full CLI (nested under 'agent' subcommand)
-coral agent start --monitor-all
+coral agent start
 coral agent status
 coral agent bootstrap --colony my-app --fingerprint sha256:abc123...
 ```
@@ -53,8 +53,9 @@ coral agent bootstrap --colony my-app --fingerprint sha256:abc123...
 ### Lifecycle
 
 ```bash
-# Start the agent daemon
-coral-agent start [--monitor-all]
+# Start the agent daemon (eBPF observation of every process is on by
+# default as of RFD 103; pass --no-monitor-all to opt out)
+coral-agent start [--no-monitor-all]
 
 # Show agent status and runtime context
 coral-agent status
@@ -280,18 +281,23 @@ protocols **without requiring code changes** to your applications.
 - Agent ingests Beyla's output through this dedicated OTLP receiver to avoid
   conflicts with application traces
 
-### MonitorAll and Pluggable Process Discovery (RFD 102)
+### MonitorAll and Pluggable Process Discovery (RFD 102, RFD 103)
 
-`--monitor-all` (or `coral agent start --monitor-all`) tells the agent to
-instrument every process on the host without any per-service config. Under
-the hood this is driven by `DiscoveryManager`, which runs a
-priority-ordered set of `ProcessDiscoveryProvider` implementations on a poll
-interval and merges their results into named Beyla rules — one `open_ports`
-rule per listening server and one `exe_path` rule per client-only process
-(e.g. a worker or consumer that only makes outbound calls and never binds a
-port). This replaces the older single `open_ports: 1-65535` catch-all rule,
-which grouped every process under one service name and produced no usable
-topology edges.
+`coral agent start` instruments every process on the host by default — no
+flag required. Pass `--no-monitor-all` (or set `agent.monitor_all: false` in
+the config file) to disable this on a resource-constrained host. The legacy
+`--monitor-all` flag is still accepted for backward compatibility but is now
+a no-op (it just emits a deprecation warning); the underlying behavior it
+used to opt into is always on unless explicitly disabled.
+
+Under the hood, default-on observation is driven by `DiscoveryManager`,
+which runs a priority-ordered set of `ProcessDiscoveryProvider`
+implementations on a poll interval and merges their results into named
+Beyla rules — one `open_ports` rule per listening server and one `exe_path`
+rule per client-only process (e.g. a worker or consumer that only makes
+outbound calls and never binds a port). This replaces the older single
+`open_ports: 1-65535` catch-all rule, which grouped every process under one
+service name and produced no usable topology edges.
 
 Built-in providers, evaluated in priority order:
 
@@ -305,11 +311,15 @@ Built-in providers, evaluated in priority order:
    process, reported as client-only. This is the fallback that guarantees
    every process is named something, even with no other signal available.
 
-Configuration (agent config file, `beyla` block):
+Configuration (agent config file):
 
 ```yaml
-beyla:
+agent:
+  # Default: true. Set false (or pass --no-monitor-all) on
+  # resource-constrained hosts (RFD 103).
   monitor_all: true
+
+beyla:
   # How often DiscoveryManager polls all providers. Defaults to 30s.
   discovery_sync_interval: 30s
 
@@ -323,6 +333,14 @@ beyla:
 A changed candidate set triggers a debounced Beyla restart (the same
 debounce window used for `coral connect`/`coral disconnect`, RFD 053), so a
 burst of process churn doesn't cause repeated restarts.
+
+Independently of `DiscoveryManager`'s poll loop, every OTLP span Beyla emits
+is checked for a `server.port` (or the older `net.host.port`) attribute; the
+first time a given port is seen in a session, the agent is notified via an
+`onBeylaServiceObserved(port, pid, serviceName)` callback (RFD 103), so it
+learns about a newly observed process immediately rather than waiting for
+the next poll. The current implementation logs the observation; full service
+map integration lands in RFD 105.
 
 ### How Beyla Works
 

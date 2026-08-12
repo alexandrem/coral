@@ -1,7 +1,7 @@
 ---
 rfd: "103"
 title: "Default-On Observation"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "beyla", "observability" ]
 
 # RFD 103 - Default-On Observation
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -133,37 +133,37 @@ coral agent start --monitor-all
 
 ### Phase 1: Startup flag changes
 
-- [ ] Remove `--monitor-all` gate from agent startup; set Beyla as
+- [x] Remove `--monitor-all` gate from agent startup; set Beyla as
       default-enabled
-- [ ] Add `--no-monitor-all` flag to `coral agent start`
-- [ ] Accept `--monitor-all` as a no-op; emit deprecation warning to stderr
-- [ ] Remove `--connect` flag from agent startup
-- [ ] Update `coral.yaml` schema: `agent.monitor_all` defaults to `true`
+- [x] Add `--no-monitor-all` flag to `coral agent start`
+- [x] Accept `--monitor-all` as a no-op; emit deprecation warning to stderr
+- [x] Remove `--connect` flag from agent startup
+- [x] Update `coral.yaml` schema: `agent.monitor_all` defaults to `true`
 
 ### Phase 2: OTLP feedback callback
 
-- [ ] Add `onBeylaServiceObserved(port int32, pid int32, observedName string)`
+- [x] Add `onBeylaServiceObserved(port int32, pid int32, observedName string)`
       to `Agent`
-- [ ] Wire callback into Beyla manager OTLP ingest path: extract
+- [x] Wire callback into Beyla manager OTLP ingest path: extract
       `net.host.port` (or `server.port`) and `service.name` from each incoming
       span/metric resource before DuckDB write
-- [ ] Deduplicate: only fire callback on first observation of each port within
+- [x] Deduplicate: only fire callback on first observation of each port within
       a session
-- [ ] Log observed `(port, name)` pairs at DEBUG level
+- [x] Log observed `(port, name)` pairs at DEBUG level
 
 ### Phase 3: Testing and documentation
 
-- [ ] Unit test: agent starts without `--monitor-all`; assert Beyla manager
+- [x] Unit test: agent starts without `--monitor-all`; assert Beyla manager
       started
-- [ ] Unit test: agent starts with `--no-monitor-all`; assert Beyla manager
+- [x] Unit test: agent starts with `--no-monitor-all`; assert Beyla manager
       not started
-- [ ] Unit test: `--monitor-all` flag accepted without error; deprecation
+- [x] Unit test: `--monitor-all` flag accepted without error; deprecation
       warning emitted
-- [ ] Integration test: send synthetic OTLP span for port 3000; assert
+- [x] Integration test: send synthetic OTLP span for port 3000; assert
       `onBeylaServiceObserved` fires with correct port and name
-- [ ] Update `docs/AGENT.md`: document default-on behaviour and
+- [x] Update `docs/AGENT.md`: document default-on behaviour and
       `--no-monitor-all`
-- [ ] Update `docs/CLI_REFERENCE.md`: document flag changes
+- [x] Update `docs/CLI_REFERENCE.md`: document flag changes
 
 ## API Changes
 
@@ -212,7 +212,43 @@ agent:
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
+
+- ✅ **Default-on Beyla.** `coral agent start` instruments every process by
+  default; the `--monitor-all` gate was removed from the startup path
+  (`internal/cli/agent/startup/storage.go`).
+- ✅ **`--no-monitor-all` opt-out**, plumbed through `AgentServerBuilder` →
+  `ConfigValidator` → `agentCfg.Agent.MonitorAll`
+  (`internal/cli/agent/startup/{start,builder,validator}.go`).
+- ✅ **`--monitor-all` deprecated no-op.** Still parses for backward
+  compatibility; `cmd.Flags().Changed("monitor-all")` triggers a stderr
+  deprecation warning in `start.go`'s `RunE`.
+- ✅ **`--connect` removed from `agent start`.** The dynamic `coral connect`
+  command (`internal/cli/agent/connect.go`) is untouched.
+- ✅ **`agent.monitor_all` config field**, defaulting to `true`
+  (`internal/config/schema.go`, `internal/config/defaults.go`), overridable
+  via config file, `CORAL_MONITOR_ALL`, or `--no-monitor-all` (highest
+  precedence).
+- ✅ **OTLP feedback callback.** `beyla.Manager.HandleSpan` extracts
+  `server.port` (falling back to the older `net.host.port`) from each
+  incoming span's attributes and, on first observation of a given port in
+  the session, invokes `Agent.onBeylaServiceObserved(port, pid,
+  observedName)` (`internal/agent/beyla/manager.go`,
+  `internal/agent/agent.go`). Repeat spans on an already-seen port are
+  deduplicated. The handler currently logs the observation at DEBUG level;
+  RFD 105 wires it into the service map.
+
+Metric-driven observation (as opposed to span-driven) was not wired up:
+`TransformMetrics` only carries `service.name` through to the
+`ebpfpb.EbpfEvent` payloads it emits, and the RFD's API Changes section
+rules out adding fields to those protobuf messages. Spans are emitted for
+every instrumented request under the default protocol set, so this is not a
+coverage gap in practice — see Future Work below if that assumption changes.
+
+Tests: `internal/agent/beyla/manager_test.go` (callback fire/dedupe/no-port
+cases), `internal/cli/agent/startup/{validator,storage,start}_test.go`
+(monitor-all resolution, Beyla config gating, flag surface). `make test` and
+`make lint` are clean.
 
 ## Future Work
 
@@ -220,6 +256,14 @@ agent:
 
 The `onBeylaServiceObserved` callback introduced here is consumed by the
 `ServiceNameAdaptor` chain and unified service map in RFD 105.
+
+**Metric-triggered observation**
+
+If a process ever emits Beyla metrics without a corresponding span (e.g. all
+traces sampled out), `onBeylaServiceObserved` won't fire for it until a span
+does arrive. Extending `Manager.consumeMetrics` to extract `server.port` and
+fire the same callback (without adding protobuf fields) would close this
+gap; deferred as span coverage handles the default configuration today.
 
 **`coral services` CLI** (RFD 107)
 

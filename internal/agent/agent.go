@@ -140,6 +140,12 @@ func New(config Config) (*Agent, error) {
 	// Wire correlation engine as the eBPF event subscriber (RFD 091).
 	ebpfManager.SetEventSubscriber(agent.routeEventsToCorrelation)
 
+	// Wire OTLP feedback so the agent learns about newly observed processes
+	// without polling (RFD 103).
+	if beylaManager != nil {
+		beylaManager.SetServiceObservedHandler(agent.onBeylaServiceObserved)
+	}
+
 	// Initialize SessionManager (RFD 061).
 	agent.debugManager = debug.NewSessionManager(config.DebugConfig, config.Logger, agent)
 
@@ -264,6 +270,17 @@ func (a *Agent) onSDKDiscovered(serviceName string, pid int32, sdkAddr string) {
 		Msg("Adding service to continuous memory profiling")
 
 	memProfiler.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
+}
+
+// onBeylaServiceObserved is called the first time Beyla's OTLP ingest
+// reports a given port within this agent's session (RFD 103). It currently
+// logs the observation; full service map integration lands in RFD 105.
+func (a *Agent) onBeylaServiceObserved(port int32, pid int32, observedName string) {
+	a.logger.Debug().
+		Int32("port", port).
+		Int32("pid", pid).
+		Str("service_name", observedName).
+		Msg("Observed new service via Beyla OTLP feedback")
 }
 
 // GetContext returns the agent's context.

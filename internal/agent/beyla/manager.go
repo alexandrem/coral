@@ -65,6 +65,15 @@ type Manager struct {
 	// Dynamic discovery restart debouncing (RFD 053).
 	debounceTimer    *time.Timer
 	debounceInterval time.Duration
+
+	// serviceObservedHandler is invoked the first time OTLP ingest reports a
+	// given port, giving upstream components (service map, RFD 105) awareness
+	// of newly observed processes without polling (RFD 103).
+	serviceObservedHandler func(port int32, pid int32, serviceName string)
+
+	// observedPorts dedupes serviceObservedHandler calls to one per port for
+	// the lifetime of this manager (RFD 103).
+	observedPorts map[int32]bool
 }
 
 // BeylaTrace represents a processed Beyla trace ready for Colony.
@@ -175,8 +184,9 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 	if !config.Enabled {
 		logger.Info().Msg("Beyla integration is disabled")
 		return &Manager{
-			logger: logger.With().Str("component", "beyla_manager").Logger(),
-			config: config,
+			logger:        logger.With().Str("component", "beyla_manager").Logger(),
+			config:        config,
+			observedPorts: make(map[int32]bool),
 		}, nil
 	}
 
@@ -190,6 +200,7 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		transformer:            NewTransformer(logger),
 		tracesCh:               make(chan *BeylaTrace, 100),
 		metricsCh:              make(chan *ebpfpb.EbpfEvent, 100),
+		observedPorts:          make(map[int32]bool),
 		debounceInterval:       constants.DefaultBeylaDebounceInterval, // Default debounce window (RFD 053)
 		configStaticCandidates: staticCandidatesFromConfig(config.Discovery),
 	}
@@ -423,6 +434,15 @@ func (m *Manager) SetSharedOTLPReceiver(receiver *telemetry.OTLPReceiver) {
 	m.logger.Info().Msg("Shared OTLP receiver configured for user application metrics")
 }
 
+// SetServiceObservedHandler sets the callback invoked the first time OTLP
+// ingest reports a given (port, pid, service.name) tuple, giving upstream
+// components service awareness without polling (RFD 103).
+func (m *Manager) SetServiceObservedHandler(handler func(port int32, pid int32, serviceName string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.serviceObservedHandler = handler
+}
+
 // QueryTraceByID queries all spans for a specific trace ID (RFD 036).
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
@@ -602,6 +622,9 @@ func (m *Manager) startOTLPReceiver() error {
 // It is used by both Beyla's internal OTLP receiver and the shared agent OTLP receiver
 // to ensure all raw traces are available for colony-side topology materialization.
 func (m *Manager) HandleSpan(ctx context.Context, span telemetry.Span) error {
+	// Notify upstream components of newly observed services (RFD 103).
+	m.notifyServiceObserved(span)
+
 	// Convert duration from ms to microseconds.
 	durationUs := int64(span.DurationMs * 1000)
 
@@ -635,6 +658,56 @@ func (m *Manager) HandleSpan(ctx context.Context, span telemetry.Span) error {
 		span.ProcessPID,
 		span.Attributes,
 	)
+}
+
+// notifyServiceObserved fires serviceObservedHandler the first time this
+// manager's session sees a span carrying a given port, so upstream
+// components (service map, RFD 105) learn about the process without polling
+// (RFD 103). Spans without a recognizable port attribute are ignored.
+func (m *Manager) notifyServiceObserved(span telemetry.Span) {
+	port, ok := extractSpanPort(span.Attributes)
+	if !ok {
+		return
+	}
+
+	m.mu.Lock()
+	handler := m.serviceObservedHandler
+	alreadyObserved := m.observedPorts[port]
+	if !alreadyObserved {
+		m.observedPorts[port] = true
+	}
+	m.mu.Unlock()
+
+	if alreadyObserved || handler == nil {
+		return
+	}
+
+	m.logger.Debug().
+		Int32("port", port).
+		Uint32("pid", span.ProcessPID).
+		Str("service_name", span.ServiceName).
+		Msg("Beyla observed new service via OTLP ingest")
+
+	//nolint:gosec // G115: process IDs fit in int32 in practice.
+	handler(port, int32(span.ProcessPID), span.ServiceName)
+}
+
+// extractSpanPort extracts the server port from span attributes, preferring
+// the current OTel semantic convention key over the older one Beyla may
+// still emit.
+func extractSpanPort(attributes map[string]string) (int32, bool) {
+	for _, key := range []string{"server.port", "net.host.port"} {
+		v, present := attributes[key]
+		if !present || v == "" {
+			continue
+		}
+		port, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			continue
+		}
+		return int32(port), true
+	}
+	return 0, false
 }
 
 // consumeMetrics consumes metrics from the OTLP receiver and transforms them for Beyla.
