@@ -167,6 +167,42 @@ func TestManagerStartStop(t *testing.T) {
 	}
 }
 
+func TestManagerStartWithBeylaBinaryDoesNotDeadlock(t *testing.T) {
+	// A real executable makes startBeyla reach generateBeylaConfig. This
+	// regresses the RFD-102 bug where Start held m.mu and config generation
+	// attempted to take m.mu.RLock(), permanently blocking startup.
+	t.Setenv("BEYLA_PATH", "/bin/true")
+
+	mgr, err := NewManager(context.Background(), &Config{
+		Enabled:      true,
+		OTLPEndpoint: "localhost:4318",
+		SamplingRate: 1.0,
+		Discovery: DiscoveryConfig{
+			OpenPorts: []int{8080},
+		},
+		Protocols: ProtocolsConfig{HTTPEnabled: true},
+	}, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- mgr.Start() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Start() blocked while generating the Beyla configuration")
+	}
+
+	if err := mgr.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
 func TestManagerDisabled(t *testing.T) {
 	ctx := context.Background()
 	logger := zerolog.Nop()

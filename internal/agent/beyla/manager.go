@@ -875,10 +875,10 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 
 	// Discovery: process candidates merged by DiscoveryManager — static
 	// (config file + `coral connect`), and, in MonitorAll mode,
-	// ProcFSProvider/EnvVarProvider results (RFD 102).
-	m.mu.RLock()
+	// ProcFSProvider/EnvVarProvider results (RFD 102). startBeyla is called
+	// by Start and restartBeyla while they hold m.mu, so taking an RLock here
+	// would self-deadlock on the non-reentrant RWMutex.
 	candidates := append([]discovery.ProcessCandidate{}, m.discoveryCandidates...)
-	m.mu.RUnlock()
 
 	if len(candidates) > 0 {
 		servicePorts := make(map[string][]string)
