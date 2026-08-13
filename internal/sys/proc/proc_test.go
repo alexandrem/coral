@@ -2,6 +2,9 @@ package proc
 
 import (
 	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"testing"
 )
 
@@ -56,5 +59,44 @@ func TestReadKallsyms(t *testing.T) {
 		t.Logf("ReadKallsyms returned %d symbols", len(symbols))
 	} else if zeroAddresses > 0 {
 		t.Logf("ReadKallsyms found %d zero addresses (permissions)", zeroAddresses)
+	}
+}
+
+// TestFindPidByExePattern_MatchesSelf matches the running test binary via
+// its cmdline (the compiled test binary's basename won't fit in the
+// 15-byte /proc/<pid>/comm field, so this exercises the cmdline fallback).
+func TestFindPidByExePattern_MatchesSelf(t *testing.T) {
+	pattern := regexp.QuoteMeta(filepath.Base(os.Args[0]))
+
+	pid, err := FindPidByExePattern(pattern)
+	if err != nil {
+		if runtime.GOOS == "linux" {
+			t.Fatalf("FindPidByExePattern returned error on Linux: %v", err)
+		}
+		return // No /proc on this platform.
+	}
+
+	if runtime.GOOS == "linux" && pid != int32(os.Getpid()) {
+		t.Errorf("FindPidByExePattern matched pid %d, want own pid %d", pid, os.Getpid())
+	}
+}
+
+func TestFindPidByExePattern_NoMatch(t *testing.T) {
+	pid, err := FindPidByExePattern("definitely-not-a-real-process-name-xyz123")
+	if err != nil {
+		if runtime.GOOS == "linux" {
+			t.Fatalf("FindPidByExePattern returned error on Linux: %v", err)
+		}
+		return
+	}
+	if pid != 0 {
+		t.Errorf("FindPidByExePattern returned pid %d for a pattern that should match nothing", pid)
+	}
+}
+
+func TestFindPidByExePattern_InvalidRegex(t *testing.T) {
+	_, err := FindPidByExePattern("(unclosed[")
+	if err == nil {
+		t.Error("FindPidByExePattern should return an error for an invalid regex")
 	}
 }

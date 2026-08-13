@@ -76,6 +76,22 @@ coral agent start --connect api:8080 --connect frontend:3000
 coral services watch api:8080
 ```
 
+**Via Connect Command, portless process (RFD 111):**
+
+A process that never binds a listening port (a Kafka consumer, cron job, or
+batch worker) is registered by executable pattern instead of port. `port`
+and `exe_pattern` are mutually exclusive — exactly one must be set.
+
+```bash
+coral connect worker --exe-pattern "python.*consumer.py"
+```
+
+Instead of a TCP/HTTP health check, the agent re-resolves the pattern to a
+PID (via `/proc/<pid>/comm`, falling back to `/proc/<pid>/cmdline`) on every
+check interval: healthy while a matching process exists, unhealthy after
+`MissedLivenessThreshold` (default 2) consecutive misses — debounced so a
+brief PID-table race during a process restart doesn't flap the status.
+
 **Via SDK:**
 
 ```go
@@ -370,6 +386,45 @@ coral services --source watched
 
 **Why:** In production, you may want to only see services you've explicitly
 configured, ignoring auto-discovered development services.
+
+### Case 6: Connecting a Portless Worker (RFD 111)
+
+**Goal:** Explicitly monitor a Kafka consumer that never binds a listening
+port, so it shows up the same way a port-based service does instead of
+relying on `MonitorAll`'s best-effort auto-discovery.
+
+```bash
+coral connect order-consumer --exe-pattern "python.*consumer\.py"
+```
+
+**Output:**
+
+```
+Connecting to service: order-consumer
+Process match: python.*consumer\.py
+Agent: localhost:9001
+✓ Connected: order-consumer
+
+✓ All services connected successfully
+Use 'coral agent status' to view service health
+```
+
+**Verify it's being watched, not just observed:**
+
+```bash
+coral services --source watched
+```
+
+```
+Found 1 service(s):
+
+● order-consumer (default) - 1 instance(s) [WATCHED]
+  Source: REGISTRY (explicit) | Health: healthy | Last seen: 14:22:03
+```
+
+Unlike a port-based service, `order-consumer` has no `health_endpoint` — its
+health status comes from process liveness (a matching PID exists), not a
+TCP/HTTP check.
 
 ## Integration Points
 

@@ -47,7 +47,9 @@ coral version
    initializes agent identity
 4. **Start Agents** - `coral agent start` (now uses mTLS identity)
 5. **Watch Services** - `coral services watch frontend:3000 api:8080` or use
-   `--connect` at startup
+   `--connect` at startup. Portless processes (no listening port, e.g. a
+   queue consumer) are watched by executable pattern instead:
+   `coral connect worker --exe-pattern "python.*consumer.py"` (RFD 111)
 6. **Query Metrics** - `coral query metrics my-service --since 1h`
 7. **AI Debug** - `coral ask "what services are running?"`
 

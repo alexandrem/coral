@@ -1,7 +1,7 @@
 ---
 rfd: "111"
 title: "Connect by Executable Pattern"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "cli", "service-discovery", "beyla" ]
 
 # RFD 111 - Connect by Executable Pattern
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -122,6 +122,32 @@ and no ports through `Manager.SetStaticCandidates` (RFD 102), and switches
   `exe_pattern` connect and an auto-discovered client-only candidate produce
   the identical rule shape.
 
+**Readiness gaps found at implementation time** (the code moved since this
+RFD was drafted; RFD 104's unified service map landed after RFD 102):
+
+- `Agent.services` is `map[int32]*ServiceEntry`, and `ServiceEntry` is
+  documented as "the agent's single record of truth for a port" (RFD 104).
+  Every `exe_pattern` connect has `Port == 0`, so two portless connects would
+  collide on the same map key. Fix: give `ServiceEntry` its own map-identity
+  key, independent of `Port` — `Port` continues to mean "the real TCP port,
+  0 if none" everywhere it's surfaced (API, `Resolve`), while the map is
+  keyed by a `serviceKey` computed as `port:<n>` for port-based entries or
+  `exe:<name>` for portless ones.
+- `connectServiceLocked` returns early (no `ServiceMonitor` is created) when
+  `HealthEndpoint == ""`. An `exe_pattern` connect never has a health
+  endpoint, so under the current gate it would never get a monitor —
+  liveness checking would never run. Fix: also start a monitor when
+  `Port == 0 && ExePattern != ""`.
+- `ProcessCandidate` (RFD 102, `internal/agent/beyla/discovery/discovery.go`)
+  has no field for a literal exe-path regex; `generateBeylaConfig`'s
+  client-only branch derives the Beyla `exe_path` rule from
+  `".*" + candidate.Name + ".*"`, not from any pattern the caller supplied.
+  So today an explicit `--exe-pattern "python.*consumer.py"` would never
+  reach Beyla — only the service name would. Fix: add
+  `ExePathPattern string` to `ProcessCandidate`; when set, `generateBeylaConfig`
+  emits it verbatim as the rule's `ExePath` instead of the name-derived
+  pattern.
+
 **Benefits:**
 
 - Users can declare portless services the same way they declare port-based
@@ -204,10 +230,15 @@ Connected service worker (process match: python.*consumer.py)
 Health monitoring: process-liveness
 eBPF metrics: enabled
 
-# At agent startup, alongside port-based services.
-$ coral agent start \
-    --connect api:8080:/health \
-    --connect worker --exe-pattern "python.*consumer.py"
+# At agent startup, alongside port-based services (agent.yaml — `coral
+# agent start` has no --connect flag; startup services come from the config
+# file's `services:` list or the CORAL_SERVICES env var):
+#   services:
+#     - name: api
+#       port: 8080
+#       health_endpoint: /health
+#     - name: worker
+#       exe_pattern: "python.*consumer.py"
 
 # Rejected: neither port nor pattern given.
 $ coral connect worker
@@ -222,54 +253,78 @@ Error: service "worker" cannot specify both a port and --exe-pattern
 
 ### Phase 1: Proto and process-resolution primitives
 
-- [ ] Add `exe_pattern` field to `ServiceInfo` (`proto/coral/mesh/v1/auth.proto`)
+- [x] Add `exe_pattern` field to `ServiceInfo` (`proto/coral/mesh/v1/auth.proto`)
       and `ConnectServiceRequest` (`proto/coral/agent/v1/agent.proto`);
-      regenerate Go bindings
-- [ ] Implement `proc.FindPidByExePattern` in `internal/sys/proc/proc.go`
+      regenerate Go bindings (also added to `ServiceStatus` for API visibility)
+- [x] Implement `proc.FindPidByExePattern` in `internal/sys/proc/proc.go`
       (comm match, cmdline fallback)
-- [ ] Unit tests: pattern matches comm, pattern matches only cmdline (e.g.
-      `python` comm with args-based pattern), no match, invalid regex
-      rejected at parse time
+- [x] Unit tests: pattern matches (via cmdline fallback against the running
+      test binary), no match, invalid regex rejected
 
 ### Phase 2: CLI and RPC validation
 
-- [ ] Add `--exe-pattern` flag to `coral connect` / `coral agent start
-    --connect`
-- [ ] Extend spec parsing to allow an omitted port when `--exe-pattern` is
+- [x] Add `--exe-pattern` flag to `coral connect` (legacy single-service
+      form, same restriction as `--port`/`--health`). Note: `coral agent
+      start` has no `--connect` flag today — startup services come from
+      `agent.yaml`'s `services:` list or the `CORAL_SERVICES` env var; added
+      `exe_pattern` to the YAML schema (`internal/config/schema.go`) instead
+- [x] Extend spec parsing to allow an omitted port when `--exe-pattern` is
       set; reject neither-nor and both-set cases with a clear error
-- [ ] Server-side validation in the `ConnectService` handler: exactly one of
+- [x] Server-side validation in the `ConnectService` handler: exactly one of
       `port`/`exe_pattern` set
-- [ ] Unit tests: spec parsing (pattern-only, port-only, both, neither),
-      RPC validation error messages
+- [x] Unit tests: spec parsing (pattern-only, port-only, both, neither)
 
 ### Phase 3: Agent-side monitoring and discovery integration
 
-- [ ] `ServiceMonitor.discoverProcessInfo`: branch to
+- [x] `ServiceMonitor.discoverProcessInfo`: branch to
       `FindPidByExePattern` when `Port == 0`
-- [ ] `ServiceMonitor.performHealthCheck`: add process-liveness branch with
-      `MissedLivenessThreshold` debounce
-- [ ] `ConnectService`/`DisconnectService` handlers: build a portless
-      `ProcessCandidate` and call `Manager.SetStaticCandidates` (RFD 102)
-- [ ] Unit tests: liveness check transitions (found → healthy, N misses →
-      unhealthy, process restarts with new PID → healthy again); candidate
-      correctly marked `IsClientOnly=true` with no ports
+- [x] `ServiceMonitor.performHealthCheck`: add process-liveness branch with
+      `MissedLivenessThreshold` debounce (`constants.DefaultMissedLivenessThreshold`, default 2)
+- [x] `Agent.services` re-keyed from `map[int32]*ServiceEntry` (port-only) to
+      `map[string]*ServiceEntry` via a new `serviceKey(port, name)` helper —
+      port-based entries key by port, portless entries key by name, so
+      multiple `exe_pattern` connects don't collide (readiness gap #1)
+- [x] `connectServiceLocked`: also start a monitor when `Port == 0 &&
+      ExePattern != ""` (previously gated on `HealthEndpoint != ""` only,
+      which would have silently skipped monitoring for every portless
+      connect — readiness gap #2)
+- [x] `collectDiscoveryCandidatesLocked` / `ConnectService` / `DisconnectService`:
+      build a portless `ProcessCandidate` (`IsClientOnly: true`, no ports,
+      `ExePathPattern` set) and call `Manager.SetStaticCandidates` (RFD 102)
+- [x] `ProcessCandidate.ExePathPattern` (new field) and
+      `generateBeylaConfig`: emit the literal pattern as the Beyla rule's
+      `ExePath` when set, instead of always deriving it from the service
+      name (readiness gap #3)
+- [x] Unit tests: liveness check transitions (unknown before first check,
+      held below miss threshold, unhealthy at threshold, recovers on
+      match); multiple exe_pattern connects don't collide in the service
+      map; discovery candidate carries `ExePathPattern` with
+      `IsClientOnly=true` and no ports; RPC validation (neither/both
+      port+exe_pattern rejected)
 
 ### Phase 4: E2E and documentation
 
-- [ ] E2E test: `coral agent start --connect worker --exe-pattern <pattern>`
-      against a portless test binary; assert `coral agent status` reports
-      the worker healthy and Beyla config contains the matching `exe_path`
-      rule
-- [ ] E2E test: kill and restart the matched process; assert the monitor
-      re-discovers the new PID and status returns to healthy
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md`: document
+- [x] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md`: document
       `--exe-pattern`, the mutual-exclusion rule with `--port`, and example
       usage
-- [ ] Update `docs/SERVICE_DISCOVERY.md`: document process-liveness health
+- [x] Update `docs/SERVICE_DISCOVERY.md`: document process-liveness health
       checking and how explicit exe-pattern connects interact with RFD 102's
       automatic discovery
-- [ ] Update `docs/AGENT.md`: document the `--connect ... --exe-pattern`
-      startup flag combination
+- [x] Update `docs/AGENT.md`: document `coral connect --exe-pattern` and the
+      `services:` config-file equivalent (not a `--connect` startup flag,
+      which `coral agent start` doesn't have — see readiness gaps)
+- [x] E2E test: `coral connect worker --exe-pattern <pattern>` against a
+      portless test binary; assert the agent reports the worker healthy and
+      Beyla config contains the matching `exe_path` rule
+      (`tests/e2e/distributed/service_exe_pattern_test.go`,
+      `TestExePatternConnection`). Reuses `worker-app`, the portless fixture
+      already added for RFD 102's client-only auto-discovery test — no new
+      fixture or Docker Compose service needed
+- [x] E2E test: kill and restart the matched process; assert the monitor
+      re-discovers the new PID and status returns to healthy
+      (`TestExePatternRecoversAfterRestart`, via `RestartService("worker-app")`)
+- [x] E2E test: mutual-exclusion validation over the wire
+      (`TestExePatternRejectsPortAndPattern`)
 
 ## API Changes
 
@@ -320,9 +375,6 @@ unchanged — a portless service is disconnected by name, same as any other.
 # New flag on the existing connect command.
 coral connect <name> --exe-pattern <regex> [--agent <id>] [--agent-url <url>]
 
-# Combined with existing --connect at startup.
-coral agent start --connect <name> --exe-pattern <regex>
-
 # Example output:
 $ coral connect worker --exe-pattern "python.*consumer.py"
 Connected service worker (process match: python.*consumer.py)
@@ -332,8 +384,15 @@ eBPF metrics: enabled
 
 ### Configuration Changes
 
-No new static YAML config fields — `exe_pattern` is a per-connect argument,
-not agent-level configuration.
+`coral agent start` has no `--connect` flag; startup services are declared
+in `agent.yaml`'s `services:` list (or `CORAL_SERVICES`). Added `exe_pattern`
+as an optional field there, mutually exclusive with `port`:
+
+```yaml
+services:
+  - name: worker
+    exe_pattern: "python.*consumer.py"
+```
 
 ## Testing Strategy
 
@@ -359,8 +418,21 @@ not agent-level configuration.
 
 ### E2E Tests
 
-- See Phase 4 tasks: full `coral agent start --connect ... --exe-pattern`
-  flow through to a Beyla `exe_path` rule and a healthy status report.
+`tests/e2e/distributed/service_exe_pattern_test.go` (`ExePatternSuite`,
+run as part of `Test2_ServiceManagement`):
+
+- `TestExePatternConnection`: full `coral connect ... --exe-pattern` flow —
+  connect, resolve PID, healthy status, and a Beyla `exe_path` rule carrying
+  the literal pattern.
+- `TestExePatternRecoversAfterRestart`: restarts the matched container and
+  asserts the monitor lands on the new PID and recovers to healthy.
+- `TestExePatternRejectsPortAndPattern`: mutual-exclusion validation over
+  the wire.
+
+Reuses `worker-app` (`tests/e2e/distributed/fixtures/apps/worker-app`), the
+portless fixture already added for RFD 102's client-only auto-discovery
+test, under a distinct service name so the explicit and automatic paths
+don't collide in the agent's service map.
 
 ## Security Considerations
 
@@ -374,12 +446,47 @@ not agent-level configuration.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
-`coral connect --exe-pattern` will let users explicitly register portless
-processes by executable pattern, resolved to a PID via `/proc` scanning,
-monitored via process-liveness instead of network health checks, and fed
-into RFD 102's discovery merge as a pinned client-only candidate.
+`coral connect --exe-pattern` lets users explicitly register a portless
+process (a Kafka consumer, cron job, or batch worker that never binds a
+listening port) by executable pattern instead of `name:port`. The agent
+resolves the pattern to a PID via `/proc` scanning, monitors it by
+process-liveness instead of a network health check, and feeds it into RFD
+102's discovery merge as a pinned client-only candidate with the literal
+pattern as its Beyla `exe_path` rule.
+
+Operational:
+
+- ✅ `exe_pattern` field on `ServiceInfo`/`ConnectServiceRequest`/`ServiceStatus`
+  protos (`proto/coral/mesh/v1/auth.proto`, `proto/coral/agent/v1/agent.proto`).
+- ✅ `proc.FindPidByExePattern` (`internal/sys/proc/proc.go`): regex against
+  `/proc/<pid>/comm`, falling back to `/proc/<pid>/cmdline`.
+- ✅ `coral connect worker --exe-pattern <regex>` (legacy single-service
+  form, mutually exclusive with `--port`); `agent.yaml`'s `services:` list
+  gained the same `exe_pattern` field for startup-time equivalents (`coral
+  agent start` has no `--connect` flag today).
+- ✅ Server-side and CLI-side validation: exactly one of port/exe_pattern.
+- ✅ `ServiceMonitor` process-liveness health check with
+  `constants.DefaultMissedLivenessThreshold` (2) miss debounce.
+- ✅ `Agent.services` re-keyed from port-only to `serviceKey(port, name)` so
+  multiple portless connects coexist without colliding.
+- ✅ `connectServiceLocked` now also starts a monitor for portless connects
+  (previously gated on `HealthEndpoint != ""` only).
+- ✅ `ProcessCandidate.ExePathPattern` carries the literal regex through to
+  `generateBeylaConfig`, which emits it verbatim instead of a name-derived
+  `.*name.*` rule.
+- ✅ Docs: `docs/CLI.md`, `docs/CLI_REFERENCE.md`, `docs/SERVICE_DISCOVERY.md`,
+  `docs/AGENT.md`.
+- ✅ E2E: `tests/e2e/distributed/service_exe_pattern_test.go` (`ExePatternSuite`),
+  reusing RFD 102's `worker-app` fixture — connect/resolve/Beyla-rule flow,
+  kill/restart PID recovery, and wire-level mutual-exclusion validation.
+
+Three readiness gaps were found against the current codebase at
+implementation time (the code had moved since this RFD was drafted — see
+Key Design Decisions) and fixed inline rather than deferred, since the
+feature would have been broken without them (colliding portless entries,
+monitors never starting, patterns never reaching Beyla).
 
 ## Future Work
 

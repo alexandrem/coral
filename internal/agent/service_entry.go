@@ -31,6 +31,11 @@ const (
 type ServiceEntry struct {
 	Port int32
 
+	// ExePattern identifies a portless process by executable pattern (RFD
+	// 111) instead of a listening port. Empty for port-based entries;
+	// mutually exclusive with Port being non-zero.
+	ExePattern string
+
 	// AutoName is derived by the ServiceNameAdaptor chain on first
 	// observation. It is never cleared once set.
 	AutoName string

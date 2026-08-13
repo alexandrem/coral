@@ -87,4 +87,41 @@ func TestListServicesRPCIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, autoOnly.Msg.Services, 1)
 	assert.Equal(t, int32(6379), autoOnly.Msg.Services[0].Port)
+
+	// RFD 111: a portless connect (Port unset, ExePattern set) succeeds and
+	// surfaces the pattern in ListServices.
+	workerConnected, err := client.ConnectService(ctx, connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name:       "worker",
+		ExePattern: "python.*consumer.py",
+	}))
+	require.NoError(t, err)
+	assert.True(t, workerConnected.Msg.Success, workerConnected.Msg.Error)
+
+	afterWorker, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	require.NoError(t, err)
+	var worker *agentv1.ServiceStatus
+	for _, service := range afterWorker.Msg.Services {
+		if service.Name == "worker" {
+			worker = service
+		}
+	}
+	require.NotNil(t, worker)
+	assert.Equal(t, "python.*consumer.py", worker.ExePattern)
+	assert.Zero(t, worker.Port)
+	assert.True(t, worker.HasMonitor)
+
+	// RFD 111: exactly one of port/exe_pattern is required.
+	neither, err := client.ConnectService(ctx, connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name: "bad-neither",
+	}))
+	require.NoError(t, err)
+	assert.False(t, neither.Msg.Success)
+
+	both, err := client.ConnectService(ctx, connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name:       "bad-both",
+		Port:       9999,
+		ExePattern: "anything",
+	}))
+	require.NoError(t, err)
+	assert.False(t, both.Msg.Success)
 }

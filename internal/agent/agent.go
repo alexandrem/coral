@@ -54,7 +54,7 @@ type memProfiler interface {
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
 	id                       string
-	services                 map[int32]*ServiceEntry   // RFD 104: unified service map, keyed by port.
+	services                 map[string]*ServiceEntry  // RFD 104/111: unified service map, keyed by serviceKey (port, or name for portless).
 	nameAdaptor              naming.ServiceNameAdaptor // RFD 104: derives names for auto-observed services.
 	components               []Lifecycle               // Ordered list of managed components; stopped in reverse.
 	ebpfManager              *ebpf.Manager
@@ -129,7 +129,7 @@ func New(config Config) (*Agent, error) {
 
 	agent := &Agent{
 		id:                config.AgentID,
-		services:          make(map[int32]*ServiceEntry),
+		services:          make(map[string]*ServiceEntry),
 		nameAdaptor:       naming.Chain{naming.NewProcessNameAdaptor()},
 		components:        components,
 		ebpfManager:       ebpfManager,
@@ -294,10 +294,13 @@ func (a *Agent) onBeylaServiceObserved(port int32, pid int32, observedName strin
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	entry, exists := a.services[port]
+	// Beyla OTLP feedback only ever reports processes with a listening
+	// socket, so this path always uses a port-keyed entry.
+	key := serviceKey(port, "")
+	entry, exists := a.services[key]
 	if !exists {
 		entry = &ServiceEntry{Port: port}
-		a.services[port] = entry
+		a.services[key] = entry
 	}
 	entry.PID = pid
 
@@ -410,19 +413,25 @@ func (a *Agent) GetServiceCount() int {
 // caller to start later (initial construction in New, before Agent.Start).
 // Caller must hold a.mu.
 func (a *Agent) connectServiceLocked(service *meshv1.ServiceInfo, startMonitor bool) error {
-	entry, exists := a.services[service.Port]
+	key := serviceKey(service.Port, service.Name)
+	entry, exists := a.services[key]
 	if exists && entry.NamingSource == NamingSourceAuthoritative {
 		return status.Errorf(codes.AlreadyExists, "service %s already connected", service.Name)
 	}
 	if !exists {
 		entry = &ServiceEntry{Port: service.Port}
-		a.services[service.Port] = entry
+		a.services[key] = entry
 	}
 
 	entry.AuthoritativeName = service.Name
 	entry.NamingSource = NamingSourceAuthoritative
+	entry.ExePattern = service.ExePattern
 
-	if service.HealthEndpoint == "" {
+	// A monitor is started for any explicitly connected service that has a
+	// health endpoint (network health check) or an exe_pattern (RFD 111:
+	// process-liveness check, since a portless service can't be network
+	// checked). A bare port with neither stays Tier 0 (no active check).
+	if service.HealthEndpoint == "" && service.ExePattern == "" {
 		return nil
 	}
 
@@ -486,7 +495,7 @@ func (a *Agent) DisconnectService(serviceName string) error {
 			a.logger.Error().Err(err).Str("service", serviceName).Msg("Failed to stop service monitor")
 		}
 	}
-	delete(a.services, entry.Port)
+	delete(a.services, serviceKey(entry.Port, entry.Name()))
 
 	if a.continuousProfiler != nil {
 		a.continuousProfiler.RemoveService(serviceName)
@@ -540,17 +549,37 @@ func (a *Agent) findByNameLocked(name string) (*ServiceEntry, bool) {
 // found by Beyla's own discovery providers. Caller must hold a.mu lock.
 func (a *Agent) collectDiscoveryCandidatesLocked() []discovery.ProcessCandidate {
 	candidates := make([]discovery.ProcessCandidate, 0, len(a.services))
-	for port, entry := range a.services {
+	for _, entry := range a.services {
 		if entry.NamingSource != NamingSourceAuthoritative {
 			continue
 		}
+		if entry.ExePattern != "" {
+			candidates = append(candidates, discovery.ProcessCandidate{
+				Name:           entry.AuthoritativeName,
+				IsClientOnly:   true,
+				ExePathPattern: entry.ExePattern,
+			})
+			continue
+		}
 		candidates = append(candidates, discovery.ProcessCandidate{
-			Ports:        []int{int(port)},
+			Ports:        []int{int(entry.Port)},
 			Name:         entry.AuthoritativeName,
 			IsClientOnly: false,
 		})
 	}
 	return candidates
+}
+
+// serviceKey returns Agent.services' map key for a service. RFD 104 keys
+// the unified service map by port; RFD 111 extends it to portless
+// (exe_pattern) services, which have no port and so key by name instead —
+// a separate keyspace, so multiple exe_pattern connects never collide with
+// each other or with a port-based entry.
+func serviceKey(port int32, name string) string {
+	if port != 0 {
+		return fmt.Sprintf("port:%d", port)
+	}
+	return "exe:" + name
 }
 
 // Resolve resolves service name to address (ServiceResolver interface).

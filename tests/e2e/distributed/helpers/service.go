@@ -67,6 +67,32 @@ func ConnectService(
 	return resp.Msg, nil
 }
 
+// ConnectServiceByExePattern connects a portless service to an agent by
+// executable pattern instead of port (RFD 111): a process, such as a queue
+// consumer or batch worker, that never binds a listening socket.
+func ConnectServiceByExePattern(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	serviceName string,
+	exePattern string,
+) (*agentv1.ConnectServiceResponse, error) {
+	req := connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name:       serviceName,
+		ExePattern: exePattern,
+	})
+
+	resp, err := client.ConnectService(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect service by exe pattern: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return nil, fmt.Errorf("service connection failed: %s", resp.Msg.Error)
+	}
+
+	return resp.Msg, nil
+}
+
 // DisconnectService disconnects a service from the agent.
 func DisconnectService(
 	ctx context.Context,

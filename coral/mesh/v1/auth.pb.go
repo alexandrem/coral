@@ -33,9 +33,13 @@ type ServiceInfo struct {
 	ServiceType    string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`                                              // Optional: "http", "redis", "postgres", "prometheus"
 	Labels         map[string]string      `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Additional metadata
 	// Process information (RFD 064).
-	ProcessId     int32  `protobuf:"varint,6,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`   // Process ID running the service (0 if unknown)
-	BinaryPath    string `protobuf:"bytes,7,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"` // Path to service executable (empty if unknown)
-	BinaryHash    string `protobuf:"bytes,8,opt,name=binary_hash,json=binaryHash,proto3" json:"binary_hash,omitempty"` // Hash of binary for cache invalidation (optional)
+	ProcessId  int32  `protobuf:"varint,6,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`   // Process ID running the service (0 if unknown)
+	BinaryPath string `protobuf:"bytes,7,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"` // Path to service executable (empty if unknown)
+	BinaryHash string `protobuf:"bytes,8,opt,name=binary_hash,json=binaryHash,proto3" json:"binary_hash,omitempty"` // Hash of binary for cache invalidation (optional)
+	// Executable path pattern for portless processes (RFD 111).
+	// Regex matched against /proc/<pid>/comm, falling back to /proc/<pid>/cmdline.
+	// Mutually exclusive with port: exactly one of the two must be set.
+	ExePattern    string `protobuf:"bytes,9,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,6 +126,13 @@ func (x *ServiceInfo) GetBinaryPath() string {
 func (x *ServiceInfo) GetBinaryHash() string {
 	if x != nil {
 		return x.BinaryHash
+	}
+	return ""
+}
+
+func (x *ServiceInfo) GetExePattern() string {
+	if x != nil {
+		return x.ExePattern
 	}
 	return ""
 }
@@ -551,7 +562,7 @@ var File_coral_mesh_v1_auth_proto protoreflect.FileDescriptor
 
 const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xdd\x02\n" +
+	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xfe\x02\n" +
 	"\vServiceInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -563,7 +574,9 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\vbinary_path\x18\a \x01(\tR\n" +
 	"binaryPath\x12\x1f\n" +
 	"\vbinary_hash\x18\b \x01(\tR\n" +
-	"binaryHash\x1a9\n" +
+	"binaryHash\x12\x1f\n" +
+	"\vexe_pattern\x18\t \x01(\tR\n" +
+	"exePattern\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x84\x05\n" +

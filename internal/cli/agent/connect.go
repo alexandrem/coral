@@ -21,11 +21,12 @@ const (
 // NewConnectCmd creates the connect command for attaching to services.
 func NewConnectCmd() *cobra.Command {
 	var (
-		port      int
-		healthURL string
-		agentAddr string
-		agent     string
-		wait      bool
+		port       int
+		healthURL  string
+		exePattern string
+		agentAddr  string
+		agent      string
+		wait       bool
 	)
 
 	cmd := &cobra.Command{
@@ -49,6 +50,9 @@ Examples:
 
   # Single service (legacy syntax, backward compatible)
   coral connect frontend --port 3000 --health /health
+
+  # Portless process, matched by executable pattern instead of a port (RFD 111)
+  coral connect worker --exe-pattern "python.*consumer.py"
 
   # Multiple services
   coral connect frontend:3000:/health redis:6379 metrics:9090:/metrics
@@ -74,7 +78,7 @@ Note:
 			ctx := cmd.Context()
 
 			// Parse service specifications
-			serviceSpecs, err := parseServiceSpecsWithLegacySupport(args, port, healthURL)
+			serviceSpecs, err := parseServiceSpecsWithLegacySupport(args, port, healthURL, exePattern)
 			if err != nil {
 				return err
 			}
@@ -110,7 +114,11 @@ Note:
 			// Display connection information
 			if len(serviceSpecs) == 1 {
 				fmt.Printf("Connecting to service: %s\n", serviceSpecs[0].Name)
-				fmt.Printf("Port: %d\n", serviceSpecs[0].Port)
+				if serviceSpecs[0].ExePattern != "" {
+					fmt.Printf("Process match: %s\n", serviceSpecs[0].ExePattern)
+				} else {
+					fmt.Printf("Port: %d\n", serviceSpecs[0].Port)
+				}
 				if serviceSpecs[0].HealthEndpoint != "" {
 					fmt.Printf("Health endpoint: %s\n", serviceSpecs[0].HealthEndpoint)
 				}
@@ -120,7 +128,11 @@ Note:
 			} else {
 				fmt.Printf("Connecting to %d services:\n", len(serviceSpecs))
 				for _, spec := range serviceSpecs {
-					fmt.Printf("  • %s (port %d", spec.Name, spec.Port)
+					if spec.ExePattern != "" {
+						fmt.Printf("  • %s (process match: %s", spec.Name, spec.ExePattern)
+					} else {
+						fmt.Printf("  • %s (port %d", spec.Name, spec.Port)
+					}
 					if spec.HealthEndpoint != "" {
 						fmt.Printf(", health: %s", spec.HealthEndpoint)
 					}
@@ -149,6 +161,7 @@ Note:
 					HealthEndpoint: spec.HealthEndpoint,
 					ServiceType:    spec.ServiceType,
 					Labels:         spec.Labels,
+					ExePattern:     spec.ExePattern,
 				}
 
 				resp, err := client.ConnectService(ctx, connect.NewRequest(req))
@@ -251,6 +264,7 @@ Note:
 
 	cmd.Flags().IntVarP(&port, "port", "p", 0, "Service port (legacy, only works with single service)")
 	cmd.Flags().StringVar(&healthURL, "health", "", "Health check endpoint (legacy, only works with single service)")
+	cmd.Flags().StringVar(&exePattern, "exe-pattern", "", "Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (RFD 111; only works with single service, mutually exclusive with --port)")
 	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for initial health checks and display status (recommended for interactive use)")
@@ -283,7 +297,9 @@ func discoverLocalAgent() (string, error) {
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.
-func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHealth string) ([]*types.ServiceSpec, error) {
+// exePattern (RFD 111) is only valid with the legacy single-service form,
+// consistent with the other legacy flags (--port, --health).
+func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHealth, exePattern string) ([]*types.ServiceSpec, error) {
 	// Check if using new syntax (contains colon) or legacy syntax
 	hasColonSyntax := false
 	for _, arg := range args {
@@ -296,8 +312,8 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 	// New syntax: parse service specs directly
 	if hasColonSyntax {
 		// If new syntax is used, legacy flags should not be set
-		if legacyPort > 0 || legacyHealth != "" {
-			return nil, fmt.Errorf("cannot use --port or --health flags with new service spec syntax (name:port[:health][:type])")
+		if legacyPort > 0 || legacyHealth != "" || exePattern != "" {
+			return nil, fmt.Errorf("cannot use --port, --health, or --exe-pattern flags with new service spec syntax (name:port[:health][:type])")
 		}
 		return types.ParseMultipleServiceSpecs(args)
 	}
@@ -307,16 +323,21 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 		return nil, fmt.Errorf("multiple services require new syntax (e.g., 'coral connect frontend:3000 redis:6379')")
 	}
 
-	if legacyPort == 0 {
-		return nil, fmt.Errorf("--port flag is required when using legacy syntax (or use new syntax: 'coral connect %s:PORT')", args[0])
+	if legacyPort != 0 && exePattern != "" {
+		return nil, fmt.Errorf("service %q cannot specify both --port and --exe-pattern", args[0])
+	}
+
+	if legacyPort == 0 && exePattern == "" {
+		return nil, fmt.Errorf("--port or --exe-pattern is required when using legacy syntax (or use new syntax: 'coral connect %s:PORT')", args[0])
 	}
 
 	// Build service spec from legacy format
 	serviceName := args[0]
 	spec := &types.ServiceSpec{
-		Name:   serviceName,
-		Port:   int32(legacyPort),
-		Labels: make(map[string]string),
+		Name:       serviceName,
+		Port:       int32(legacyPort),
+		ExePattern: exePattern,
+		Labels:     make(map[string]string),
 	}
 
 	// Add health endpoint if provided

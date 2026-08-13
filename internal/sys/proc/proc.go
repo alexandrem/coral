@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -124,6 +125,62 @@ func findPidByInode(inode string) (int32, error) {
 	}
 
 	return 0, nil
+}
+
+// FindPidByExePattern finds the PID of the first running process whose name
+// matches the given regex pattern (RFD 111). Each candidate PID (in
+// ascending order, from ListPids) is matched against /proc/<pid>/comm
+// first; if that doesn't match, it falls back to /proc/<pid>/cmdline. This
+// lets a pattern target either the bare executable name (e.g. "python") or
+// its full invocation (e.g. "python.*consumer.py"). Returns 0 with no error
+// if no process matches.
+func FindPidByExePattern(pattern string) (int32, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return 0, fmt.Errorf("invalid exe pattern %q: %w", pattern, err)
+	}
+
+	pids, err := ListPids()
+	if err != nil {
+		return 0, err
+	}
+
+	for _, pid := range pids {
+		if comm, ok := readComm(pid); ok && re.MatchString(comm) {
+			//nolint:gosec // G109: PID conversion is safe, sourced from ListPids.
+			return int32(pid), nil
+		}
+		if cmdline, ok := readCmdline(pid); ok && re.MatchString(cmdline) {
+			//nolint:gosec // G109: PID conversion is safe, sourced from ListPids.
+			return int32(pid), nil
+		}
+	}
+
+	return 0, nil // Not found.
+}
+
+// readComm reads the process name from /proc/<pid>/comm. Returns false if
+// the process has exited or the file is unreadable.
+func readComm(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(data)), true
+}
+
+// readCmdline reads the full command line from /proc/<pid>/cmdline, joining
+// the NUL-separated arguments with spaces. Returns false if the process has
+// exited or the file is unreadable.
+func readCmdline(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return "", false
+	}
+	args := strings.Split(strings.Trim(string(data), "\x00"), "\x00")
+	return strings.Join(args, " "), true
 }
 
 // GetKernelVersion reads the kernel version from /proc/version.

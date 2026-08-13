@@ -1078,8 +1078,11 @@ type ConnectServiceRequest struct {
 	Labels map[string]string `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// SDK capabilities (RFD 060).
 	SdkCapabilities *ServiceSdkCapabilities `protobuf:"bytes,6,opt,name=sdk_capabilities,json=sdkCapabilities,proto3" json:"sdk_capabilities,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Executable path pattern for portless processes (RFD 111).
+	// Mutually exclusive with port.
+	ExePattern    string `protobuf:"bytes,7,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConnectServiceRequest) Reset() {
@@ -1152,6 +1155,13 @@ func (x *ConnectServiceRequest) GetSdkCapabilities() *ServiceSdkCapabilities {
 		return x.SdkCapabilities
 	}
 	return nil
+}
+
+func (x *ConnectServiceRequest) GetExePattern() string {
+	if x != nil {
+		return x.ExePattern
+	}
+	return ""
 }
 
 // ServiceSdkCapabilities describes the SDK integration status (RFD 060).
@@ -1551,8 +1561,11 @@ type ServiceStatus struct {
 	HasMonitor bool `protobuf:"varint,15,opt,name=has_monitor,json=hasMonitor,proto3" json:"has_monitor,omitempty"`
 	// Highest active observation tier (0 = observed, 1 = watched).
 	ObservationTier uint32 `protobuf:"varint,16,opt,name=observation_tier,json=observationTier,proto3" json:"observation_tier,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Executable path pattern for portless services (RFD 111). Empty for
+	// port-based services.
+	ExePattern    string `protobuf:"bytes,17,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ServiceStatus) Reset() {
@@ -1695,6 +1708,13 @@ func (x *ServiceStatus) GetObservationTier() uint32 {
 		return x.ObservationTier
 	}
 	return 0
+}
+
+func (x *ServiceStatus) GetExePattern() string {
+	if x != nil {
+		return x.ExePattern
+	}
+	return ""
 }
 
 // EbpfCapabilities describes what eBPF features are supported on an agent (RFD 013).
@@ -4716,14 +4736,16 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rhas_sys_admin\x18\x04 \x01(\bR\vhasSysAdmin\x12$\n" +
 	"\x0ehas_sys_ptrace\x18\x05 \x01(\bR\fhasSysPtrace\x12)\n" +
 	"\x11has_shared_pid_ns\x18\x06 \x01(\bR\x0ehasSharedPidNs\x120\n" +
-	"\x14cri_socket_available\x18\a \x01(\bR\x12criSocketAvailable\"\xe4\x02\n" +
+	"\x14cri_socket_available\x18\a \x01(\bR\x12criSocketAvailable\"\x85\x03\n" +
 	"\x15ConnectServiceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
 	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12I\n" +
 	"\x06labels\x18\x05 \x03(\v21.coral.agent.v1.ConnectServiceRequest.LabelsEntryR\x06labels\x12Q\n" +
-	"\x10sdk_capabilities\x18\x06 \x01(\v2&.coral.agent.v1.ServiceSdkCapabilitiesR\x0fsdkCapabilities\x1a9\n" +
+	"\x10sdk_capabilities\x18\x06 \x01(\v2&.coral.agent.v1.ServiceSdkCapabilitiesR\x0fsdkCapabilities\x12\x1f\n" +
+	"\vexe_pattern\x18\a \x01(\tR\n" +
+	"exePattern\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x02\n" +
@@ -4756,7 +4778,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rsource_filter\x18\x01 \x01(\x0e2#.coral.agent.v1.ServiceNamingSourceH\x00R\fsourceFilter\x88\x01\x01B\x10\n" +
 	"\x0e_source_filter\"Q\n" +
 	"\x14ListServicesResponse\x129\n" +
-	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xad\x05\n" +
+	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xce\x05\n" +
 	"\rServiceStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -4779,7 +4801,9 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rnaming_source\x18\x0e \x01(\x0e2#.coral.agent.v1.ServiceNamingSourceR\fnamingSource\x12\x1f\n" +
 	"\vhas_monitor\x18\x0f \x01(\bR\n" +
 	"hasMonitor\x12)\n" +
-	"\x10observation_tier\x18\x10 \x01(\rR\x0fobservationTier\x1a9\n" +
+	"\x10observation_tier\x18\x10 \x01(\rR\x0fobservationTier\x12\x1f\n" +
+	"\vexe_pattern\x18\x11 \x01(\tR\n" +
+	"exePattern\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc9\x02\n" +

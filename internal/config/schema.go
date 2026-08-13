@@ -570,6 +570,10 @@ type AgentConfig struct {
 		Port           int    `yaml:"port"`
 		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
 		Type           string `yaml:"type,omitempty"`
+		// ExePattern identifies a portless process by executable pattern
+		// (RFD 111) instead of a listening port. Mutually exclusive with
+		// Port: exactly one of the two must be set.
+		ExePattern string `yaml:"exe_pattern,omitempty"`
 	} `yaml:"services"`
 	Beyla               BeylaConfig               `yaml:"beyla,omitempty"`
 	SystemMetrics       SystemMetricsConfig       `yaml:"system_metrics,omitempty"`
