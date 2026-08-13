@@ -46,7 +46,7 @@ coral version
 3. **Bootstrap Agent** - `coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...>`
    initializes agent identity
 4. **Start Agents** - `coral agent start` (now uses mTLS identity)
-5. **Connect Services** - `coral connect frontend:3000 api:8080` or use
+5. **Watch Services** - `coral services watch frontend:3000 api:8080` or use
    `--connect` at startup
 6. **Query Metrics** - `coral query metrics my-service --since 1h`
 7. **AI Debug** - `coral ask "what services are running?"`
@@ -54,7 +54,7 @@ coral version
 **Agent Startup Modes:**
 
 ```bash
-# Passive mode (no monitoring, use 'coral connect' later)
+# Passive mode (no monitoring, use 'coral services watch' later)
 coral agent start
 
 # Connect services at startup
@@ -723,8 +723,9 @@ needing to query different data sources separately.
 **Available Commands:**
 
 ```bash
-# Service discovery (dual-source: registry + telemetry)
-coral service list [--source <type>] [--format json]
+# Service management and discovery
+coral services [--agent <id> | --local] [--source auto|watched]
+coral services watch <service-spec>...
 
 # Quick health overview (recommended first step)
 coral query summary [service] [--since <duration>]
@@ -755,21 +756,18 @@ architecture documentation.
 
 **Service Sources:**
 
-- **REGISTERED** - Services explicitly connected via `coral connect` or
-  `--connect` flag
-- **OBSERVED** - Services auto-observed from HTTP/gRPC traffic or OTLP data
-- **VERIFIED** - Services verified (both registered AND has telemetry data - ideal state)
+- **watched** - Services explicitly registered with `coral services watch`
+- **auto** - Services observed automatically by the agent
 
 **Commands:**
 
 ```bash
 # Operational view: List all services with agent/health status
-coral colony service list
+coral services
 
 # Filter by source type
-coral colony service list --source registered    # Only explicitly connected
-coral colony service list --source observed      # Only auto-observed
-coral colony service list --source verified      # Verified services
+coral services --source watched                   # Explicitly watched services
+coral services --source auto                      # Auto-observed services
 
 # Telemetry/analytics view: Query service metrics and performance
 coral query summary                              # All services with telemetry
@@ -779,7 +777,7 @@ coral query summary api --since 10m              # Specific service metrics
 **Example Output (Operational View):**
 
 ```bash
-$ coral colony service list
+$ coral services
 Services (3) at 2026-01-15 20:47:14 UTC:
 
 SERVICE       TYPE   INSTANCES   SOURCE      AGENTS
@@ -790,9 +788,8 @@ legacy-api    http   1           REGISTERED  agent-3 (100.64.0.4, ⚠ degraded)
 
 **Source Types:**
 
-- `REGISTERED` - Explicitly connected, no recent telemetry
-- `OBSERVED` - Auto-observed from telemetry only
-- `VERIFIED` - Registered AND has telemetry (ideal state)
+- `watched` - Explicitly registered for enriched observation
+- `auto` - Auto-observed by the agent
 
 **Example Output (Telemetry View):**
 
@@ -816,16 +813,16 @@ Service Health Summary:
 
 ```bash
 # Find all actively running services (operational view)
-coral colony service list
+coral services
 
 # Find unregistered services sending traffic
-coral colony service list --source observed
+coral services --source auto
 
 # Production monitoring (only explicitly configured services)
-coral colony service list --source registered
+coral services --source watched
 
 # Investigate flaky service health
-coral colony service list  # Look for UNHEALTHY status
+coral services  # Look for unhealthy status
 
 # Analyze service telemetry and performance
 coral query summary                    # All services
@@ -836,20 +833,20 @@ coral query summary api --since 10m    # Specific service metrics
 
 **Q: Service not appearing?**
 
-- Check registered services: `coral colony service list`
+- Check services: `coral services`
 - Check telemetry data: `coral query summary`
 - Verify telemetry is being generated
 
 **Q: Service shows as OBSERVED - is this bad?**
 
 - No! It means Coral auto-observed it from traffic
-- To get health monitoring, explicitly connect: `coral connect <service>:<port>`
+- To get health monitoring, explicitly watch: `coral services watch <service>:<port>`
 
 **Q: Service shows as UNHEALTHY?**
 
 - Service is registered but health checks failing
 - Data is still queryable: `coral query summary <service>`
-- Reconnect if needed: `coral connect <service>:<port>`
+- Watch again if needed: `coral services watch <service>:<port>`
 
 ---
 

@@ -18,7 +18,7 @@ import (
 // 1. Query summary command (coral query summary)
 // 2. Query traces command (coral query traces)
 // 3. Query metrics command (coral query metrics)
-// 4. Service list command (coral colony service list)
+// 4. Service list command (coral services)
 // 5. Flag combinations (--service, --time, --limit)
 // 6. Output formatting (table vs JSON)
 //
@@ -45,7 +45,7 @@ func (s *CLIQuerySuite) SetupSuite() {
 
 	// Ensure services are connected for query tests.
 	// This populates the services registry table via ConnectService API,
-	// allowing registry-based queries (like 'coral colony service list') to work.
+	// allowing registry-based queries (like 'coral services') to work.
 	s.ensureServicesConnected()
 
 	s.T().Logf("CLI environment ready: endpoint=%s", colonyEndpoint)
@@ -101,14 +101,14 @@ func (s *CLIQuerySuite) TestQuerySummaryCommand() {
 	s.T().Logf("Query with service filter exit code: %d", resultWithService.ExitCode)
 }
 
-// TestQueryServicesCommand tests 'coral colony service list' output.
+// TestQueryServicesCommand tests 'coral services' output and its legacy alias.
 //
 // Validates:
 // - Lists discovered services
 // - Table and JSON formats work
 // - Service information is present
 func (s *CLIQuerySuite) TestQueryServicesCommand() {
-	s.T().Log("Testing 'coral colony service list' command...")
+	s.T().Log("Testing 'coral services' command...")
 
 	// Test table format
 	result := helpers.QueryServices(s.ctx, s.cliEnv)
@@ -120,6 +120,11 @@ func (s *CLIQuerySuite) TestQueryServicesCommand() {
 	// Verify output structure
 	rows := helpers.ParseTableOutput(result.Output)
 	s.Require().GreaterOrEqual(len(rows), 1, "Should have at least headers")
+
+	// The legacy path remains a permanent hidden alias.
+	legacy := s.cliEnv.Run(s.ctx, "colony", "service", "list")
+	legacy.MustSucceed(s.T())
+	s.Contains(legacy.Output, "SERVICE", "legacy alias should render the services table")
 
 	// Test JSON format
 	// TODO: add format json
@@ -391,8 +396,8 @@ func (s *CLIQuerySuite) TestCLIQueryTopology() {
 	// s.debugBeylaTracesLocal()
 
 	if timedOut {
-		s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 		s.debugBeylaTracesLocal()
+		s.Require().Fail("timed out waiting for otel-app → cpu-app edge in coral query topology output")
 		return
 	}
 

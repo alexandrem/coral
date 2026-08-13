@@ -17,6 +17,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/query"
 	"github.com/coral-mesh/coral/internal/cli/run"
 	"github.com/coral-mesh/coral/internal/cli/script"
+	"github.com/coral-mesh/coral/internal/cli/services"
 	"github.com/coral-mesh/coral/internal/cli/terminal"
 	"github.com/coral-mesh/coral/internal/cli/tunhelper"
 	"github.com/coral-mesh/coral/pkg/version"
@@ -58,7 +59,8 @@ func init() {
 	rootCmd.AddCommand(colony.NewColonyCmd())
 	rootCmd.AddCommand(config.NewConfigCmd()) // RFD 050 - Config management commands.
 	rootCmd.AddCommand(agent.NewAgentCmd())
-	rootCmd.AddCommand(agent.NewConnectCmd())
+	rootCmd.AddCommand(services.NewCmd())
+	rootCmd.AddCommand(services.NewConnectAliasCmd())
 	rootCmd.AddCommand(mesh.NewMeshCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())

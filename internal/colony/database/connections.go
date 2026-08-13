@@ -50,17 +50,17 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	query := `
 		WITH candidates AS (
 			-- All spans within the relevant window (since - 60s)
-			SELECT * FROM beyla_traces 
+			SELECT * FROM beyla_traces
 			WHERE start_time >= ?
 		),
 		child_spans AS (
 			-- Destination spans to be matched (since)
-			SELECT * FROM candidates 
+			SELECT * FROM candidates
 			WHERE start_time >= ?
 		),
 		matches AS (
 			-- STRATEGY 1: Direct parent_span_id link (Precise)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
 				LOWER(c.service_name) as to_service,
@@ -74,7 +74,7 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			UNION ALL
 
 			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
 				LOWER(c.service_name) as to_service,
@@ -91,7 +91,7 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			UNION ALL
 
 			-- STRATEGY 3: Time-based correlation (Last resort fallback)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
 				LOWER(c.service_name) as to_service,
@@ -107,14 +107,14 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			SELECT from_service, to_service, start_time
 			FROM matches
 			QUALIFY row_number() OVER (
-				PARTITION BY child_id 
+				PARTITION BY child_id
 				ORDER BY priority ASC, ABS(EXTRACT(EPOCH FROM start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent_time::TIMESTAMP)) ASC
 			) = 1
 		),
 		aggregated AS (
-			SELECT 
-				from_service, 
-				to_service, 
+			SELECT
+				from_service,
+				to_service,
 				'http' as protocol,
 				COUNT(*) as connection_count,
 				MIN(start_time) as first_observed,
