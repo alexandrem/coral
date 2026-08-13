@@ -12,9 +12,11 @@ import (
 )
 
 // ProcFSProvider discovers processes via the Linux /proc filesystem. A
-// socket-table scan (/proc/net/tcp[6]) finds every listening server; a full
-// process walk (/proc/<pid>/comm) finds every other running process, which
-// is reported as a client-only candidate.
+// socket-table scan (/proc/net/tcp[6]) finds listening servers and associates
+// their ports with processes. Automatic discovery intentionally reports only
+// those servers: treating every PID without a listening socket as a
+// client-only workload generates instrumentation rules for kernel threads,
+// system daemons, and Coral-managed processes such as Beyla itself.
 type ProcFSProvider struct {
 	// procRoot is the root of the /proc filesystem. Defaults to "/proc" via
 	// root(); overridable in tests.
@@ -40,9 +42,9 @@ func (p *ProcFSProvider) root() string {
 	return "/proc"
 }
 
-// Discover scans the socket table for listening ports, then walks every
-// running process, marking any PID absent from the socket table as
-// client-only.
+// Discover scans the socket table for listening ports and returns the
+// processes that own them. Client-only workloads can still be instrumented
+// explicitly through static discovery or a configured Beyla service.
 func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error) {
 	root := p.root()
 
@@ -66,11 +68,13 @@ func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error)
 		}
 
 		ports := portsByPID[pid]
+		if len(ports) == 0 {
+			continue
+		}
 		candidates = append(candidates, ProcessCandidate{
-			PID:          pid,
-			Ports:        ports,
-			Name:         name,
-			IsClientOnly: len(ports) == 0,
+			PID:   pid,
+			Ports: ports,
+			Name:  name,
 		})
 	}
 

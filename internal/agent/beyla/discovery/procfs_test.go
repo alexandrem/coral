@@ -90,7 +90,7 @@ func TestProcFSProviderServerProcess(t *testing.T) {
 	}
 }
 
-func TestProcFSProviderClientOnlyProcess(t *testing.T) {
+func TestProcFSProviderSkipsClientOnlyProcess(t *testing.T) {
 	root := t.TempDir()
 
 	// PID 200: a worker process with no listening socket.
@@ -103,15 +103,8 @@ func TestProcFSProviderClientOnlyProcess(t *testing.T) {
 		t.Fatalf("Discover() error = %v", err)
 	}
 
-	c := findCandidate(t, candidates, 200)
-	if c.Name != "kafka-consumer" {
-		t.Errorf("Name = %q, want %q", c.Name, "kafka-consumer")
-	}
-	if len(c.Ports) != 0 {
-		t.Errorf("Ports = %v, want empty", c.Ports)
-	}
-	if !c.IsClientOnly {
-		t.Errorf("IsClientOnly = false, want true for a process with no listening socket")
+	if len(candidates) != 0 {
+		t.Errorf("Discover() returned %d candidates, want none for a client-only process: %+v", len(candidates), candidates)
 	}
 }
 
@@ -125,8 +118,12 @@ func TestProcFSProviderProcessExitsBetweenScans(t *testing.T) {
 		t.Fatalf("failed to create pid dir: %v", err)
 	}
 
-	// A healthy process should still be reported.
+	// A healthy listening process should still be reported.
 	addFakeProcess(t, root, 100, "otel-app")
+	addFakeSocket(t, root, 100, 3, "12345")
+	writeSocketTable(t, root, "net/tcp", [][3]string{
+		{"0100007F:1F90", "0A", "12345"},
+	})
 
 	p := &ProcFSProvider{procRoot: root}
 	candidates, err := p.Discover(context.Background())
