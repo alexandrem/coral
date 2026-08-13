@@ -1,5 +1,5 @@
 ---
-rfd: "112"
+rfd: "111"
 title: "Connect by Executable Pattern"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "agent", "cli", "service-discovery", "beyla" ]
 ---
 
-# RFD 112 - Connect by Executable Pattern
+# RFD 111 - Connect by Executable Pattern
 
 **Status:** 🚧 Draft
 
@@ -36,7 +36,7 @@ has no way to represent a service without one. There is currently no explicit,
 user-driven way to tell Coral "watch this process" when that process never
 listens on a socket.
 
-RFD 102 closes part of this gap, but only for *automatic* discovery:
+RFD 102 closes part of this gap, but only for _automatic_ discovery:
 `ProcFSProvider` walks `/proc/<pid>/comm` under `MonitorAll` and picks up
 client-only processes on its own. It does not help a user who wants to
 **explicitly and deterministically** connect a specific portless process —
@@ -157,48 +157,43 @@ Agent Server: ConnectService handler
 ### Component Changes
 
 1. **`internal/cli/agent/connect.go`** (CLI):
-
-    - Add `--exe-pattern` flag (repeatable-safe: applies to the single
-      spec it's paired with, consistent with existing `--port`/`--health`
-      legacy flags).
-    - Extend spec grammar: `name[:port][:health][:type]` where `port` may be
-      omitted if `--exe-pattern` (or a new `:exe:<pattern>` inline token,
-      following the project's preference for explicit flags over more inline
-      tokens) is supplied. Reject specs with neither a port nor a pattern,
-      and specs with both.
+   - Add `--exe-pattern` flag (repeatable-safe: applies to the single
+     spec it's paired with, consistent with existing `--port`/`--health`
+     legacy flags).
+   - Extend spec grammar: `name[:port][:health][:type]` where `port` may be
+     omitted if `--exe-pattern` (or a new `:exe:<pattern>` inline token,
+     following the project's preference for explicit flags over more inline
+     tokens) is supplied. Reject specs with neither a port nor a pattern,
+     and specs with both.
 
 2. **`proto/coral/mesh/v1/auth.proto`** and **`proto/coral/agent/v1/agent.proto`**:
-
-    - Add `string exe_pattern = 9;` to `ServiceInfo` and
-      `string exe_pattern = 7;` to `ConnectServiceRequest`.
-    - `port` becomes conditionally required: exactly one of `port` (non-zero)
-      or `exe_pattern` (non-empty) must be set; validated server-side.
+   - Add `string exe_pattern = 9;` to `ServiceInfo` and
+     `string exe_pattern = 7;` to `ConnectServiceRequest`.
+   - `port` becomes conditionally required: exactly one of `port` (non-zero)
+     or `exe_pattern` (non-empty) must be set; validated server-side.
 
 3. **`internal/sys/proc/proc.go`**:
-
-    - Add `FindPidByExePattern(pattern string) (int32, error)`: compiles the
-      pattern as a regex, scans `ListPids()`, matches against
-      `/proc/<pid>/comm` then `/proc/<pid>/cmdline` (first match wins).
-      Shared by `ServiceMonitor` (this RFD) and `ProcFSProvider` (RFD 102)
-      so pattern-matching semantics never diverge between the explicit and
-      automatic paths.
+   - Add `FindPidByExePattern(pattern string) (int32, error)`: compiles the
+     pattern as a regex, scans `ListPids()`, matches against
+     `/proc/<pid>/comm` then `/proc/<pid>/cmdline` (first match wins).
+     Shared by `ServiceMonitor` (this RFD) and `ProcFSProvider` (RFD 102)
+     so pattern-matching semantics never diverge between the explicit and
+     automatic paths.
 
 4. **`internal/agent/monitor.go`** (`ServiceMonitor`):
-
-    - `discoverProcessInfo`: when `service.Port == 0` and
-      `service.ExePattern != ""`, resolve via `FindPidByExePattern` instead
-      of `FindPidByPort`.
-    - `performHealthCheck`: add a third branch — process-liveness check —
-      selected when `service.Port == 0`. Tracks consecutive misses against
-      `MissedLivenessThreshold` before flipping to `ServiceStatusUnhealthy`.
+   - `discoverProcessInfo`: when `service.Port == 0` and
+     `service.ExePattern != ""`, resolve via `FindPidByExePattern` instead
+     of `FindPidByPort`.
+   - `performHealthCheck`: add a third branch — process-liveness check —
+     selected when `service.Port == 0`. Tracks consecutive misses against
+     `MissedLivenessThreshold` before flipping to `ServiceStatusUnhealthy`.
 
 5. **`internal/agent/agent.go`** (`ConnectService`/`DisconnectService`
    handlers, RFD 102 integration point):
-
-    - Build the `ProcessCandidate` passed to
-      `Manager.SetStaticCandidates` from `service.ExePattern` when
-      `service.Port == 0` (`IsClientOnly: true`, no ports), instead of the
-      single-port candidate used for port-based connects.
+   - Build the `ProcessCandidate` passed to
+     `Manager.SetStaticCandidates` from `service.ExePattern` when
+     `service.Port == 0` (`IsClientOnly: true`, no ports), instead of the
+     single-port candidate used for port-based connects.
 
 **Configuration Example:**
 
@@ -239,7 +234,7 @@ Error: service "worker" cannot specify both a port and --exe-pattern
 ### Phase 2: CLI and RPC validation
 
 - [ ] Add `--exe-pattern` flag to `coral connect` / `coral agent start
-      --connect`
+    --connect`
 - [ ] Extend spec parsing to allow an omitted port when `--exe-pattern` is
       set; reject neither-nor and both-set cases with a clear error
 - [ ] Server-side validation in the `ConnectService` handler: exactly one of
@@ -293,7 +288,7 @@ message ServiceInfo {
   string binary_path = 7;
   string binary_hash = 8;
 
-  // Executable path pattern for portless processes (RFD 112).
+  // Executable path pattern for portless processes (RFD 111).
   // Regex matched against /proc/<pid>/comm, falling back to /proc/<pid>/cmdline.
   // Mutually exclusive with port: exactly one of the two must be set.
   string exe_pattern = 9;
@@ -310,7 +305,7 @@ message ConnectServiceRequest {
   map<string, string> labels = 5;
   ServiceSdkCapabilities sdk_capabilities = 6;
 
-  // Executable path pattern for portless processes (RFD 112).
+  // Executable path pattern for portless processes (RFD 111).
   // Mutually exclusive with port.
   string exe_pattern = 7;
 }
