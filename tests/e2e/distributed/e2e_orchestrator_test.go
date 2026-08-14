@@ -184,6 +184,13 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	s.Run("ContinuousProfiling", profilingSuite.TestContinuousProfiling)
 	s.Run("ContinuousMemoryProfiling", profilingSuite.TestContinuousMemoryProfiling)
 
+	// Run ContainerNamespaceSuite tests (RFD 112: namespace-aware process
+	// discovery) with the same shared fixture.
+	containerNamespaceSuite := NewContainerNamespaceSuite(s.E2EDistributedSuite, s.T())
+
+	s.Run("NetnsAppAutoDiscovered", containerNamespaceSuite.TestNetnsAppAutoDiscovered)
+	s.Run("NetnsAppBeylaCapturesTraffic", containerNamespaceSuite.TestNetnsAppBeylaCapturesTraffic)
+
 	if !s.T().Failed() {
 		s.passiveObservability = true
 		s.T().Log("✓ GROUP 3 PASSED - Passive observability working")

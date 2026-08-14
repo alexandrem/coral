@@ -4,28 +4,40 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog"
 )
 
 // ProcFSProvider discovers processes via the Linux /proc filesystem. A
-// socket-table scan (/proc/net/tcp[6]) finds listening servers and associates
-// their ports with processes. Automatic discovery intentionally reports only
-// those servers: treating every PID without a listening socket as a
-// client-only workload generates instrumentation rules for kernel threads,
-// system daemons, and Coral-managed processes such as Beyla itself.
+// socket-table scan (/proc/<pid>/net/tcp[6]) finds listening servers and
+// associates their ports with processes, scanning every network namespace
+// visible to the agent so containerized listeners (e.g. Docker Compose
+// applications) are discovered alongside host processes (RFD 112). Automatic
+// discovery intentionally reports only those servers: treating every PID
+// without a listening socket as a client-only workload generates
+// instrumentation rules for kernel threads, system daemons, and
+// Coral-managed processes such as Beyla itself.
 type ProcFSProvider struct {
 	// procRoot is the root of the /proc filesystem. Defaults to "/proc" via
 	// root(); overridable in tests.
 	procRoot string
+
+	logger zerolog.Logger
 }
 
 // NewProcFSProvider creates a ProcFSProvider rooted at /proc.
-func NewProcFSProvider() *ProcFSProvider {
-	return &ProcFSProvider{procRoot: "/proc"}
+func NewProcFSProvider(logger zerolog.Logger) *ProcFSProvider {
+	return &ProcFSProvider{
+		procRoot: "/proc",
+		logger:   logger.With().Str("component", "procfs_provider").Logger(),
+	}
 }
 
 // Name returns the provider's identifier.
@@ -42,9 +54,11 @@ func (p *ProcFSProvider) root() string {
 	return "/proc"
 }
 
-// Discover scans the socket table for listening ports and returns the
-// processes that own them. Client-only workloads can still be instrumented
-// explicitly through static discovery or a configured Beyla service.
+// Discover scans every visible network namespace's socket table for
+// listening ports and returns the processes that own them, regardless of
+// whether they run in the host namespace or a container's. Client-only
+// workloads can still be instrumented explicitly through static discovery
+// or a configured Beyla service.
 func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error) {
 	root := p.root()
 
@@ -53,10 +67,17 @@ func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error)
 		return nil, fmt.Errorf("failed to list processes: %w", err)
 	}
 
-	portsByPID, err := listeningPortsByPID(root, pids)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan socket table: %w", err)
+	nsGroups, pidNamespace, permissionDenied := groupPIDsByNamespace(root, pids)
+	if permissionDenied > 0 {
+		// Aggregated into one warning per cycle rather than one per PID, to
+		// avoid a log storm on a host running many containers the agent
+		// cannot inspect (RFD 112: report this as a capability warning
+		// rather than silently under-reporting container discovery).
+		p.logger.Warn().
+			Int("processes", permissionDenied).
+			Msg("Insufficient permission to read network namespace for some processes; container discovery may be incomplete")
 	}
+	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace)
 
 	candidates := make([]ProcessCandidate, 0, len(pids))
 	for _, pid := range pids {
@@ -116,21 +137,80 @@ func readComm(root string, pid int) (string, bool) {
 	return strings.TrimSpace(string(data)), true
 }
 
-// listeningPortsByPID returns, for each PID with at least one listening
-// socket, the set of local ports it is bound to. It cross-references the
-// socket table (inode -> port) against each process's open file descriptors
-// (fd -> socket inode).
-func listeningPortsByPID(root string, pids []int) (map[int][]int, error) {
-	inodeToPort, err := scanListeningSockets(root)
+// netNamespaceID identifies a Linux network namespace by the stable string
+// exposed through the /proc/<pid>/ns/net symlink target (e.g.
+// "net:[4026531993]"). Socket inode numbers are only unique within a
+// namespace, so any join across processes must key on (netNamespaceID,
+// inode), never on inode alone.
+type netNamespaceID string
+
+// readNetNamespace resolves the network namespace identity of pid via its
+// /proc/<pid>/ns/net symlink. The returned error is nil unless the symlink
+// cannot be read, e.g. the process exited or the caller lacks permission.
+func readNetNamespace(root string, pid int) (netNamespaceID, error) {
+	link, err := os.Readlink(filepath.Join(root, strconv.Itoa(pid), "ns", "net"))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	result := make(map[int][]int)
-	if len(inodeToPort) == 0 {
-		return result, nil
-	}
+	return netNamespaceID(link), nil
+}
+
+// groupPIDsByNamespace resolves each PID's network namespace and groups PIDs
+// sharing one namespace together. PIDs whose namespace cannot be read are
+// omitted from both return values; they cannot be attributed to a listening
+// socket this cycle. The third return value counts PIDs skipped specifically
+// due to a permission error, distinct from processes that simply exited, so
+// the caller can surface a capability warning instead of silently
+// under-reporting container discovery.
+func groupPIDsByNamespace(root string, pids []int) (map[netNamespaceID][]int, map[int]netNamespaceID, int) {
+	groups := make(map[netNamespaceID][]int)
+	pidNamespace := make(map[int]netNamespaceID, len(pids))
+	permissionDenied := 0
 
 	for _, pid := range pids {
+		ns, err := readNetNamespace(root, pid)
+		if err != nil {
+			if os.IsPermission(err) {
+				permissionDenied++
+			}
+			continue
+		}
+		groups[ns] = append(groups[ns], pid)
+		pidNamespace[pid] = ns
+	}
+
+	return groups, pidNamespace, permissionDenied
+}
+
+// socketKey identifies a listening socket by the composite of its owning
+// network namespace and inode number, since inodes are only meaningful
+// within one namespace.
+type socketKey struct {
+	ns    netNamespaceID
+	inode string
+}
+
+// listeningPortsByPID returns, for each PID with at least one listening
+// socket, the set of local ports it is bound to. It scans one socket table
+// per network namespace, then cross-references each process's open file
+// descriptors (fd -> socket inode) against the namespace-scoped inode->port
+// map for the namespace that process belongs to.
+func (p *ProcFSProvider) listeningPortsByPID(root string, nsGroups map[netNamespaceID][]int, pidNamespace map[int]netNamespaceID) map[int][]int {
+	socketPorts := p.scanNamespaces(root, nsGroups)
+
+	result := make(map[int][]int)
+	if len(socketPorts) == 0 {
+		return result
+	}
+
+	pids := make([]int, 0, len(pidNamespace))
+	for pid := range pidNamespace {
+		pids = append(pids, pid)
+	}
+	sort.Ints(pids)
+
+	for _, pid := range pids {
+		ns := pidNamespace[pid]
 		fdDir := filepath.Join(root, strconv.Itoa(pid), "fd")
 		entries, err := os.ReadDir(fdDir)
 		if err != nil {
@@ -148,13 +228,74 @@ func listeningPortsByPID(root string, pids []int) (map[int][]int, error) {
 			if !ok {
 				continue
 			}
-			if port, ok := inodeToPort[inode]; ok {
+			if port, ok := socketPorts[socketKey{ns: ns, inode: inode}]; ok {
 				result[pid] = appendUniquePort(result[pid], port)
 			}
 		}
 	}
 
-	return result, nil
+	return result
+}
+
+// scanNamespaces reads one listening-socket table per network namespace in
+// nsGroups and returns their union, keyed by (namespace, inode). Namespaces
+// whose socket table cannot be read from any candidate PID are omitted; the
+// caller degrades to reporting no listeners for that namespace this cycle
+// rather than failing discovery for the other namespaces.
+func (p *ProcFSProvider) scanNamespaces(root string, nsGroups map[netNamespaceID][]int) map[socketKey]int {
+	result := make(map[socketKey]int)
+
+	nsIDs := make([]netNamespaceID, 0, len(nsGroups))
+	for ns := range nsGroups {
+		nsIDs = append(nsIDs, ns)
+	}
+	slices.Sort(nsIDs)
+
+	for _, ns := range nsIDs {
+		pids := append([]int{}, nsGroups[ns]...)
+		sort.Ints(pids)
+
+		table, ok := p.scanNamespaceSocketTable(root, ns, pids)
+		if !ok {
+			continue
+		}
+		for inode, port := range table {
+			result[socketKey{ns: ns, inode: inode}] = port
+		}
+	}
+
+	return result
+}
+
+// scanNamespaceSocketTable reads the listening-socket table for a network
+// namespace by trying each of its member PIDs, in ascending order, as a
+// representative. It retries the next PID whenever the current one has
+// exited or its socket table cannot be read, so one racing or unreadable
+// process does not hide an entire namespace's listeners. It returns false
+// only when no PID in the namespace could be read this cycle.
+func (p *ProcFSProvider) scanNamespaceSocketTable(root string, ns netNamespaceID, pids []int) (map[string]int, bool) {
+	var lastErr error
+
+	for _, pid := range pids {
+		pidRoot := filepath.Join(root, strconv.Itoa(pid))
+		if _, err := os.Stat(pidRoot); err != nil {
+			lastErr = err
+			continue
+		}
+
+		table, err := scanListeningSockets(pidRoot)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return table, true
+	}
+
+	p.logger.Debug().
+		Str("namespace", string(ns)).
+		AnErr("reason", lastErr).
+		Msg("Unable to read socket table for any process in network namespace; skipping namespace for this discovery cycle")
+	return nil, false
 }
 
 // parseSocketInode extracts the inode from an fd symlink target of the form
@@ -166,22 +307,23 @@ func parseSocketInode(link string) (string, bool) {
 	return strings.TrimSuffix(strings.TrimPrefix(link, "socket:["), "]"), true
 }
 
-// scanListeningSockets parses /proc/net/tcp and /proc/net/tcp6 for entries
-// in the LISTEN state, returning a map from socket inode to local port.
-func scanListeningSockets(root string) (map[string]int, error) {
+// scanListeningSockets parses <pidRoot>/net/tcp and <pidRoot>/net/tcp6 for
+// entries in the LISTEN state, returning a map from socket inode to local
+// port. pidRoot is a process-specific procfs directory (e.g.
+// "<root>/<pid>"), so the returned table reflects that process's network
+// namespace.
+func scanListeningSockets(pidRoot string) (map[string]int, error) {
 	result := make(map[string]int)
 
 	for _, name := range []string{"net/tcp", "net/tcp6"} {
-		entries, err := parseSocketTable(filepath.Join(root, name))
+		entries, err := parseSocketTable(filepath.Join(pidRoot, name))
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return nil, err
 		}
-		for inode, port := range entries {
-			result[inode] = port
-		}
+		maps.Copy(result, entries)
 	}
 
 	return result, nil
@@ -237,10 +379,8 @@ func parseSocketTable(path string) (map[string]int, error) {
 
 // appendUniquePort appends port to ports if not already present.
 func appendUniquePort(ports []int, port int) []int {
-	for _, p := range ports {
-		if p == port {
-			return ports
-		}
+	if slices.Contains(ports, port) {
+		return ports
 	}
 	return append(ports, port)
 }

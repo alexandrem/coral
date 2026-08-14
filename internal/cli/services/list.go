@@ -110,13 +110,13 @@ func listAgent(ctx context.Context, label, address string, filter *agentv1.Servi
 	}
 	fmt.Printf("Services on %s:\n\n", label)
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAME\tPORT\tSOURCE\tTIER\tPID\tHEALTH")
+	_, _ = fmt.Fprintln(w, "NAME\tPORT\tSOURCE\tTIER\tPID\tHEALTH")
 	for _, service := range services {
 		health := service.Status
 		if health == "" {
 			health = "-"
 		}
-		fmt.Fprintf(w, "%s\t%d\t%s\t%d\t%d\t%s\n", service.Name, service.Port, serviceSource(service), service.ObservationTier, service.ProcessId, health)
+		_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%d\t%d\t%s\n", service.Name, service.Port, serviceSource(service), service.ObservationTier, service.ProcessId, health)
 	}
 	return w.Flush()
 }
@@ -153,7 +153,7 @@ func listColony(ctx context.Context, colonyID, source, format string) error {
 	}
 	fmt.Printf("Services (%d) at %s:\n\n", len(services), time.Now().UTC().Format("2006-01-02 15:04:05 UTC"))
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "SERVICE\tTYPE\tINSTANCES\tSOURCE\tAGENTS")
+	_, _ = fmt.Fprintln(w, "SERVICE\tTYPE\tINSTANCES\tSOURCE\tAGENTS")
 	for _, service := range services {
 		agents := serviceAgents[strings.ToLower(service.Name)]
 		if len(agents) == 0 {
@@ -163,7 +163,7 @@ func listColony(ctx context.Context, colonyID, source, format string) error {
 		if serviceType == "" {
 			serviceType = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", service.Name, serviceType, service.InstanceCount, colonySource(service), strings.Join(agents, ", "))
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", service.Name, serviceType, service.InstanceCount, colonySource(service), strings.Join(agents, ", "))
 	}
 	return w.Flush()
 }

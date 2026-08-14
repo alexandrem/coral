@@ -43,6 +43,27 @@ services:
       retries: 3
       start_period: 10s
 
+  # Netns App - RFD 112 fixture: shares agent-0's PID namespace but keeps
+  # its own network namespace (no network_mode override), so its listening
+  # socket is invisible to a plain /proc/net/tcp scan from agent-0. Exercises
+  # namespace-aware ProcFSProvider discovery of ordinary Docker Compose apps.
+  netns-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/netns-app/Dockerfile
+    pid: "service:agent-0"
+    ports:
+      - "18085:8080"
+    depends_on:
+      agent-0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # SDK App - Application with Coral SDK for uprobe testing
   # Runs in agent-1's network AND PID namespace so agent can profile it
   sdk-app:

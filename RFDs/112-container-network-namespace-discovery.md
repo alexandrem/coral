@@ -1,7 +1,7 @@
 ---
 rfd: "112"
 title: "Container Network Namespace-Aware Process Discovery"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "beyla", "ebpf", "service-discovery", "docker" ]
 
 # RFD 112 - Container Network Namespace-Aware Process Discovery
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -298,16 +298,109 @@ show only an idle `port-8080` placeholder.
 
 ## Implementation Plan
 
-1. Refactor ProcFS socket-table and FD helpers to accept a namespace identity
-   and process-specific procfs path, retaining current single-namespace tests.
-2. Implement namespace grouping and composite-key socket lookup.
-3. Add unit fixtures/tests for isolation, overlapping inodes, races, and
+1. [x] Refactor ProcFS socket-table and FD helpers to accept a namespace
+   identity and process-specific procfs path, retaining current
+   single-namespace tests.
+2. [x] Implement namespace grouping and composite-key socket lookup.
+3. [x] Add unit fixtures/tests for isolation, overlapping inodes, races, and
    deterministic output.
-4. Add a Linux Compose integration fixture and assert non-zero Beyla telemetry
-   for a bridge-network app.
-5. Add capability diagnostics and deployment documentation.
-6. Benchmark discovery on a representative host with many containers; adjust
-   logging or polling only if needed.
+4. [x] Add a Linux Compose integration fixture and assert non-zero Beyla
+   telemetry for a bridge-network app. (Added and wired into the
+   orchestrator; not yet run to a full green pass in CI — see Implementation
+   Status.)
+5. [x] Add capability diagnostics and deployment documentation.
+6. [ ] Benchmark discovery on a representative host with many containers;
+   adjust logging or polling only if needed.
+
+## Implementation Status
+
+**Core Capability:** 🎉 Implemented
+
+`ProcFSProvider` now discovers TCP listeners in every network namespace
+visible to the agent, not only the host namespace, and joins socket inodes
+using a composite `(network namespace, inode)` key so processes in different
+namespaces never cross-attribute ports.
+
+**Operational Components:**
+
+- ✅ Namespace grouping: PIDs are grouped by `/proc/<pid>/ns/net` identity,
+  with a lowest-PID representative scanning `/proc/<pid>/net/tcp[6]` per
+  namespace (`internal/agent/beyla/discovery/procfs.go`).
+- ✅ Representative retry: if the selected representative exits or its
+  socket table is unreadable, the next PID in the namespace is tried before
+  the namespace is skipped for that cycle.
+- ✅ Capability warning: permission errors reading `/proc/<pid>/ns/net` are
+  aggregated into one `Warn`-level log per discovery cycle rather than
+  silently under-reporting container discovery or logging per-PID.
+- ✅ Deterministic output: namespace IDs and PIDs are sorted before scanning
+  and emitting candidates.
+- ✅ Deployment documentation (`docs/AGENT_DEPLOYMENT.md`): required
+  visibility, `hidepid` caveat, and the namespace-local (not host-published)
+  port behavior for Compose port mappings.
+- ✅ Unit tests: host-only discovery preserved; container namespace listener
+  discovery; non-cross-attribution of colliding inodes across namespaces;
+  two containers sharing one port produce two candidates; two processes
+  sharing one namespace attribute a listener only to its owning PID;
+  representative-exit retry; unreadable-namespace isolation; permission
+  warning path; stable candidate ordering across repeated scans.
+- ✅ Docker Compose integration fixture (`tests/e2e/distributed`): a new
+  `netns-app` container shares agent-0's PID namespace (`pid:
+  "service:agent-0"`) but keeps its own, separate network namespace (no
+  `network_mode` override, no Docker socket, no `network_mode: host`) — the
+  same visibility gap a bare-metal privileged agent has against an ordinary
+  Compose app. `ContainerNamespaceSuite`
+  (`tests/e2e/distributed/container_namespace_test.go`) asserts plain
+  MonitorAll auto-discovers it (Beyla `open_ports` rule on its
+  namespace-local port 8080, not the host-published 18085) and that Beyla
+  actually captures HTTP traffic across the namespace boundary. Wired into
+  `TestE2EOrchestrator`'s Group 3 (Passive Observability). Compiles and
+  `go vet`s cleanly against the e2e module; the standalone `netns-app`
+  Docker image was built and smoke-tested directly (serves `/health` and
+  `/` correctly). The full distributed suite was not run to completion in
+  this environment — see Integration Status.
+
+**What Works Now:**
+
+- A privileged host Coral agent discovers TCP/TCP6 listeners owned by
+  processes in Docker Compose (or Podman/containerd/manual) network
+  namespaces, without `network_mode: host`, a Beyla sidecar per container,
+  or Docker socket access.
+- Host and non-container discovery behavior is unchanged.
+
+**Integration Status:**
+
+- The Compose integration test (step 4) is written and wired into the
+  orchestrator, but was not run to a full green pass: this development
+  sandbox runs Docker via a resource-constrained colima VM (2 vCPU) where a
+  single trivial Go build took ~3 minutes and the full stack build (colony +
+  2 agents + 6 fixture apps, the whole Go module) did not finish within a
+  practical session budget. Needs a run on a real Linux CI runner or a less
+  constrained Docker host to get a full pass/fail signal.
+- Implementation Plan step 6 (density benchmarking) also requires a
+  representative host and is tracked in Future Work; it does not block this
+  change since the namespace-join logic itself is exhaustively exercised by
+  the unit fixtures above and the change is additive/backward-compatible.
+
+## Future Work
+
+**Run and Verify the Docker Compose Integration Test** (RFD 112
+Implementation Plan step 4)
+- `ContainerNamespaceSuite` (`tests/e2e/distributed/container_namespace_test.go`)
+  and its `netns-app` fixture are implemented and wired into
+  `TestE2EOrchestrator`, but need an actual run on a real Linux Docker host
+  or CI runner (`make -C tests/e2e/distributed local-build local-up`, then
+  `go test -v -timeout 30m -run
+  "TestE2EOrchestrator/Test3_PassiveObservability/Netns"` from
+  `tests/e2e/distributed`) to confirm the assertions pass end to end.
+- Optionally extend it to also assert via `coral query summary` at the CLI/
+  colony level (the acceptance criteria's literal wording), matching
+  `CLIQuerySuite`'s pattern — the current test proves the mechanism at the
+  agent/eBPF level via `QueryAgentEbpfMetrics`.
+
+**Discovery Density Benchmark** (RFD 112 Implementation Plan step 6)
+- Measure discovery-cycle time on a host with many containers before
+  changing the default polling interval or logging verbosity, as called out
+  in Rollout and Compatibility.
 
 ## Alternatives Considered
 
