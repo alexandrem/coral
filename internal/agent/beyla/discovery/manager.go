@@ -254,11 +254,11 @@ func merge(priorityGroups [][]ProcessCandidate) map[string]ProcessCandidate {
 }
 
 // mergeCandidates collapses priority-ordered candidates sharing one
-// mergeKey into a single ProcessCandidate. Name takes the first non-empty
-// value in priority order; Ports takes the first non-empty list. IsClientOnly
-// is derived from the merged Ports rather than copied, so a name-only
-// candidate (e.g. from EnvVarProvider) never masks port data reported by a
-// lower-priority candidate for the same process.
+// mergeKey into a single ProcessCandidate. Name and ExePathPattern take the
+// first non-empty value in priority order; Ports takes the first non-empty
+// list. IsClientOnly is derived from the merged Ports rather than copied, so
+// a name-only candidate (e.g. from EnvVarProvider) never masks port data
+// reported by a lower-priority candidate for the same process.
 func mergeCandidates(candidates []ProcessCandidate) ProcessCandidate {
 	var merged ProcessCandidate
 
@@ -268,6 +268,9 @@ func mergeCandidates(candidates []ProcessCandidate) ProcessCandidate {
 		}
 		if merged.Name == "" {
 			merged.Name = c.Name
+		}
+		if merged.ExePathPattern == "" {
+			merged.ExePathPattern = c.ExePathPattern
 		}
 		if len(merged.Ports) == 0 && len(c.Ports) > 0 {
 			merged.Ports = append([]int{}, c.Ports...)
@@ -311,7 +314,7 @@ func equalCandidateSets(a, b map[string]ProcessCandidate) bool {
 }
 
 func candidateEqual(a, b ProcessCandidate) bool {
-	if a.PID != b.PID || a.Name != b.Name || a.IsClientOnly != b.IsClientOnly {
+	if a.PID != b.PID || a.Name != b.Name || a.ExePathPattern != b.ExePathPattern || a.IsClientOnly != b.IsClientOnly {
 		return false
 	}
 	if len(a.Ports) != len(b.Ports) {
