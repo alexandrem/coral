@@ -267,6 +267,7 @@ func (v *ConfigValidator) loadAgentConfig() (*config.ResolvedConfig, []*types.Se
 				HealthEndpoint: svc.HealthEndpoint,
 				ServiceType:    svc.Type,
 				Labels:         make(map[string]string),
+				ExePattern:     svc.ExePattern,
 			}
 			serviceSpecs = append(serviceSpecs, spec)
 		}

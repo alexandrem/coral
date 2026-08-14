@@ -110,6 +110,12 @@ const (
 	// DefaultServiceCheckTimeout is the default timeout for agent health checks.
 	DefaultServiceCheckTimeout = 2 * time.Second
 
+	// DefaultMissedLivenessThreshold is the number of consecutive missed
+	// process-liveness checks (RFD 111) before a portless service is marked
+	// unhealthy. Debounces brief PID-table races rather than flapping on
+	// the first miss.
+	DefaultMissedLivenessThreshold = 2
+
 	// DefaultColonyServiceQueryTimeout is for querying service metadata.
 	DefaultColonyServiceQueryTimeout = 5 * time.Second
 

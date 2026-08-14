@@ -264,6 +264,10 @@ message ConnectServiceRequest {
 
   // SDK capabilities (RFD 060).
   ServiceSdkCapabilities sdk_capabilities = 6;
+
+  // Executable path pattern for portless processes (RFD 111).
+  // Mutually exclusive with port.
+  string exe_pattern = 7;
 }
 
 // ServiceSdkCapabilities describes the SDK integration status (RFD 060).
@@ -375,6 +379,9 @@ message ServiceStatus {
   bool has_monitor = 15;
   // Highest active observation tier (0 = observed, 1 = watched).
   uint32 observation_tier = 16;
+  // Executable path pattern for portless services (RFD 111). Empty for
+  // port-based services.
+  string exe_pattern = 17;
 }
 
 // EbpfCollectorKind defines the type of eBPF collector (RFD 013).

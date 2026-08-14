@@ -34,6 +34,12 @@ type ProcessCandidate struct {
 	// IsClientOnly is true when the process makes outbound calls but does
 	// not bind a listening socket.
 	IsClientOnly bool
+
+	// ExePathPattern is an explicit regex to match against the process's
+	// executable path, used as the Beyla exe_path rule verbatim instead of
+	// one derived from Name (RFD 111). Only meaningful when IsClientOnly is
+	// true; empty means derive the rule from Name as before.
+	ExePathPattern string
 }
 
 // ProcessDiscoveryProvider abstracts a source of process discovery

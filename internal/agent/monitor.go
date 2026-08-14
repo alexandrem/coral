@@ -51,6 +51,7 @@ type ServiceMonitor struct {
 	binaryHash          string
 	checkInterval       time.Duration
 	checkTimeout        time.Duration
+	missedLiveness      int                                                    // RFD 111: consecutive missed liveness checks for portless services.
 	functionCache       *FunctionCache                                         // RFD 063: Function discovery cache
 	onProcessDiscovered func(serviceName string, pid int32, binaryPath string) // RFD 072: Callback when PID is discovered
 	onSDKDiscovered     func(serviceName string, pid int32, sdkAddr string)    // RFD 077: Callback when SDK capabilities are set
@@ -183,8 +184,16 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		return
 	}
 
-	// findPidByPort finds the PID of the process listening on the given port.
-	pid, err := proc.FindPidByPort(int(m.service.Port))
+	var pid int32
+	var err error
+	if m.service.Port == 0 && m.service.ExePattern != "" {
+		// Portless service (RFD 111): resolve by executable pattern instead
+		// of listening port.
+		pid, err = proc.FindPidByExePattern(m.service.ExePattern)
+	} else {
+		// findPidByPort finds the PID of the process listening on the given port.
+		pid, err = proc.FindPidByPort(int(m.service.Port))
+	}
 	if err != nil {
 		// Don't log error on every check to avoid spam, unless debug logging is on
 		m.logger.Debug().Err(err).Msg("Failed to discover process ID")
@@ -224,6 +233,13 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 
 // performHealthCheck executes a health check for the service.
 func (m *ServiceMonitor) performHealthCheck() {
+	// Portless services (RFD 111) have no socket or HTTP endpoint to check;
+	// liveness is determined by whether a matching process still exists.
+	if m.service.Port == 0 {
+		m.performLivenessCheck()
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(m.ctx, m.checkTimeout)
 	defer cancel()
 
@@ -252,6 +268,47 @@ func (m *ServiceMonitor) performHealthCheck() {
 	m.lastCheck = time.Now()
 	m.lastError = err
 	m.mu.Unlock()
+}
+
+// performLivenessCheck re-resolves the service's exe_pattern to a PID (RFD
+// 111). The service is unhealthy only after DefaultMissedLivenessThreshold
+// consecutive misses, to avoid flapping on a brief PID-table race (e.g. the
+// process restarting between checks).
+func (m *ServiceMonitor) performLivenessCheck() {
+	pid, err := proc.FindPidByExePattern(m.service.ExePattern)
+
+	var newStatus ServiceStatus
+	var newErr error
+
+	m.mu.Lock()
+	if err == nil && pid != 0 {
+		m.missedLiveness = 0
+		newStatus = ServiceStatusHealthy
+	} else {
+		m.missedLiveness++
+		if err != nil {
+			newErr = err
+		} else {
+			newErr = fmt.Errorf("no process matching pattern %q", m.service.ExePattern)
+		}
+		if m.missedLiveness >= constants.DefaultMissedLivenessThreshold {
+			newStatus = ServiceStatusUnhealthy
+		} else {
+			// Below the miss threshold: hold the previous status rather
+			// than flapping to unhealthy on a single miss.
+			newStatus = m.status
+		}
+	}
+	m.status = newStatus
+	m.lastCheck = time.Now()
+	m.lastError = newErr
+	m.mu.Unlock()
+
+	if newErr != nil {
+		m.logger.Debug().Err(newErr).Int("missed_liveness", m.missedLiveness).Msg("Liveness check failed")
+	} else {
+		m.logger.Debug().Msg("Liveness check passed")
+	}
 }
 
 // checkHTTPHealth performs an HTTP health check.

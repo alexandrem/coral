@@ -180,17 +180,17 @@ func TestAgent_GetStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Set mixed statuses.
-		agent.services[8080].Monitor.mu.Lock()
-		agent.services[8080].Monitor.status = ServiceStatusHealthy
-		agent.services[8080].Monitor.mu.Unlock()
+		agent.services[serviceKey(8080, "")].Monitor.mu.Lock()
+		agent.services[serviceKey(8080, "")].Monitor.status = ServiceStatusHealthy
+		agent.services[serviceKey(8080, "")].Monitor.mu.Unlock()
 
-		agent.services[8081].Monitor.mu.Lock()
-		agent.services[8081].Monitor.status = ServiceStatusUnhealthy
-		agent.services[8081].Monitor.mu.Unlock()
+		agent.services[serviceKey(8081, "")].Monitor.mu.Lock()
+		agent.services[serviceKey(8081, "")].Monitor.status = ServiceStatusUnhealthy
+		agent.services[serviceKey(8081, "")].Monitor.mu.Unlock()
 
-		agent.services[8082].Monitor.mu.Lock()
-		agent.services[8082].Monitor.status = ServiceStatusHealthy
-		agent.services[8082].Monitor.mu.Unlock()
+		agent.services[serviceKey(8082, "")].Monitor.mu.Lock()
+		agent.services[serviceKey(8082, "")].Monitor.status = ServiceStatusHealthy
+		agent.services[serviceKey(8082, "")].Monitor.mu.Unlock()
 
 		status := agent.GetStatus()
 		assert.Equal(t, AgentStatusDegraded, status)
@@ -215,15 +215,15 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 
 	// Set known statuses.
 	now := time.Now()
-	agent.services[8080].Monitor.mu.Lock()
-	agent.services[8080].Monitor.status = ServiceStatusHealthy
-	agent.services[8080].Monitor.lastCheck = now
-	agent.services[8080].Monitor.mu.Unlock()
+	agent.services[serviceKey(8080, "")].Monitor.mu.Lock()
+	agent.services[serviceKey(8080, "")].Monitor.status = ServiceStatusHealthy
+	agent.services[serviceKey(8080, "")].Monitor.lastCheck = now
+	agent.services[serviceKey(8080, "")].Monitor.mu.Unlock()
 
-	agent.services[3000].Monitor.mu.Lock()
-	agent.services[3000].Monitor.status = ServiceStatusUnhealthy
-	agent.services[3000].Monitor.lastCheck = now
-	agent.services[3000].Monitor.mu.Unlock()
+	agent.services[serviceKey(3000, "")].Monitor.mu.Lock()
+	agent.services[serviceKey(3000, "")].Monitor.status = ServiceStatusUnhealthy
+	agent.services[serviceKey(3000, "")].Monitor.lastCheck = now
+	agent.services[serviceKey(3000, "")].Monitor.mu.Unlock()
 
 	statuses := agent.GetServiceStatuses()
 
@@ -250,7 +250,7 @@ func TestServiceMap_AutoFromOTLP(t *testing.T) {
 	agent.onBeylaServiceObserved(3000, 12345, "node")
 
 	agent.mu.RLock()
-	entry, ok := agent.services[3000]
+	entry, ok := agent.services[serviceKey(3000, "")]
 	agent.mu.RUnlock()
 
 	require.True(t, ok)
@@ -284,7 +284,7 @@ func TestServiceMap_WatchWithHealthEnriches(t *testing.T) {
 	require.NoError(t, err)
 
 	agent.mu.RLock()
-	entry := agent.services[3000]
+	entry := agent.services[serviceKey(3000, "")]
 	agent.mu.RUnlock()
 
 	assert.Equal(t, "frontend", entry.AuthoritativeName)
@@ -316,13 +316,108 @@ func TestServiceMap_WatchWithoutHealthNoMonitor(t *testing.T) {
 	require.NoError(t, err)
 
 	agent.mu.RLock()
-	entry := agent.services[6379]
+	entry := agent.services[serviceKey(6379, "")]
 	agent.mu.RUnlock()
 
 	assert.Equal(t, "redis", entry.AuthoritativeName)
 	assert.Equal(t, NamingSourceAuthoritative, entry.NamingSource)
 	assert.Equal(t, TierObserved, entry.Tier)
 	assert.Nil(t, entry.Monitor)
+}
+
+// TestServiceMap_ExePatternStartsMonitor verifies a portless connect (RFD
+// 111) gets a running ServiceMonitor even though it has no HealthEndpoint —
+// unlike a bare port-only connect, which stays Tier 0 (see
+// TestServiceMap_WatchWithoutHealthNoMonitor above). A portless service has
+// no other way to be liveness-checked.
+func TestServiceMap_ExePatternStartsMonitor(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	err = agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker",
+		ExePattern: "python.*consumer.py",
+	})
+	require.NoError(t, err)
+
+	agent.mu.RLock()
+	entry := agent.services[serviceKey(0, "worker")]
+	agent.mu.RUnlock()
+
+	assert.Equal(t, "worker", entry.AuthoritativeName)
+	assert.Equal(t, "python.*consumer.py", entry.ExePattern)
+	assert.Equal(t, TierWatched, entry.Tier)
+	require.NotNil(t, entry.Monitor)
+}
+
+// TestServiceMap_MultipleExePatternConnectsDontCollide verifies two
+// portless connects don't collide in the port-keyed service map (RFD 111
+// readiness gap: Port == 0 for every portless service).
+func TestServiceMap_MultipleExePatternConnectsDontCollide(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker-a",
+		ExePattern: "python.*a.py",
+	}))
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker-b",
+		ExePattern: "python.*b.py",
+	}))
+
+	assert.Equal(t, 2, agent.GetServiceCount())
+
+	agent.mu.RLock()
+	entryA, okA := agent.services[serviceKey(0, "worker-a")]
+	entryB, okB := agent.services[serviceKey(0, "worker-b")]
+	agent.mu.RUnlock()
+
+	require.True(t, okA)
+	require.True(t, okB)
+	assert.Equal(t, "worker-a", entryA.AuthoritativeName)
+	assert.Equal(t, "worker-b", entryB.AuthoritativeName)
+}
+
+// TestCollectDiscoveryCandidates_ExePattern verifies a portless connect
+// produces a client-only ProcessCandidate carrying the literal exe pattern
+// (RFD 111), not just the service name.
+func TestCollectDiscoveryCandidates_ExePattern(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker",
+		ExePattern: "python.*consumer.py",
+	}))
+
+	agent.mu.RLock()
+	candidates := agent.collectDiscoveryCandidatesLocked()
+	agent.mu.RUnlock()
+
+	require.Len(t, candidates, 1)
+	assert.Equal(t, "worker", candidates[0].Name)
+	assert.True(t, candidates[0].IsClientOnly)
+	assert.Equal(t, "python.*consumer.py", candidates[0].ExePathPattern)
+	assert.Empty(t, candidates[0].Ports)
 }
 
 func TestListServicesIncludesUnifiedServiceMapAndFiltersByNamingSource(t *testing.T) {

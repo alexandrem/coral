@@ -18,6 +18,11 @@ message ServiceInfo {
   int32 process_id = 6;        // Process ID running the service (0 if unknown)
   string binary_path = 7;      // Path to service executable (empty if unknown)
   string binary_hash = 8;      // Hash of binary for cache invalidation (optional)
+
+  // Executable path pattern for portless processes (RFD 111).
+  // Regex matched against /proc/<pid>/comm, falling back to /proc/<pid>/cmdline.
+  // Mutually exclusive with port: exactly one of the two must be set.
+  string exe_pattern = 9;
 }
 
 // Agent authentication during registration

@@ -121,6 +121,15 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 	s.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
 	s.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
 
+	// Run ExePatternSuite tests (RFD 111: connect-by-executable-pattern) with
+	// the same shared fixture.
+	exePatternSuite := NewExePatternSuite(s.E2EDistributedSuite, s.T())
+	defer exePatternSuite.TearDownSuite()
+
+	s.Run("ExePatternConnection", exePatternSuite.TestExePatternConnection)
+	s.Run("ExePatternRecoversAfterRestart", exePatternSuite.TestExePatternRecoversAfterRestart)
+	s.Run("ExePatternRejectsPortAndPattern", exePatternSuite.TestExePatternRejectsPortAndPattern)
+
 	if !s.T().Failed() {
 		s.servicesPassed = true
 		s.T().Log("✓ GROUP 2 PASSED - Service management working")

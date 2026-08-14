@@ -882,7 +882,10 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 
 	if len(candidates) > 0 {
 		servicePorts := make(map[string][]string)
-		clientOnlyNames := make(map[string]bool)
+		// clientOnlyPatterns maps name -> exe_path rule. An empty value
+		// means "derive from name" (".*name.*"); RFD 111 explicit connects
+		// set ExePathPattern, which is used verbatim instead.
+		clientOnlyPatterns := make(map[string]string)
 
 		for _, c := range candidates {
 			name := c.Name
@@ -898,7 +901,9 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 					}
 				}
 			} else if c.IsClientOnly {
-				clientOnlyNames[name] = true
+				if _, exists := clientOnlyPatterns[name]; !exists || c.ExePathPattern != "" {
+					clientOnlyPatterns[name] = c.ExePathPattern
+				}
 			}
 		}
 
@@ -915,10 +920,16 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		}
 
 		// Named exe_path rules for client-only processes (no listening
-		// socket to match on), e.g. workers and consumers (RFD 102).
-		for _, name := range sortedBoolKeys(clientOnlyNames) {
+		// socket to match on), e.g. workers and consumers (RFD 102). An
+		// explicit exe_pattern (RFD 111) is used verbatim; otherwise the
+		// rule is derived from the process name.
+		for _, name := range sortedMapKeys(clientOnlyPatterns) {
+			exePath := clientOnlyPatterns[name]
+			if exePath == "" {
+				exePath = ".*" + name + ".*"
+			}
 			cfg.Discovery.Services = append(cfg.Discovery.Services, InstrumentRule{
-				ExePath: ".*" + name + ".*",
+				ExePath: exePath,
 				Name:    name,
 			})
 		}
@@ -1235,9 +1246,9 @@ func sortedKeys(m map[string][]string) []string {
 	return keys
 }
 
-// sortedBoolKeys returns the keys of a map[string]bool in ascending order,
+// sortedMapKeys returns the keys of a map[string]string in ascending order,
 // for deterministic Beyla config generation.
-func sortedBoolKeys(m map[string]bool) []string {
+func sortedMapKeys(m map[string]string) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

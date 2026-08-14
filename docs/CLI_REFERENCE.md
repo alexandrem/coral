@@ -169,6 +169,64 @@ coral services watch <name> --port <port> [--health <path>]
 # coral connect is a permanent hidden alias for coral services watch.
 ```
 
+### Portless Processes (`--exe-pattern`)
+
+A process that never binds a listening port — a Kafka consumer, a cron job,
+a batch worker — can't be named `name:port`. `--exe-pattern` connects it by
+matching its executable instead (RFD 111). `--port` and `--exe-pattern` are
+mutually exclusive on a spec, and `--exe-pattern` only works with the
+single-service legacy form (`coral connect <name> --exe-pattern <regex>`),
+the same restriction as the existing `--port`/`--health` legacy flags.
+
+```bash
+# A Python consumer script, matched by its invocation.
+coral connect order-consumer --exe-pattern "python.*consumer\.py"
+
+# A Go binary, matched by its plain process name.
+coral connect billing-worker --exe-pattern "billing-worker"
+
+# A cron job's Java process, matched by a distinctive JVM arg.
+coral connect nightly-report --exe-pattern "java.*ReportGenerator"
+
+# Rejected: neither port nor pattern given.
+$ coral connect worker
+Error: service "worker" needs either a port or --exe-pattern
+
+# Rejected: both given — a service is identified by port XOR pattern, never both.
+$ coral connect worker:8080 --exe-pattern "python.*consumer.py"
+Error: service "worker" cannot specify both a port and --exe-pattern
+```
+
+The pattern is a regex, matched first against `/proc/<pid>/comm` (the
+kernel-truncated 15-byte process name) and, if that doesn't match, against
+the full `/proc/<pid>/cmdline` — so a short pattern like `"billing-worker"`
+matches the bare executable name, while a longer pattern needs to match
+arguments visible only in `cmdline` (e.g. a Python script name, since every
+Python process's `comm` is just `python` or `python3`). If a pattern is
+loose enough to match more than one running process (e.g. `".*"`), the
+first PID found wins — this is a usability footgun, not a security
+boundary, so write patterns as specific as the actual invocation.
+
+Instead of a TCP/HTTP check, the service is health-checked by process
+liveness: the agent re-resolves the pattern to a PID on every check
+interval, reporting healthy while a match exists and unhealthy after two
+consecutive misses (debounced so a brief PID-table race during a process
+restart doesn't flap the status). `coral services status` / `coral agent
+status` show the resolved PID and pattern the same way they show port and
+health endpoint for a port-based service.
+
+At agent startup, the equivalent is `agent.yaml`'s `services:` list (`coral
+agent start` has no `--connect` flag):
+
+```yaml
+services:
+  - name: api
+    port: 8080
+    health_endpoint: /health
+  - name: order-consumer
+    exe_pattern: "python.*consumer\\.py"
+```
+
 ---
 
 ## Terminal (Mission-Control TUI)

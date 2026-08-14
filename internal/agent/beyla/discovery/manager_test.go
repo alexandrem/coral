@@ -98,6 +98,31 @@ func TestStaticCandidateWinsOverProviderForSamePID(t *testing.T) {
 	}
 }
 
+// TestStaticExePathPatternSurvivesMerge verifies that an explicit
+// `coral connect --exe-pattern` rule reaches Beyla unchanged. Static
+// candidates are merged before configuration generation, so losing this
+// field here would silently fall back to a name-derived exe_path rule.
+func TestStaticExePathPatternSurvivesMerge(t *testing.T) {
+	ctx := context.Background()
+
+	var got []ProcessCandidate
+	mgr := NewDiscoveryManager(zerolog.Nop(), time.Second, func(c []ProcessCandidate) { got = c })
+	mgr.SetStaticCandidates([]ProcessCandidate{{
+		Name:           "worker-explicit",
+		IsClientOnly:   true,
+		ExePathPattern: "worker-app",
+	}})
+
+	mgr.Poll(ctx)
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 merged candidate, got %d", len(got))
+	}
+	if got[0].ExePathPattern != "worker-app" {
+		t.Errorf("ExePathPattern = %q, want literal explicit pattern %q", got[0].ExePathPattern, "worker-app")
+	}
+}
+
 // TestStaticCandidateJoinsProviderCandidateByPort exercises the case
 // central to RFD 102: a `coral connect` registration is made before the
 // underlying process has been observed (so it carries a port but no PID).

@@ -83,6 +83,24 @@ func (h *ServiceHandler) ConnectService(
 	ctx context.Context,
 	req *connect.Request[agentv1.ConnectServiceRequest],
 ) (*connect.Response[agentv1.ConnectServiceResponse], error) {
+	// Exactly one of port or exe_pattern must be set (RFD 111): a service is
+	// identified either by the socket it listens on or by its executable
+	// path, never both, never neither.
+	hasPort := req.Msg.Port != 0
+	hasPattern := req.Msg.ExePattern != ""
+	if hasPort && hasPattern {
+		return connect.NewResponse(&agentv1.ConnectServiceResponse{
+			Success: false,
+			Error:   fmt.Sprintf("service %q cannot specify both a port and exe_pattern", req.Msg.Name),
+		}), nil
+	}
+	if !hasPort && !hasPattern {
+		return connect.NewResponse(&agentv1.ConnectServiceResponse{
+			Success: false,
+			Error:   fmt.Sprintf("service %q needs either a port or exe_pattern", req.Msg.Name),
+		}), nil
+	}
+
 	// Convert request to ServiceInfo.
 	serviceInfo := &meshv1.ServiceInfo{
 		Name:           req.Msg.Name,
@@ -90,6 +108,7 @@ func (h *ServiceHandler) ConnectService(
 		HealthEndpoint: req.Msg.HealthEndpoint,
 		ServiceType:    req.Msg.ServiceType,
 		Labels:         req.Msg.Labels,
+		ExePattern:     req.Msg.ExePattern,
 	}
 
 	// Connect to service. Treat AlreadyExists as a soft error so that
@@ -193,6 +212,7 @@ func (h *ServiceHandler) ListServices(
 			ProcessId:         entry.PID,
 			BinaryPath:        entry.BinaryPath,
 			BinaryHash:        entry.BinaryHash,
+			ExePattern:        entry.ExePattern,
 		}
 
 		if entry.Monitor != nil {

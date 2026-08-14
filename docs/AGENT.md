@@ -302,7 +302,19 @@ service name and produced no usable topology edges.
 Built-in providers, evaluated in priority order:
 
 1. **Explicit registrations** (`coral connect`) — always highest priority,
-   and immune to poll timing.
+   and immune to poll timing. A process that never binds a listening port
+   (a Kafka consumer, cron job, or batch worker) can be registered by
+   executable pattern instead of port: `coral connect worker --exe-pattern
+   "python.*consumer.py"` (RFD 111). The agent resolves the pattern to a
+   PID via `/proc` scanning, monitors it by process-liveness (re-resolving
+   the pattern each check interval, rather than a TCP/HTTP health check),
+   and feeds it into `DiscoveryManager` as a pinned client-only candidate —
+   the same `exe_path` Beyla rule shape a portless process would get from
+   automatic `procfs` discovery, but explicit and immediate rather than
+   waiting on `MonitorAll`'s poll cycle. A startup-time equivalent exists in
+   the agent config file's `services:` list:
+   `{name: worker, exe_pattern: "python.*consumer.py"}`, mutually exclusive
+   with `port` on the same entry.
 2. **`envvar`** — reads `OTEL_SERVICE_NAME` (falling back to
    `SERVICE_NAME`) from each process's environment. Ranks above the ProcFS
    binary name, so an operator-set name is always respected.
