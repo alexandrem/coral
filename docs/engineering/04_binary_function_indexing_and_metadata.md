@@ -70,12 +70,12 @@ across processes nobody asked to introspect.
 - **Trigger 2 — `GetFunctions` RPC**: `ServiceHandler.GetFunctions`
   (`internal/agent/service_handler.go`) — the RPC the Colony's
   `FunctionPoller` calls — triggers `EnsureIndexed` asynchronously for every
-  `TierWatched` service (see chapter 03's Unified Service Map) matching the
+  `TierWatched` service (see chapter 16's Unified Service Map) matching the
   request filter, before reading back whatever is currently cached.
 - **Auto-discovered (`TierObserved`) services are never indexed** by this
   path — `EnsureIndexed` is only reachable through a `ServiceMonitor`
   (`entry.Monitor`), which auto-discovered entries don't have until
-  `ConnectService` promotes them (chapter 03).
+  `ConnectService` promotes them (chapter 16).
 
 ## Centralized Function Registry (`internal/colony/function_registry.go`)
 

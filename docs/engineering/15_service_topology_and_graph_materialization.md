@@ -48,7 +48,7 @@ different processes in the first place. Under Beyla's pre-RFD-102
 every process on the host was grouped under one name, so this inequality was
 never true and the join silently returned zero rows even with real traffic
 flowing. `internal/agent/beyla/discovery`'s `DiscoveryManager` now generates
-one named Beyla rule per process (see chapter 3), which is what makes the
+one named Beyla rule per process (see chapter 16), which is what makes the
 join below actually produce edges in zero-config mode.
 
 #### Why Beyla Owns the Traceparent
