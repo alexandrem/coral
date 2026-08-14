@@ -51,7 +51,7 @@ type ServiceMonitor struct {
 	binaryHash          string
 	checkInterval       time.Duration
 	checkTimeout        time.Duration
-	missedLiveness      int // RFD 111: consecutive missed liveness checks for portless services.
+	missedLiveness      int                                                    // RFD 111: consecutive missed liveness checks for portless services.
 	functionCache       *FunctionCache                                         // RFD 063: Function discovery cache
 	onProcessDiscovered func(serviceName string, pid int32, binaryPath string) // RFD 072: Callback when PID is discovered
 	onSDKDiscovered     func(serviceName string, pid int32, sdkAddr string)    // RFD 077: Callback when SDK capabilities are set

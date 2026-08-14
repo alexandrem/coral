@@ -51,7 +51,7 @@ Examples:
   # Single service (legacy syntax, backward compatible)
   coral connect frontend --port 3000 --health /health
 
-  # Portless process, matched by executable pattern instead of a port (RFD 111)
+  # Portless process, matched by executable pattern instead of a port
   coral connect worker --exe-pattern "python.*consumer.py"
 
   # Multiple services
@@ -264,7 +264,7 @@ Note:
 
 	cmd.Flags().IntVarP(&port, "port", "p", 0, "Service port (legacy, only works with single service)")
 	cmd.Flags().StringVar(&healthURL, "health", "", "Health check endpoint (legacy, only works with single service)")
-	cmd.Flags().StringVar(&exePattern, "exe-pattern", "", "Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (RFD 111; only works with single service, mutually exclusive with --port)")
+	cmd.Flags().StringVar(&exePattern, "exe-pattern", "", "Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (only works with single service, mutually exclusive with --port)")
 	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for initial health checks and display status (recommended for interactive use)")
