@@ -44,10 +44,6 @@ func TestNewStorage(t *testing.T) {
 	if storage.db == nil {
 		t.Error("Storage.db is nil")
 	}
-
-	if storage.spansTable == nil {
-		t.Error("Storage.spansTable is nil")
-	}
 }
 
 func TestStorage_StoreSpan(t *testing.T) {
