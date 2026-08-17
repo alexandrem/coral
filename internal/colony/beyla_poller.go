@@ -335,9 +335,9 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			p.logger.Error().Err(storeErr).Str("agent_id", agent.AgentID).Msg("Failed to store Beyla traces")
 		} else {
 			traceCount = len(resp.Msg.TraceSpans)
-		}
-		if resp.Msg.TracesMaxSeqId > 0 {
-			_ = p.db.UpdatePollingCheckpoint(ctx, agent.AgentID, beylaTracesDataType, sessionID, resp.Msg.TracesMaxSeqId)
+			if resp.Msg.TracesMaxSeqId > 0 {
+				_ = p.db.UpdatePollingCheckpoint(ctx, agent.AgentID, beylaTracesDataType, sessionID, resp.Msg.TracesMaxSeqId)
+			}
 		}
 	}
 
