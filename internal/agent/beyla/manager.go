@@ -219,7 +219,7 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 			m.discoveryManager.RegisterProvider(discovery.NewEnvVarProvider())
 		}
 		if providerEnabled(config.DiscoveryProviders.Procfs) {
-			m.discoveryManager.RegisterProvider(discovery.NewProcFSProvider())
+			m.discoveryManager.RegisterProvider(discovery.NewProcFSProvider(m.logger))
 		}
 	}
 

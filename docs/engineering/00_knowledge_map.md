@@ -15,12 +15,16 @@ distributed systems principles that power the platform.
 ## 2. The Observable Edge
 
 - **[03_ebpf_instrumentation_engine](03_ebpf_instrumentation_engine.md)**:
-  Zero-instrumentation monitoring, kernel-side filtering, stateful edge
-  correlation, and pluggable per-process discovery for Beyla's default-on
-  observation mode (RFD 102, RFD 103), including the OTLP-triggered
-  `onBeylaServiceObserved` feedback callback and the port-keyed
-  `Agent.services`/`ServiceEntry` unified service map with pluggable
-  `ServiceNameAdaptor` naming (RFD 104).
+  Zero-instrumentation monitoring, kernel-side filtering, the Beyla
+  sub-process bridge (OTLP loopback, config generation), and stateful edge
+  correlation.
+- **[16_process_service_discovery_and_naming](16_process_service_discovery_and_naming.md)**:
+  Pluggable per-process discovery for Beyla's default-on observation mode
+  (RFD 102, RFD 103), namespace-aware `ProcFSProvider` discovery of
+  containerized listeners across network namespaces (RFD 112), the
+  OTLP-triggered `onBeylaServiceObserved` feedback callback, and the
+  port-keyed `Agent.services`/`ServiceEntry` unified service map with
+  pluggable `ServiceNameAdaptor` naming (RFD 104).
 - **[04_binary_function_indexing_and_metadata](04_binary_function_indexing_and_metadata.md)**:
   3-tier discovery pipeline, SDK-assisted introspection, semantic enrichment
   (xxHash3 SimHash), DuckDB symbol caching, and lazy `FunctionCache.EnsureIndexed`

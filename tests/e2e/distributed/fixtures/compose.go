@@ -20,7 +20,8 @@ const (
 	localCPUAppEndpoint     = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
 	localOTELAppEndpoint    = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, exposed as 8082.
 	localSDKAppEndpoint     = "127.0.0.1:3001"
-	localMemoryAppEndpoint  = "127.0.0.1:8083" // memory-app on port 8080 in agent-1 namespace, exposed as 8083.
+	localMemoryAppEndpoint  = "127.0.0.1:8083"  // memory-app on port 8080 in agent-1 namespace, exposed as 8083.
+	localNetnsAppEndpoint   = "127.0.0.1:18085" // netns-app on port 8080 in its own network namespace (RFD 112), exposed as 18085.
 
 	colonyBinary = "/usr/local/bin/coral-colony"
 	agentBinary  = "/usr/local/bin/coral-agent"
@@ -54,6 +55,7 @@ type ComposeFixture struct {
 	OTELAppEndpoint   string
 	SDKAppEndpoint    string
 	MemoryAppEndpoint string
+	NetnsAppEndpoint  string // RFD 112: app in its own network namespace.
 }
 
 // NewComposeFixture creates a fixture that connects to docker-compose services.
@@ -80,6 +82,7 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 		OTELAppEndpoint:   localOTELAppEndpoint,
 		SDKAppEndpoint:    localSDKAppEndpoint,
 		MemoryAppEndpoint: localMemoryAppEndpoint,
+		NetnsAppEndpoint:  localNetnsAppEndpoint,
 	}
 
 	// Wait for all services to be healthy
@@ -132,6 +135,11 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 	// Wait for memory app
 	if err := helpers.WaitForHTTPEndpoint(ctx, "http://"+f.MemoryAppEndpoint+"/health", 30*time.Second); err != nil {
 		return fmt.Errorf("memory-app not ready: %w", err)
+	}
+
+	// Wait for netns app (RFD 112).
+	if err := helpers.WaitForHTTPEndpoint(ctx, "http://"+f.NetnsAppEndpoint+"/health", 30*time.Second); err != nil {
+		return fmt.Errorf("netns-app not ready: %w", err)
 	}
 
 	// Wait for colony and agents via their /status endpoints
@@ -263,6 +271,12 @@ func (f *ComposeFixture) GetSDKAppEndpoint(ctx context.Context) (string, error) 
 // GetMemoryAppEndpoint returns the memory app HTTP endpoint.
 func (f *ComposeFixture) GetMemoryAppEndpoint(ctx context.Context) (string, error) {
 	return f.MemoryAppEndpoint, nil
+}
+
+// GetNetnsAppEndpoint returns the netns-app HTTP endpoint (RFD 112): an app
+// sharing agent-0's PID namespace but running in its own network namespace.
+func (f *ComposeFixture) GetNetnsAppEndpoint(ctx context.Context) (string, error) {
+	return f.NetnsAppEndpoint, nil
 }
 
 // RestartService restarts a specific service using docker-compose.

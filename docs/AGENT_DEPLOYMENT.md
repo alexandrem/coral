@@ -147,6 +147,37 @@ docker compose up -d
 
 ---
 
+## Discovering Docker Compose Applications
+
+A host-installed, privileged Coral Agent (Method 1) automatically discovers
+TCP listeners inside ordinary Docker Compose / Podman containers on the same
+host, without `network_mode: host` on the application, a Beyla sidecar per
+container, or Docker socket access (RFD 112). This requires only the process
+visibility `coral-agent` already needs for eBPF/Beyla operation:
+
+- A host PID namespace (containers must not run with a separate PID
+  namespace hiding them from the host).
+- Read access to `/proc/<pid>/ns/net`, `/proc/<pid>/net`, and `/proc/<pid>/fd`
+  for the containerized processes. Running as root is sufficient; a
+  `hidepid` mount policy on `/proc` can prevent this and the agent reports it
+  as a capability warning rather than silently reporting successful
+  discovery.
+
+Notes:
+
+- Compose service names are **not** automatically inferred. Coral names the
+  discovered process using `OTEL_SERVICE_NAME`/`SERVICE_NAME` if set, or
+  falls back to the executable name. A Docker metadata naming provider may be
+  added separately.
+- The reported listener is the **application's namespace-local port**, not
+  the host-published port. For a Compose mapping such as `9090:8080`, Coral
+  and Beyla observe and report `8080`.
+- This discovery path does not apply to the containerized Docker deployment
+  in Method 2, since that container's agent only sees its own network
+  namespace unless it is itself run with `network_mode: host`.
+
+---
+
 ## Verification & Operations
 
 ### Checking Agent Status
