@@ -90,7 +90,9 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			FROM child_spans c
 			JOIN candidates p ON c.trace_id = p.trace_id
 			WHERE c.trace_id != ''
+			  AND UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
 			  AND LOWER(c.service_name) != LOWER(p.service_name)
+			  AND c.parent_span_id != ''
 
 			UNION ALL
 
@@ -110,7 +112,8 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 				3 as priority
 			FROM child_spans c
 			JOIN candidates p ON ABS(EXTRACT(EPOCH FROM c.start_time::TIMESTAMP) - EXTRACT(EPOCH FROM p.start_time::TIMESTAMP)) <= 2.0
-			WHERE LOWER(c.service_name) != LOWER(p.service_name)
+			WHERE UPPER(p.span_kind) = 'CLIENT' AND UPPER(c.span_kind) = 'SERVER'
+			  AND LOWER(c.service_name) != LOWER(p.service_name)
 		),
 		best_matches AS (
 			SELECT from_service, to_service, start_time
