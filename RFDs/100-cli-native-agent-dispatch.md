@@ -28,7 +28,7 @@ replay.
 
 **Current behavior:**
 
-The TUI agent connects to the colony via `coral colony mcp proxy`, which
+The TUI agent connects to the colony via `coral mcp proxy`, which
 translates JSON-RPC tool calls over stdio into gRPC `CallToolRequest` RPCs to
 the colony MCP server. This means:
 
@@ -96,13 +96,13 @@ directly into postmortems or incident reports.
 
 ```
 Current (TUI via MCP):
-  TUI → Agent → MCP Client (stdio) → coral colony mcp proxy → gRPC → Colony → MCP Server → tool handler
+  TUI → Agent → MCP Client (stdio) → coral mcp proxy → gRPC → Colony → MCP Server → tool handler
 
 Phase 1-3 (TUI via CLI):
   TUI → Agent → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
 
 Phase 5 (external clients via CLI, proxy intercepts):
-  Claude Desktop → MCP stdio → coral colony mcp proxy → [intercept coral_cli] → subprocess: coral <cmd> --format json → gRPC → Colony
+  Claude Desktop → MCP stdio → coral mcp proxy → [intercept coral_cli] → subprocess: coral <cmd> --format json → gRPC → Colony
 
 Final state (both paths, one tool):
   TUI          → Agent       → coral_cli tool    → subprocess: coral <cmd> --format json → gRPC → Colony

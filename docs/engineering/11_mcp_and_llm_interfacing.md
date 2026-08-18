@@ -18,7 +18,7 @@ LLM → coral_cli(["query", "summary", "--service", "api"])
 
 ### 1. The MCP Proxy (`internal/cli/colony/mcp.go`)
 
-The `coral colony mcp proxy` command is the only public-facing MCP interface
+The `coral mcp proxy` command is the only public-facing MCP interface
 for external clients. It exposes a single `coral_cli` tool and handles all
 calls locally as subprocesses — no colony-side MCP server is involved.
 

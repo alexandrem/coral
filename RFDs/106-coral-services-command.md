@@ -210,7 +210,7 @@ coral connect frontend:3000:/health
 ```bash
 coral colony start / stop / status     # lifecycle
 coral colony agents                    # agent registry
-coral colony mcp                       # MCP server management
+coral mcp                              # MCP client integration and proxy
 coral colony ca / psk / token          # security
 coral colony list / use / current      # context switching
 coral colony add-remote                # multi-colony (RFD 031)

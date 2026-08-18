@@ -479,7 +479,7 @@ func (s *Server) CallTool(
 	req *connect.Request[colonyv1.CallToolRequest],
 ) (*connect.Response[colonyv1.CallToolResponse], error) {
 	return connect.NewResponse(&colonyv1.CallToolResponse{
-		Error:   "tool dispatch has moved to the proxy layer (RFD 100): use coral colony mcp proxy",
+		Error:   "tool dispatch has moved to the proxy layer (RFD 100): use coral mcp proxy",
 		Success: false,
 	}), nil
 }

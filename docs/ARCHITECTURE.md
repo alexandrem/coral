@@ -82,7 +82,7 @@ Single binary providing all Coral commands and operations:
 - **Service Connection:** Connect services to colonies via agents (
   `coral connect service:port[:health][:type]` - RFD 011)
 - **MCP Integration:** Provide MCP proxy command for AI assistant integration (
-  `coral colony mcp proxy`)
+  `coral mcp proxy`)
 - **Developer Tools:** Built-in help, documentation, and troubleshooting
   commands
 - **AI Assistant:** Interactive `coral ask` command for terminal-based AI
@@ -100,7 +100,7 @@ by consolidating all Coral operations into a single, well-documented tool.
 
 #### MCP Proxy Command
 
-The `coral colony mcp proxy` command provides a protocol bridge for AI
+The `coral mcp proxy` command provides a protocol bridge for AI
 assistants:
 
 - **Protocol Translation:** Translates between MCP JSON-RPC (stdio) and Buf
@@ -122,10 +122,10 @@ server implementation internal to the Colony.
 
 ```bash
 # Used by Claude Desktop or other MCP clients
-coral colony mcp proxy
+coral mcp proxy
 
 # Or for specific colony
-coral colony mcp proxy --colony my-shop-production
+coral mcp proxy --colony my-shop-production
 ```
 
 #### AI Assistant (`coral ask`)
@@ -305,7 +305,7 @@ Connect gRPC.
 
 **Location:** `internal/cli/colony/mcp.go`
 
-The `coral colony mcp proxy` command is the **only public-facing MCP server**.
+The `coral mcp proxy` command is the **only public-facing MCP server**.
 It exposes a single `coral_cli` tool and handles all calls locally as
 subprocesses — no colony MCP server is involved.
 
@@ -321,10 +321,10 @@ subprocesses — no colony MCP server is involved.
 
 ```bash
 # Used by Claude Desktop or other MCP clients
-coral colony mcp proxy
+coral mcp proxy
 
 # Or for specific colony
-coral colony mcp proxy --colony my-shop-production
+coral mcp proxy --colony my-shop-production
 ```
 
 ### Data Flow Example
@@ -372,7 +372,6 @@ coral colony mcp proxy --colony my-shop-production
         "coral": {
             "command": "coral",
             "args": [
-                "colony",
                 "mcp",
                 "proxy"
             ]

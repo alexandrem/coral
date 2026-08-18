@@ -21,11 +21,40 @@ import (
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
-// newMCPCmd creates the 'coral colony mcp' command.
-func newMCPCmd() *cobra.Command {
+// NewMCPCmd creates the public, top-level 'coral mcp' command.
+func NewMCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "Manage MCP (Model Context Protocol) server",
+		Short: "Integrate Coral with MCP clients",
+		Long: `Integrate Coral with Model Context Protocol (MCP) clients.
+
+Use this command to configure an MCP client, inspect the tools exposed by a
+running colony, or start the stdio proxy used by external assistants.
+
+Examples:
+  # Configure an MCP client
+  coral mcp configure
+
+  # List available MCP tools
+  coral mcp list-tools
+
+  # Start the MCP stdio proxy
+  coral mcp proxy`,
+	}
+
+	cmd.AddCommand(newMCPListToolsCmd())
+	cmd.AddCommand(newMCPConfigureCmd())
+	cmd.AddCommand(newMCPProxyCmd())
+
+	return cmd
+}
+
+// newMCPCmd creates the hidden 'coral colony mcp' compatibility command.
+func newMCPCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "mcp",
+		Short:  "Manage MCP (Model Context Protocol) server",
+		Hidden: true,
 		Long: `Manage the colony's MCP server for AI assistant integration.
 
 The MCP server exposes colony observability and debugging capabilities as
@@ -296,15 +325,24 @@ Examples:
 	return cmd
 }
 
-// newMCPGenerateConfigCmd creates the 'coral colony mcp generate-config' command.
+// newMCPConfigureCmd creates the public 'coral mcp configure' command.
+func newMCPConfigureCmd() *cobra.Command {
+	return newMCPConfigCmd("configure")
+}
+
+// newMCPGenerateConfigCmd creates the legacy 'coral colony mcp generate-config' command.
 func newMCPGenerateConfigCmd() *cobra.Command {
+	return newMCPConfigCmd("generate-config")
+}
+
+func newMCPConfigCmd(use string) *cobra.Command {
 	var (
 		allColonies bool
 		colonyID    string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "generate-config",
+		Use:   use,
 		Short: "Generate MCP client configuration (Claude Desktop format)",
 		Long: `Generate MCP client configuration in Claude Desktop format.
 
@@ -318,13 +356,13 @@ additional MCP client formats via --format flag.
 
 Examples:
   # Generate config for default colony
-  coral colony mcp generate-config
+  coral mcp configure
 
   # Generate config for all colonies
-  coral colony mcp generate-config --all-colonies
+  coral mcp configure --all-colonies
 
   # Generate config for specific colony
-  coral colony mcp generate-config --colony my-shop-production`,
+  coral mcp configure --colony my-shop-production`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			loader, err := config.NewLoader()
 			if err != nil {
@@ -357,29 +395,7 @@ Examples:
 			fmt.Println("Copy this to ~/.config/claude/claude_desktop_config.json")
 			fmt.Println()
 
-			// Generate MCP servers configuration.
-			config := map[string]interface{}{
-				"mcpServers": make(map[string]interface{}),
-			}
-
-			servers := config["mcpServers"].(map[string]interface{})
-
-			if len(colonies) == 1 {
-				// Single colony: use simple name "coral".
-				servers["coral"] = map[string]interface{}{
-					"command": "coral",
-					"args":    []string{"colony", "mcp", "proxy"},
-				}
-			} else {
-				// Multiple colonies: use "coral-<colony-id>".
-				for _, cid := range colonies {
-					serverName := fmt.Sprintf("coral-%s", cid)
-					servers[serverName] = map[string]interface{}{
-						"command": "coral",
-						"args":    []string{"colony", "mcp", "proxy", "--colony", cid},
-					}
-				}
-			}
+			config := mcpClientConfig(colonies)
 
 			// Print formatted JSON.
 			output, err := json.MarshalIndent(config, "", "  ")
@@ -400,7 +416,28 @@ Examples:
 	return cmd
 }
 
-// newMCPProxyCmd creates the 'coral colony mcp proxy' command.
+func mcpClientConfig(colonies []string) map[string]interface{} {
+	servers := make(map[string]interface{})
+	config := map[string]interface{}{"mcpServers": servers}
+
+	if len(colonies) == 1 {
+		servers["coral"] = map[string]interface{}{
+			"command": "coral",
+			"args":    []string{"mcp", "proxy"},
+		}
+		return config
+	}
+
+	for _, colonyID := range colonies {
+		servers[fmt.Sprintf("coral-%s", colonyID)] = map[string]interface{}{
+			"command": "coral",
+			"args":    []string{"mcp", "proxy", "--colony", colonyID},
+		}
+	}
+	return config
+}
+
+// newMCPProxyCmd creates 'coral mcp proxy' and its legacy alias.
 func newMCPProxyCmd() *cobra.Command {
 	var colonyID string
 
@@ -417,10 +454,10 @@ The colony must be running for this command to work.
 
 Examples:
   # Connect to default colony
-  coral colony mcp proxy
+  coral mcp proxy
 
   # Connect to specific colony
-  coral colony mcp proxy --colony my-shop-production`,
+  coral mcp proxy --colony my-shop-production`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Create resolver.
 			resolver, err := config.NewResolver()

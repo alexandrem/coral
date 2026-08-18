@@ -58,7 +58,7 @@ func (s *MCPSuite) ensureServicesConnected() {
 // Group A: CLI Commands (Direct, No Proxy)
 // =============================================================================
 
-// TestMCPListToolsCommand tests 'coral colony mcp list-tools'.
+// TestMCPListToolsCommand tests 'coral mcp list-tools'.
 //
 // After RFD 100, the colony server no longer serves per-operation tools.
 // The list-tools command returns an empty list from the colony server side.
@@ -68,7 +68,7 @@ func (s *MCPSuite) ensureServicesConnected() {
 // - Command executes successfully
 // - JSON output is valid (empty array or minimal list from colony server)
 func (s *MCPSuite) TestMCPListToolsCommand() {
-	s.T().Log("Testing 'coral colony mcp list-tools' command...")
+	s.T().Log("Testing 'coral mcp list-tools' command...")
 
 	// Test table format
 	result := helpers.MCPListTools(s.ctx, s.cliEnv)
@@ -114,14 +114,14 @@ func (s *MCPSuite) TestMCPTestToolCommand() {
 	s.T().Log("✓ MCP test-tool correctly returns RFD 100 redirect error")
 }
 
-// TestMCPGenerateConfigCommand tests 'coral colony mcp generate-config'.
+// TestMCPGenerateConfigCommand tests 'coral mcp configure'.
 //
 // Validates:
 // - Config generation for single colony
 // - JSON output structure
 // - Executable paths
 func (s *MCPSuite) TestMCPGenerateConfigCommand() {
-	s.T().Log("Testing 'coral colony mcp generate-config' command...")
+	s.T().Log("Testing 'coral mcp configure' command...")
 
 	// Generate config for current colony
 	result := helpers.MCPGenerateConfig(s.ctx, s.cliEnv, "test-colony-e2e", false)
@@ -135,8 +135,8 @@ func (s *MCPSuite) TestMCPGenerateConfigCommand() {
 	s.Require().Contains(result.Output, "mcpServers", "Config should contain mcpServers")
 	s.Require().Contains(result.Output, "coral", "Config should reference coral command")
 	s.Require().Contains(result.Output, "proxy", "Config should reference proxy subcommand")
-	s.Require().Contains(result.Output, "colony", "Config should contain colony subcommand")
-	s.Require().Contains(result.Output, "mcp", "Config should contain mcp subcommand")
+	s.Require().Contains(result.Output, "\"mcp\"", "Config should contain mcp subcommand")
+	s.Require().NotContains(result.Output, "\"colony\",", "Config should use the root-level MCP command")
 
 	// Verify it contains Claude Desktop instructions
 	s.Require().Contains(result.Output, "Claude Desktop", "Should mention Claude Desktop")

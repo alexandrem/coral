@@ -140,7 +140,7 @@ it matters, near-zero storage cost everywhere else.
 
 ## Architecture
 
-The `coral colony mcp proxy` command runs locally on your machine as an MCP
+The `coral mcp proxy` command runs locally on your machine as an MCP
 server. Any AI assistant can query your observability data in real-time by
 calling the `coral_cli` tool, which dispatches to the Colony via gRPC.
 

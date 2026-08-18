@@ -358,7 +358,7 @@ Colony MCP server:
     - Configuration in `colony.yaml` to control MCP server behavior
 
 2. **MCP Proxy** (Public-facing MCP server):
-    - `coral colony mcp proxy` command acts as protocol bridge
+    - `coral mcp proxy` command acts as protocol bridge
     - Translates MCP JSON-RPC (stdio) ↔ Buf Connect gRPC
     - Reads MCP requests from stdin, calls colony via gRPC
     - Returns colony responses via stdout as MCP JSON-RPC
@@ -367,12 +367,12 @@ Colony MCP server:
     - Multiple proxies can connect to same colony
 
 3. **CLI** (MCP management commands):
-    - `coral colony mcp list-tools` - Show available MCP tools for running
+    - `coral mcp list-tools` - Show available MCP tools for running
       colony
     - `coral colony mcp test-tool <tool-name>` - Test MCP tool locally
-    - `coral colony mcp generate-config` - Generate Claude Desktop config
+    - `coral mcp configure` - Generate Claude Desktop config
       snippet
-    - `coral colony mcp proxy` - Start MCP proxy (used by Claude Desktop)
+    - `coral mcp proxy` - Start MCP proxy (used by Claude Desktop)
 
 **Configuration Example:**
 
@@ -453,7 +453,7 @@ mcp:
 }
 ```
 
-> **Note**: `coral colony mcp proxy` connects to a running colony's MCP server
+> **Note**: `coral mcp proxy` connects to a running colony's MCP server
 > via its
 > stdio interface. The colony must be running with MCP enabled. If `--colony` is
 > omitted, it uses the default colony from coral's configuration.
@@ -1115,17 +1115,17 @@ Coral implements MCP using JSON-RPC 2.0:
 
 ```bash
 # List available MCP tools from running colony
-coral colony mcp list-tools [flags]
+coral mcp list-tools [flags]
   --colony <colony-id>    # Which colony to query (optional, uses default if omitted)
 
 # Example output (using default colony):
-$ coral colony mcp list-tools
+$ coral mcp list-tools
 
 Available MCP Tools for colony my-shop-production:
 ...
 
 # Example output (specific colony):
-$ coral colony mcp list-tools --colony my-shop-staging
+$ coral mcp list-tools --colony my-shop-staging
 
 Available MCP Tools for colony my-shop-production:
 
@@ -1176,12 +1176,12 @@ Services:
 ---
 
 # Generate Claude Desktop config
-coral colony mcp generate-config [flags]
+coral mcp configure [flags]
   --colony <colony-id>    # Include this colony
   --all-colonies          # Include all configured colonies
 
 # Example 1: Default colony only
-$ coral colony mcp generate-config
+$ coral mcp configure
 
 Copy this to ~/.config/claude/claude_desktop_config.json:
 
@@ -1189,13 +1189,13 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral": {
       "command": "coral",
-      "args": ["colony", "mcp", "proxy"]
+      "args": ["mcp", "proxy"]
     }
   }
 }
 
 # Example 2: All colonies (explicit)
-$ coral colony mcp generate-config --all-colonies
+$ coral mcp configure --all-colonies
 
 Copy this to ~/.config/claude/claude_desktop_config.json:
 
@@ -1203,11 +1203,11 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral-my-shop-production": {
       "command": "coral",
-      "args": ["colony", "mcp", "proxy", "--colony", "my-shop-production"]
+      "args": ["mcp", "proxy", "--colony", "my-shop-production"]
     },
     "coral-my-shop-staging": {
       "command": "coral",
-      "args": ["colony", "mcp", "proxy", "--colony", "my-shop-staging"]
+      "args": ["mcp", "proxy", "--colony", "my-shop-staging"]
     }
   }
 }
@@ -1217,7 +1217,7 @@ After adding this config, restart Claude Desktop to enable Coral MCP servers.
 ---
 
 # Connect to colony MCP server (used by Claude Desktop)
-coral colony mcp proxy [--colony <colony-id>]
+coral mcp proxy [--colony <colony-id>]
 
 # This command:
 # 1. Connects to running colony's MCP server
@@ -1227,10 +1227,10 @@ coral colony mcp proxy [--colony <colony-id>]
 
 # Examples:
 # Use default colony
-coral colony mcp proxy
+coral mcp proxy
 
 # Use specific colony
-coral colony mcp proxy --colony my-shop-production
+coral mcp proxy --colony my-shop-production
 ```
 
 ### Environment Variable Configuration
@@ -1405,10 +1405,10 @@ placeholders pending data integration.
 ### Phase 3: CLI & Configuration ✅ COMPLETED
 
 - [x] Implement colony configuration (`mcp` section in `colony.yaml`)
-- [x] Implement `coral colony mcp proxy` command (connects to colony MCP)
-- [x] Implement `coral colony mcp list-tools` command (lists all 16 tools)
+- [x] Implement `coral mcp proxy` command (connects to colony MCP)
+- [x] Implement `coral mcp list-tools` command (lists all 16 tools)
 - [x] Implement `coral colony mcp test-tool` command (full execution support)
-- [x] Implement `coral colony mcp generate-config` command
+- [x] Implement `coral mcp configure` command
 
 **Status:** All CLI commands fully implemented. Tools can be tested locally via `test-tool` command which calls tools via RPC.
 
@@ -1429,7 +1429,7 @@ This architecture enables both MCP protocol compatibility AND programmatic acces
 
 **Proxy Architecture:**
 
-The `coral colony mcp proxy` command is implemented as a pure MCP ↔ RPC
+The `coral mcp proxy` command is implemented as a pure MCP ↔ RPC
 translator:
 
 - MCP server runs inside colony process (integrated with colony startup)
@@ -1456,7 +1456,8 @@ DuckDB + Agent Registry
 
 **Location:**
 
-- `internal/cli/colony/mcp.go` - MCP subcommands (list-tools, test-tool, generate-config, proxy)
+- `internal/cli/colony/mcp.go` - MCP subcommands (`configure`, `list-tools`,
+  `proxy`) and hidden legacy aliases
 - `internal/colony/mcp/tools_exec.go` - Tool execution methods for RPC calls
 - `internal/colony/mcp/server.go` - ExecuteTool dispatcher
 - `internal/config/schema.go` - Configuration structs
@@ -2006,7 +2007,8 @@ all available tools.
 
 - ✅ Database query methods for all Beyla metrics (HTTP, gRPC, SQL, traces)
 - ✅ Aggregation helpers for percentiles, status codes, top resources
-- ✅ CLI commands: `coral colony mcp {list-tools,test-tool,generate-config,proxy}`
+- ✅ Public CLI commands: `coral mcp {configure,list-tools,proxy}`; hidden
+  `coral colony mcp` compatibility commands remain available
 - ✅ Tool execution layer (`tools_exec.go`) for direct RPC access
 - ✅ Configuration schema in `colony.yaml` with tool filtering and audit support
 - ✅ Comprehensive test coverage (unit + integration tests)

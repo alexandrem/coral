@@ -58,7 +58,7 @@ registry ordering based on the summary's reported issues.
 When `AskAgentConfig.DispatchMode` is unset, `NewAgent` selects MCP dispatch.
 `fetchServiceContext` and `fetchHealthAlerts` then call
 `coral_list_services` and `coral_query_summary`. RFD 100 removed those tools;
-`coral colony mcp proxy` now exposes only `coral_cli`. Failures are swallowed,
+`coral mcp proxy` now exposes only `coral_cli`. Failures are swallowed,
 so conversations start with an unavailable service list and no alert block.
 
 Changing only the MCP tool name is insufficient. `coral_cli` appends

@@ -27,7 +27,7 @@ coral colony start
 Generate the configuration:
 
 ```bash
-coral colony mcp generate-config
+coral mcp configure
 ```
 
 This outputs:
@@ -38,7 +38,6 @@ This outputs:
         "coral": {
             "command": "coral",
             "args": [
-                "colony",
                 "mcp",
                 "proxy"
             ]
@@ -77,7 +76,7 @@ TUI (coral terminal)
   └─ Agent → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
 
 External clients (Claude Desktop, Cursor, custom)
-  └─ MCP stdio → coral colony mcp proxy → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
+  └─ MCP stdio → coral mcp proxy → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
 ```
 
 Both paths use the same `coral_cli` meta-tool. Every agent action is a
@@ -94,7 +93,7 @@ human-readable coral CLI command, making session logs reproducible and auditable
                       ▼
          ┌────────────────────────────┐
          │   Proxy Command            │
-         │   coral colony mcp proxy   │
+         │   coral mcp proxy          │
          │   • Exposes coral_cli tool │
          │   • Handles locally via    │
          │     subprocess             │
@@ -170,19 +169,26 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for the full command reference.
 
 ## CLI Commands
 
-All MCP-related proxy commands are under `coral colony mcp`:
+MCP is a top-level CLI command group:
 
 ```bash
 # Generate Claude Desktop config
-coral colony mcp generate-config
+coral mcp configure
 
 # Generate config for multiple colonies
-coral colony mcp generate-config --all-colonies
+coral mcp configure --all-colonies
+
+# Inspect the tools reported by a running colony
+coral mcp list-tools
 
 # Start MCP proxy (used by Claude Desktop)
-coral colony mcp proxy
-coral colony mcp proxy --colony my-shop-production
+coral mcp proxy
+coral mcp proxy --colony my-shop-production
 ```
+
+For backward compatibility, existing `coral colony mcp generate-config` and
+`coral colony mcp proxy` invocations continue to work as hidden aliases. New
+scripts and generated client registrations should use the top-level commands.
 
 ## Configuration
 
@@ -191,7 +197,7 @@ coral colony mcp proxy --colony my-shop-production
 To expose multiple colonies to Claude Desktop:
 
 ```bash
-coral colony mcp generate-config --all-colonies
+coral mcp configure --all-colonies
 ```
 
 Output:
@@ -202,7 +208,6 @@ Output:
         "coral-production": {
             "command": "coral",
             "args": [
-                "colony",
                 "mcp",
                 "proxy",
                 "--colony",
@@ -212,7 +217,6 @@ Output:
         "coral-staging": {
             "command": "coral",
             "args": [
-                "colony",
                 "mcp",
                 "proxy",
                 "--colony",
