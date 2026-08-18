@@ -233,12 +233,15 @@ coral-colony psk rotate
 The colony exposes observability and debugging tools via the Model Context
 Protocol (MCP) for AI assistant integration.
 
+MCP client integration is exposed by the main Coral CLI rather than as colony
+administration:
+
 ```bash
 # Generate Claude Desktop configuration
-coral-colony mcp generate-config
+coral mcp configure
 
 # Start MCP proxy (used by Claude Desktop)
-coral-colony mcp proxy
+coral mcp proxy
 ```
 
 ### Colony Credentials

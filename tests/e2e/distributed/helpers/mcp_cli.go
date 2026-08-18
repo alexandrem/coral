@@ -6,14 +6,14 @@ import (
 	"fmt"
 )
 
-// MCPListTools executes `coral colony mcp list-tools` and returns the output.
+// MCPListTools executes `coral mcp list-tools` and returns the output.
 func MCPListTools(ctx context.Context, cliEnv *CLITestEnv) *CLIResult {
-	return RunCLIWithEnv(ctx, cliEnv.EnvVars(), "colony", "mcp", "list-tools")
+	return RunCLIWithEnv(ctx, cliEnv.EnvVars(), "mcp", "list-tools")
 }
 
-// MCPListToolsJSON executes `coral colony mcp list-tools --format json` and parses the output.
+// MCPListToolsJSON executes `coral mcp list-tools --format json` and parses the output.
 func MCPListToolsJSON(ctx context.Context, cliEnv *CLITestEnv) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, cliEnv.EnvVars(), "colony", "mcp", "list-tools", "-o", "json")
+	result := RunCLIWithEnv(ctx, cliEnv.EnvVars(), "mcp", "list-tools", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("mcp list-tools failed: %w\nOutput: %s", result.Err, result.Output)
@@ -38,9 +38,9 @@ func MCPTestTool(ctx context.Context, cliEnv *CLITestEnv, toolName, argsJSON str
 	return RunCLIWithEnv(ctx, cliEnv.EnvVars(), args...)
 }
 
-// MCPGenerateConfig executes `coral colony mcp generate-config` and returns the output.
+// MCPGenerateConfig executes `coral mcp configure` and returns the output.
 func MCPGenerateConfig(ctx context.Context, cliEnv *CLITestEnv, colonyID string, allColonies bool) *CLIResult {
-	args := []string{"colony", "mcp", "generate-config"}
+	args := []string{"mcp", "configure"}
 
 	if allColonies {
 		args = append(args, "--all-colonies")

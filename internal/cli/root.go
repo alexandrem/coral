@@ -57,6 +57,7 @@ func init() {
 	rootCmd.AddCommand(initcmd.NewInitCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(colony.NewColonyCmd())
+	rootCmd.AddCommand(colony.NewMCPCmd())
 	rootCmd.AddCommand(config.NewConfigCmd()) // RFD 050 - Config management commands.
 	rootCmd.AddCommand(agent.NewAgentCmd())
 	rootCmd.AddCommand(services.NewCmd())

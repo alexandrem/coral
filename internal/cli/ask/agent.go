@@ -291,9 +291,9 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 
 // connectToColonyMCP connects to the Colony's MCP server via stdio subprocess.
 func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig, debug bool) (*client.Client, error) {
-	// Command to launch: coral colony mcp proxy --colony <colony-id>
+	// Command to launch: coral mcp proxy --colony <colony-id>
 	command := "coral"
-	args := []string{"colony", "mcp", "proxy", "--colony", colonyCfg.ColonyID}
+	args := []string{"mcp", "proxy", "--colony", colonyCfg.ColonyID}
 	env := os.Environ() // Use current environment
 
 	if debug {

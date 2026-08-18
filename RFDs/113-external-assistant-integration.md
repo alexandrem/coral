@@ -20,14 +20,14 @@ areas: [ "cli", "mcp", "terminal", "docs" ]
 Coral's MCP server (RFD 004) already lets any MCP-capable client drive Coral,
 but onboarding only emits Claude Desktop JSON and cannot verify a registration.
 This RFD adds native registration output for Claude Code, Codex, and Gemini
-CLI, plus a read-only-by-default `coral assistant doctor` diagnostic. It also
+CLI, plus a read-only-by-default `coral mcp doctor` diagnostic. It also
 adds an explicit `coral terminal` external-assistant mode that bypasses
 embedded LLM setup and prints launch instructions for a registered native
 client without spawning it.
 
 ## Problem
 
-- **Current behavior/limitations**: `coral colony mcp generate-config` hardcodes Claude Desktop's `mcpServers` JSON
+- **Current behavior/limitations**: `coral mcp configure` hardcodes Claude Desktop's `mcpServers` JSON
   and tells the user to copy it into a config file by hand. There is no
   `--client` flag, no support for other MCP-capable CLIs (Claude Code, Codex,
   Gemini CLI), and no way to confirm registration succeeded short of opening
@@ -65,6 +65,14 @@ client without spawning it.
   the existing JSON snippet. Scope is explicit where supported (Claude:
   `local|project|user`; Gemini: `project|user`) and invalid combinations fail
   clearly. Gemini is labelled API-key/enterprise only, not subscription.
+- **MCP is a top-level public command group.** The canonical interface is
+  `coral mcp configure`, `coral mcp doctor`, `coral mcp proxy`, and (while it
+  remains useful after RFD 100) `coral mcp list-tools`. The old `coral colony
+  mcp generate-config` and `coral colony mcp proxy` paths remain hidden or
+  deprecated compatibility aliases, and `coral assistant doctor` remains an
+  alias for existing scripts. Newly generated registrations always use
+  `coral mcp proxy`, but registration detection accepts both proxy paths so
+  existing Claude Desktop configuration continues to work.
 - **Embedded and external terminal modes stay separate.** Embedded chat is
   the unchanged default and needs its existing LLM configuration. Explicit
   external-assistant mode bypasses that setup and prints launch instructions
@@ -97,7 +105,7 @@ client without spawning it.
 - Users already running Claude Code, Codex, or Gemini CLI get a
   copy-pasteable (or directly runnable) native command instead of hand-edited
   JSON/TOML.
-- `coral assistant doctor` turns "is this even working?" into a single command
+- `coral mcp doctor` turns "is this even working?" into a single command
   with a clear breakdown, instead of trial-and-error inside the assistant.
 - `coral terminal` stops implying embedded chat is the only way to talk to
   Coral through an AI assistant, without changing its default behavior for
@@ -106,7 +114,7 @@ client without spawning it.
 **Architecture Overview:**
 
 ```
-coral colony mcp generate-config --client <codex|claude|gemini|claude-desktop> [--all-colonies]
+coral mcp configure --client <codex|claude|gemini|claude-desktop> [--all-colonies]
         │
         ▼
   client adapter registry (detection + native snippet/command per client, scope-aware)
@@ -115,9 +123,9 @@ coral colony mcp generate-config --client <codex|claude|gemini|claude-desktop> [
   printed native registration command(s), one per colony, deterministically named
         │
         ▼
-  user runs it in their vendor CLI ──► vendor CLI spawns `coral colony mcp proxy` (stdio, RFD 004/100)
+  user runs it in their vendor CLI ──► vendor CLI spawns `coral mcp proxy` (stdio, RFD 004/100)
 
-coral assistant doctor [--project <dir>] [--colony <id>] [--client <name>] [--live]
+coral mcp doctor [--project <dir>] [--colony <id>] [--client <name>] [--live]
         │
         ├─ Coral MCP proxy (once per run, colony-scoped, shown for every client regardless
         │  of that client's registration state — three independent signals, none inferred
@@ -125,7 +133,7 @@ coral assistant doctor [--project <dir>] [--colony <id>] [--client <name>] [--li
         │    ├─ config/colony reachability (direct: resolve colony ID, load colony config,
         │    │                              check MCP not disabled, confirm colony process
         │    │                              reachable — no subprocess spawned)
-        │    ├─ proxy protocol             (spawn `coral colony mcp proxy`, MCP `initialize`
+        │    ├─ proxy protocol             (spawn `coral mcp proxy`, MCP `initialize`
         │    │                              round trip over stdio; if this fails for the same
         │    │                              reason config/colony reachability did, the report
         │    │                              says so instead of presenting it as a distinct
@@ -168,7 +176,7 @@ syntax:
 
 | Adapter | Platforms | Config path(s) by scope | How scope is distinguished | Coral-registration criteria | Precedence on same name in multiple scopes | Disabled/rejected/malformed entries | `--project` effect |
 |---|---|---|---|---|---|---|---|
-| `claude` (Claude Code CLI) | macOS, Linux, Windows | local & user: `~/.claude.json` (single shared file; local and user entries live in different keys within it, confirmed Phase 1); project: `<project>/.mcp.json` | File + in-file key for local/user; a separate file for project | Server entry name equals `coral` or `coral-<id>` AND its `command`/`args` match a `coral colony mcp proxy [--colony <id>]` invocation — name alone is not sufficient (a user could point a same-named entry elsewhere) | local > project > user (most specific to the working directory wins) | An entry present but marked disabled/rejected in the vendor schema (Phase 1: exact field name) is reported as "registered but disabled," never counted as "found" for launch purposes; a config file that fails to parse is reported as a detection *error*, not "not found" | Roots the `.mcp.json` (project) and effective-local-scope lookup in `~/.claude.json` at `--project`; entries outside that tree are not reported |
+| `claude` (Claude Code CLI) | macOS, Linux, Windows | local & user: `~/.claude.json` (single shared file; local and user entries live in different keys within it, confirmed Phase 1); project: `<project>/.mcp.json` | File + in-file key for local/user; a separate file for project | Server entry name equals `coral` or `coral-<id>` AND its `command`/`args` match either the canonical `coral mcp proxy [--colony <id>]` invocation or the legacy `coral colony mcp proxy [--colony <id>]` invocation — name alone is not sufficient (a user could point a same-named entry elsewhere) | local > project > user (most specific to the working directory wins) | An entry present but marked disabled/rejected in the vendor schema (Phase 1: exact field name) is reported as "registered but disabled," never counted as "found" for launch purposes; a config file that fails to parse is reported as a detection *error*, not "not found" | Roots the `.mcp.json` (project) and effective-local-scope lookup in `~/.claude.json` at `--project`; entries outside that tree are not reported |
 | `codex` (Codex CLI) | macOS, Linux | project: `.codex/config.toml` files from the trusted project root down to `<project>`; user: `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`); system: `/etc/codex/config.toml` | Separate configuration layers; project layers are loaded only for a trusted project | `[mcp_servers.<name>]` entry name + `command`/`args` match, as above | closest project layer > parent project layers > user > system | `enabled = false` is reported as "registered but disabled" and is not launch-eligible; an untrusted project's `.codex` layers are reported as "registered, untrusted" and ignored for effective resolution; malformed TOML is a detection error | Sets the effective project/cwd used to discover trusted `.codex/config.toml` layers and evaluate precedence; `codex mcp add` still writes the user-level registration because that CLI has no add-time `--scope` flag |
 | `gemini` (Gemini CLI) | macOS, Linux, Windows | project: `<project>/.gemini/settings.json`; user: the `.gemini/settings.json` under `GEMINI_CLI_HOME` (default `~/.gemini/settings.json`); system defaults: `/etc/gemini-cli/system-defaults.json` (Linux), `/Library/Application Support/GeminiCli/system-defaults.json` (macOS), or `%ProgramData%\gemini-cli\system-defaults.json` (Windows); system override: the corresponding `settings.json` path; honor `GEMINI_CLI_SYSTEM_DEFAULTS_PATH` and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | Separate configuration layers | `mcpServers` entry name + `command`/`args` + stdio transport (explicit or defaulted) match, as above | system override > project > user > system defaults | A project entry ignored because the project is untrusted is reported as "registered, untrusted" and is not launch-eligible; malformed JSON is a detection error. Passive trust inspection reads the vendor-home `trustedFolders.json` (or `GEMINI_CLI_TRUSTED_FOLDERS_PATH`) and the user setting that enables folder trust; if an IDE-only trust signal could change the result, report trust as "unknown" rather than "found" | Roots project settings and trust lookup at `--project` |
 | `claude-desktop` | macOS, Windows only (no official Linux desktop app); no CLI, no `mcp list` equivalent | Single global file, no scope: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows) | N/A — one implicit global scope | `mcpServers` entry name + `command`/`args` match, as above | N/A (single scope) | Malformed JSON reported as a detection error | No effect (global config only); doctor reports CLI installation as "not applicable" and still reports config registration, while `coral terminal --mode external-assistant` excludes this adapter because there is no CLI launch command |
@@ -250,7 +258,7 @@ overrides rather than assuming the invoking user's default home layout.
       existing name; it points the user at that CLI's own `get`/`remove`/`add`
       help instead of asserting "replaces" or "fails."
 
-3. **`coral assistant doctor`**:
+3. **`coral mcp doctor`**:
 
     - Runs Coral's own health checks once per invocation, scoped to a colony,
       independent of any client — and shows them identically no matter which
@@ -259,11 +267,11 @@ overrides rather than assuming the invoking user's default home layout.
       - **config/colony reachability** — resolves the colony ID, loads its
         config, confirms MCP is not disabled, and confirms the colony
         process is reachable, all directly (no subprocess spawned). This is
-        the same sequence `coral colony mcp proxy` itself runs before it
+        the same sequence `coral mcp proxy` itself runs before it
         starts serving stdio, extracted so a failure here is reported as
         config/colony state, not misattributed to the proxy or the MCP
         protocol.
-      - **proxy protocol** — spawns `coral colony mcp proxy` and completes an
+      - **proxy protocol** — spawns `coral mcp proxy` and completes an
         MCP `initialize` round trip over stdio. Because the proxy subprocess
         re-runs the same config/colony checks internally before it reads
         stdin, a failure here that matches the config/colony reachability
@@ -284,7 +292,7 @@ overrides rather than assuming the invoking user's default home layout.
       mechanism, followed by the platform-appropriate kill operation after a
       2s grace period when graceful shutdown fails — no orphaned proxy or
       vendor-started MCP processes survive a doctor run. This is new work:
-      `coral colony mcp proxy` has
+      `coral mcp proxy` has
       no separate `call-tool` subcommand today (the closest existing command,
       `mcp test-tool`, goes through the colony RPC `CallTool`, a different
       path entirely).
@@ -296,7 +304,7 @@ overrides rather than assuming the invoking user's default home layout.
       Registration Contract); `--live` additionally runs each installed
       client's listing command, prefixed with a warning that Gemini's live
       check is not read-only, and itself bounded to a 5s timeout per vendor
-      call. `assistant doctor` is the only command exposing `--live` in this
+      call. `mcp doctor` is the only command exposing `--live` in this
       RFD.
     - Accepts `--project <dir>` (default: cwd) to root scope-aware
       registration checks and colony resolution, `--colony <id>` (default:
@@ -366,7 +374,7 @@ overrides rather than assuming the invoking user's default home layout.
         is a normal unavailable result (exit `1`). A usable explicit client is
         selected regardless of how many other registrations exist.
       - **Zero** registered clients found and no explicit client: prints guidance pointing at
-        `coral colony mcp generate-config --client <name>` for each
+        `coral mcp configure --client <name>` for each
         supported adapter and exits `1` — it does not silently fall back to
         embedded mode.
       - **Exactly one** registered client found and no explicit client: prints
@@ -386,7 +394,7 @@ overrides rather than assuming the invoking user's default home layout.
       the vendor's own working directory, which Coral does not change on the
       user's behalf.
 
-5. **Coral MCP proxy protocol compliance** (`coral colony mcp proxy`):
+5. **Coral MCP proxy protocol compliance** (`coral mcp proxy`):
 
     - The proxy's request loop currently treats every unrecognized method,
       including id-less JSON-RPC *notifications* like `notifications/initialized`
@@ -441,7 +449,7 @@ flag, not a stored preference, in this RFD's scope.
 - [ ] Implement the separate `--live` detection path per adapter (invokes
       `mcp list` or equivalent, merged with — not replacing — the config-file
       result), gated so it only ever runs when the caller explicitly opts in;
-      exposed only through `assistant doctor --live`; `generate-config` and
+      exposed only through `mcp doctor --live`; `configure` and
       `coral terminal` never invoke it
 - [ ] Label every `gemini` adapter surface "API key / enterprise only," never
       "subscription," per Google's 2026-06-18 change, and do not add or infer
@@ -465,7 +473,7 @@ flag, not a stored preference, in this RFD's scope.
       mocked `mcp list` output, kept in separate test cases from the
       config-file path
 
-### Phase 2: `--client` Flag on `generate-config`
+### Phase 2: `--client` Flag on `coral mcp configure`
 
 - [ ] Add `--client` (default `claude-desktop`) and `--scope`
       (default `user`, applied to `claude`/`gemini` only)
@@ -482,7 +490,7 @@ flag, not a stored preference, in this RFD's scope.
       client/scope combination, single and `--all-colonies`, including
       multi-colony output for each command-based adapter
 
-### Phase 3: `coral assistant doctor`
+### Phase 3: `coral mcp doctor`
 
 - [ ] **Prerequisite:** repair the currently-skipped `TestMCPProxyE2E` (it
       `t.Skip`s unconditionally today and still asserts the retired
@@ -494,16 +502,17 @@ flag, not a stored preference, in this RFD's scope.
       `notifications/initialized` and any other id-less request must get no
       response, instead of the current `-32601 method not found` reply;
       cover with a test in the repaired E2E suite
-- [ ] Add an `assistant` command group with `doctor`, plus `--project <dir>`
+- [ ] Add `coral mcp doctor`, plus a hidden or deprecated `coral assistant
+      doctor` compatibility alias, with `--project <dir>`
       (default: cwd), `--colony <id>` (default: the colony resolved from
       `--project`), `--client <claude|codex|gemini|claude-desktop>` (optional
       target), and `--live` (default: off)
 - [ ] Implement the config/colony reachability check directly (resolve
       colony ID, load colony config, confirm MCP not disabled, confirm colony
       reachable) without spawning a subprocess — this is the same sequence
-      `coral colony mcp proxy` runs internally, extracted so its failure
+      `coral mcp proxy` runs internally, extracted so its failure
       mode is attributable
-- [ ] Implement the proxy-protocol check: spawn `coral colony mcp proxy`
+- [ ] Implement the proxy-protocol check: spawn `coral mcp proxy`
       directly and complete an MCP `initialize` round trip over stdio, with a
       5s timeout; when it fails, compare the failure against the
       config/colony reachability check's result and report a shared root
@@ -583,14 +592,14 @@ flag, not a stored preference, in this RFD's scope.
 ### Phase 5: Documentation
 
 - [ ] Update MCP documentation: per-client `--client` registration instructions,
-      `coral assistant doctor`, and the plain-language distinction between
+      `coral mcp doctor`, and the plain-language distinction between
       external, vendor-hosted assistants (Claude Code, Codex — subscription or
       API key; Gemini CLI — API key/enterprise only, per Google's 2026-06-18
       change) and embedded chat
-- [ ] Update CLI documentation: `--client`/`--scope` on `generate-config`,
+- [ ] Update CLI documentation: `--client`/`--scope` on `configure`,
       `--client`/`--live` and exit codes on `doctor`, `--client`/`--project`
       on `coral terminal`, and the config-file-default/`--live` distinction
-- [ ] Update the CLI-to-MCP mapping: note `assistant doctor` is a local
+- [ ] Update the CLI-to-MCP mapping: note `mcp doctor` is a local
       diagnostic, not an MCP-exposed tool
 - [ ] Update provider documentation: clarify that external assistant CLIs
       (Claude Code, Codex, Gemini CLI) are MCP clients, not embedded LLM
@@ -598,7 +607,7 @@ flag, not a stored preference, in this RFD's scope.
       API key/enterprise only, not a personal subscription, and that
       Antigravity is explicitly out of scope (see Key Design Decisions)
 - [ ] Update installation documentation: add the external-assistant onboarding
-      path (`generate-config --client …` → `assistant doctor`) alongside the
+      path (`mcp configure --client …` → `mcp doctor`) alongside the
       existing API-key path, noting per-client auth requirements
 
 ## API Changes
@@ -607,13 +616,13 @@ flag, not a stored preference, in this RFD's scope.
 
 ```bash
 # Native registration for Claude Code CLI (single colony, default --scope user)
-coral colony mcp generate-config --client claude
+coral mcp configure --client claude
 
 # Example output:
 Claude Code CLI Registration (scope: user)
 Run this command to register Coral MCP with Claude Code:
 
-  claude mcp add coral --scope user -- coral colony mcp proxy
+  claude mcp add coral --scope user -- coral mcp proxy
 
 To re-register under a different scope, or if "coral" already exists, see:
 `claude mcp add --help`, `claude mcp get coral`, `claude mcp remove coral`.
@@ -623,27 +632,27 @@ Check it took with: claude mcp list
 # colony, same coral / coral-<id> naming as the Claude Desktop JSON output.
 # Not claimed idempotent: re-running against an existing name is Claude
 # Code's documented behavior to fail, not Coral's to promise.
-coral colony mcp generate-config --client claude --all-colonies --scope project
+coral mcp configure --client claude --all-colonies --scope project
 
 # Example output:
 Claude Code CLI Registration (2 colonies, scope: project)
 Run these commands to register each colony as a separate MCP server:
 
-  claude mcp add coral-shop-prod --scope project -- coral colony mcp proxy --colony shop-prod
-  claude mcp add coral-shop-staging --scope project -- coral colony mcp proxy --colony shop-staging
+  claude mcp add coral-shop-prod --scope project -- coral mcp proxy --colony shop-prod
+  claude mcp add coral-shop-staging --scope project -- coral mcp proxy --colony shop-staging
 
 If a name already exists, see `claude mcp add --help` for how Claude Code
 handles it — Coral does not manage collisions itself.
 Check it took with: claude mcp list
 
 # Native registration for Codex CLI
-coral colony mcp generate-config --client codex
+coral mcp configure --client codex
 
 # Example output:
 Codex CLI Registration
 Run this command to register Coral MCP with Codex:
 
-  codex mcp add coral -- coral colony mcp proxy
+  codex mcp add coral -- coral mcp proxy
 
 If "coral" already exists, see `codex mcp add --help` for Codex's behavior.
 Check it took with: codex mcp list
@@ -651,13 +660,13 @@ Check it took with: codex mcp list
 # Native registration for Gemini CLI — API key / enterprise auth only. Gemini
 # CLI stopped serving individual, free, and Google AI Pro/Ultra accounts on
 # 2026-06-18: https://github.com/google-gemini/gemini-cli/discussions/28017
-coral colony mcp generate-config --client gemini
+coral mcp configure --client gemini
 
 # Example output:
 Gemini CLI Registration (scope: user, API key / enterprise accounts only)
 Run this command to register Coral MCP with Gemini CLI:
 
-  gemini mcp add --scope user --transport stdio coral coral colony mcp proxy
+  gemini mcp add --scope user --transport stdio coral coral mcp proxy
 
 The single-colony command needs no separator because none of the server
 arguments begin with a flag. This only works if Gemini CLI is configured with
@@ -668,19 +677,19 @@ separate Antigravity CLI. If "coral" already exists, see `gemini mcp add
 
 # Native registration for Gemini CLI (multi-colony) — "--" appears immediately
 # before the proxied "--colony" flag, after Gemini's required command positional
-coral colony mcp generate-config --client gemini --all-colonies --scope project
+coral mcp configure --client gemini --all-colonies --scope project
 
 # Example output:
 Gemini CLI Registration (2 colonies, scope: project, API key / enterprise accounts only)
 Run these commands to register each colony as a separate MCP server:
 
-  gemini mcp add --scope project --transport stdio coral-shop-prod coral colony mcp proxy -- --colony shop-prod
-  gemini mcp add --scope project --transport stdio coral-shop-staging coral colony mcp proxy -- --colony shop-staging
+  gemini mcp add --scope project --transport stdio coral-shop-prod coral mcp proxy -- --colony shop-prod
+  gemini mcp add --scope project --transport stdio coral-shop-staging coral mcp proxy -- --colony shop-staging
 
-# Default / explicit legacy path (unchanged) — Claude Desktop has no CLI, so
+# Default / explicit Claude Desktop adapter — Claude Desktop has no CLI, so
 # this remains the one config-snippet adapter
-coral colony mcp generate-config
-coral colony mcp generate-config --client claude-desktop
+coral mcp configure
+coral mcp configure --client claude-desktop
 ```
 
 ```bash
@@ -688,9 +697,9 @@ coral colony mcp generate-config --client claude-desktop
 # Default registration detection is passive: no vendor `mcp list` commands run.
 # If Codex is installed, its documented read-only `codex login status` auth
 # check still runs with a bounded timeout.
-coral assistant doctor
-coral assistant doctor --project /path/to/app --colony shop-prod   # defaults: cwd, colony resolved from --project
-coral assistant doctor --client codex                              # target one client
+coral mcp doctor
+coral mcp doctor --project /path/to/app --colony shop-prod   # defaults: cwd, colony resolved from --project
+coral mcp doctor --client codex                              # target one client
 
 # Example output (exit 0: Coral is healthy and one relevant client is usable):
 Coral Assistant Doctor  (project: /Users/alex/app, colony: shop-prod)
@@ -698,11 +707,11 @@ Coral Assistant Doctor  (project: /Users/alex/app, colony: shop-prod)
 
 Coral MCP proxy
   config/colony reachability   [healthy]   colony "shop-prod" reachable, MCP enabled (4ms)
-  proxy protocol                [healthy]   coral colony mcp proxy: initialize ok (18ms)
+  proxy protocol                [healthy]   coral mcp proxy: initialize ok (18ms)
   command dispatch              [healthy]   tools/call("coral_cli", ["colony","status","--colony","shop-prod"]) ok (61ms)
 
 Claude Code CLI         [installed]        binary: /usr/local/bin/claude
-  registration           [found: project]   coral -> coral colony mcp proxy (via <project>/.mcp.json)
+  registration           [found: project]   coral -> coral mcp proxy (via <project>/.mcp.json)
   vendor auth             [unknown]          no documented non-interactive auth-status command
 
 Codex CLI                [not found]
@@ -710,7 +719,7 @@ Codex CLI                [not found]
 
 Gemini CLI               [installed]        binary: /usr/local/bin/gemini  (API key / enterprise only)
   registration            [not found]        checked: project, user, system-default, system-override layers
-                                              run: coral colony mcp generate-config --client gemini
+                                              run: coral mcp configure --client gemini
   vendor auth              [unknown]          no documented non-interactive auth-status command
 
 Claude Desktop            [installation: n/a] no CLI binary
@@ -724,7 +733,7 @@ Exit code: 0 (Coral is healthy and Claude Code is launch-eligible;
 # Warns first because it is NOT read-only for every client: Gemini CLI
 # initializes configured stdio MCP servers — i.e. runs vendor-configured
 # commands — when listing registrations in a trusted project.
-coral assistant doctor --live
+coral mcp doctor --live
 
 # Example additional output with --live:
 Warning: --live runs each installed client's own registration-listing
@@ -755,9 +764,9 @@ Coral MCP tools will be available once Claude Code connects.
 # Example output, zero clients registered (exit 1):
 No external assistant is registered for this project.
 Register one first, e.g.:
-  coral colony mcp generate-config --client claude
-  coral colony mcp generate-config --client codex
-  coral colony mcp generate-config --client gemini
+  coral mcp configure --client claude
+  coral mcp configure --client codex
+  coral mcp configure --client gemini
 
 # Example output, multiple clients registered, no TTY and no --client (exit 1):
 Multiple external assistants are registered: claude, gemini.
@@ -772,7 +781,7 @@ Re-run with --client <name> to choose one non-interactively.
   multi-colony input at each `--scope` (including Gemini positional and `--`
   placement),
   including command-based multi-colony naming
-- `generate-config --client`/`--scope` flag routing for all supported values
+- `configure --client`/`--scope` flag routing for all supported values
   and a clear error for empty `--all-colonies`
 - Config-file-only registration detection against fixture config trees for
   each adapter/scope in the Client Adapter Registration Contract table,
@@ -781,7 +790,7 @@ Re-run with --client <name> to choose one non-interactively.
 - `--live` registration detection against mocked `mcp list` output, as
   separate test cases from the config-file path, asserting it is never
   invoked unless `--live` is passed
-- `assistant doctor` exit-code assertions for each of the three outcomes
+- `mcp doctor` exit-code assertions for each of the three outcomes
   (`0`/`1`/`2`) across representative healthy/degraded/usage-error scenarios;
   Codex vendor auth exercised through mocked `codex login status`, with
   "unknown" asserted for Claude Code, Gemini CLI, and Claude Desktop; verify
@@ -796,14 +805,14 @@ Re-run with --client <name> to choose one non-interactively.
 
 - The config/colony reachability check against a real (and separately, a
   disabled/unreachable) colony, verified independent of the proxy subprocess
-- `assistant doctor`'s proxy-protocol check against a real `coral colony mcp
-  proxy` process: spawn it, complete an `initialize` round trip including a
+- `mcp doctor`'s proxy-protocol check against a real `coral mcp proxy`
+  process: spawn it, complete an `initialize` round trip including a
   `notifications/initialized` follow-up that must receive no response, and
   verify it reports "healthy" independent of any client's registration state
 - A case where config/colony reachability fails and the proxy-protocol check
   is asserted to report the same root cause rather than an independent
   protocol defect
-- `assistant doctor`'s command-dispatch check against the same live proxy:
+- `mcp doctor`'s command-dispatch check against the same live proxy:
   `tools/call("coral_cli", ["colony", "status", "--colony", "<id>"])`, verifying it
   actually spawns `coral colony status --colony <id> --format json`, and all
   three checks respect their bounded timeouts (5s/5s/10s) and leave no
@@ -824,10 +833,10 @@ Re-run with --client <name> to choose one non-interactively.
 
 ## Security Considerations
 
-- `coral assistant doctor` registration detection is config-file inspection
+- `coral mcp doctor` registration detection is config-file inspection
   only by default: it reads known client config paths to check for a
   registration entry, never executes file contents, and never writes vendor
-  configuration. `generate-config` only prints registration material and does
+  configuration. `configure` only prints registration material and does
   not perform registration detection.
 - `--live` is the one deliberate exception to that default and is explicitly
   **not** read-only for every client: Gemini CLI initializes configured MCP
@@ -836,16 +845,16 @@ Re-run with --client <name> to choose one non-interactively.
   configuration Coral did not write. `--live` always prints this warning
   before running any vendor command, exists only on doctor, defaults off, and
   is never available for `claude-desktop` (no vendor command exists to run).
-- Generated registration output never embeds secrets: `coral colony mcp
-  proxy` carries no credentials in its invocation, consistent with existing
-  `generate-config` behavior. Dynamic server names, colony IDs, executable
+- Generated registration output never embeds secrets: `coral mcp proxy`
+  carries no credentials in its invocation, consistent with existing
+  `configure` behavior. Dynamic server names, colony IDs, executable
   paths, and project paths are validated and rendered with platform-appropriate
   shell quoting; raw config values are never interpolated into a copy-pasteable
   command.
-- No new attack surface on the MCP proxy itself — `assistant doctor`'s
+- No new attack surface on the MCP proxy itself — `mcp doctor`'s
   proxy-protocol and command-dispatch checks, and the external-assistant
   launch-instructions path, all either read config or drive the existing
-  `coral colony mcp proxy` path (RFD 004/100) under the invoking user's local
+  `coral mcp proxy` path (RFD 004/100) under the invoking user's local
   privileges; nothing runs with elevated privileges as a result of this RFD.
   `coral terminal --mode external-assistant` never spawns the vendor CLI
   itself — it only prints the command for the user to run.
@@ -858,7 +867,7 @@ Re-run with --client <name> to choose one non-interactively.
   adds. Codex's separate `codex login status` auth check is documented and
   non-interactive; it is bounded by the same timeout and never prints stored
   credentials.
-- Every subprocess tree `assistant doctor` spawns (proxy checks, Codex auth,
+- Every subprocess tree `mcp doctor` spawns (proxy checks, Codex auth,
   and `--live` vendor calls) is gracefully closed or cancelled, then
   terminated through an owned POSIX process group or Windows job object if
   necessary, and reaped on success and timeout paths — no vendor-started MCP
@@ -866,17 +875,20 @@ Re-run with --client <name> to choose one non-interactively.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🟡 Partially Implemented
 
-Will add: `--client`/`--scope` support to `coral colony mcp
-generate-config` for Claude Code, Codex, and Gemini CLIs (native `mcp add`
+The top-level `coral mcp` command group, canonical `configure` and `proxy`
+paths, hidden `coral colony mcp` compatibility group, and canonical proxy path
+in generated Claude Desktop configuration are implemented. This RFD will add
+`--client`/`--scope` support to `coral mcp configure` for Claude Code, Codex,
+and Gemini CLIs (native `mcp add`
 commands for all three, `--` argument-separated where needed; Gemini clearly
 labeled API-key/enterprise-only, never subscription, and never Antigravity);
 effective, colony-aware config-file registration detection by default per adapter
 (vendor `mcp list` gated behind `--live`, with a printed non-read-only
 warning); a repaired, current-model proxy E2E test and a
 `notifications/initialized` protocol-compliance fix as prerequisites; a new
-`coral assistant doctor` diagnostic command that reports three independent
+`coral mcp doctor` diagnostic command that reports three independent
 Coral-side signals (config/colony reachability, proxy protocol, command
 dispatch) once per run, client-independent, plus per-client
 installation/registration signals (Codex auth via `codex login status`, other
@@ -892,7 +904,7 @@ scope decision explicit.
 ## Future Work
 
 **Auto-fix registration** (Future)
-- `coral assistant doctor --fix` to write client config directly, requires a
+- `coral mcp doctor --fix` to write client config directly, requires a
   confirmation UX that won't clobber a user's existing MCP entries
 
 **Direct process handoff from `coral terminal`** (Future)
@@ -913,7 +925,7 @@ scope decision explicit.
   documented and stable enough to write a real adapter contract against.
 
 **Machine-readable doctor output** (Future)
-- `coral assistant doctor --format json`, deferred here to keep this RFD's
+- `coral mcp doctor --format json`, deferred here to keep this RFD's
   human-readable report format from being half-specified alongside a JSON
   schema; the exit-code convention defined in this RFD (`0`/`1`/`2`) should
   carry over unchanged

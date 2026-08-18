@@ -135,7 +135,7 @@ LLM calls coral_get_activity(service="payments", window="1h")
 
 ```
 External clients (Claude Desktop) — unchanged:
-    Claude Desktop → MCP stdio → coral colony mcp proxy → Colony MCP Server
+    Claude Desktop → MCP stdio → coral mcp proxy → Colony MCP Server
 ```
 
 ### Component Changes
