@@ -47,6 +47,18 @@ func TestCLIDispatchMode(t *testing.T) {
 		ColonyID: "test-colony",
 	}
 
+	// CLI dispatch mode shells out to coralExecutable() for every coral_cli
+	// call, including the system-prompt topology bootstrap. Under `go test`,
+	// os.Executable() resolves to this compiled test binary; executing it
+	// would re-run the whole suite as a subprocess, recursively, with no
+	// bound. Point it at a path that can never exist so the subprocess call
+	// fails fast and deterministically instead.
+	restoreExecutable := coralExecutable
+	coralExecutable = func() (string, error) {
+		return filepath.Join(t.TempDir(), "coral-not-built-for-tests"), nil
+	}
+	t.Cleanup(func() { coralExecutable = restoreExecutable })
+
 	// Creating the agent must succeed without contacting the MCP server.
 	agent, err := NewAgentWithCLIReference(askCfg, colonyCfg, false, "# cli reference stub")
 	require.NoError(t, err, "CLI dispatch mode must not attempt MCP connection")
