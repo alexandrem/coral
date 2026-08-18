@@ -29,3 +29,14 @@ func GetFocusForTest(model tea.Model) int {
 	}
 	return -1
 }
+
+// PushFollowupForTest drives a browser-submitted follow-up question through
+// TerminalModel.Update, exercising the same path a real dashboard click uses.
+func PushFollowupForTest(model tea.Model, question string) tea.Model {
+	tm, ok := model.(TerminalModel)
+	if !ok {
+		return model
+	}
+	updated, _ := tm.Update(followupMsg{question: question})
+	return updated
+}

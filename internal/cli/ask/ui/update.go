@@ -115,6 +115,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleReviewKey(msg)
 	}
 
+	// History search state: captures all keys until Enter/Esc/Ctrl+C.
+	if m.currentState == stateHistorySearch {
+		return m.handleHistorySearchKey(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		if m.currentState == stateQuerying || m.currentState == stateStreaming {
@@ -133,6 +138,25 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 
+	case "ctrl+r":
+		if m.currentState == stateIdle && len(m.history) > 0 {
+			m.currentState = stateHistorySearch
+			m.searchQuery = ""
+			m.searchMatchIdx = -1
+			return m, nil
+		}
+		return m, nil
+
+	case "up":
+		if m.currentState == stateIdle {
+			return m.historyPrev(), nil
+		}
+
+	case "down":
+		if m.currentState == stateIdle {
+			return m.historyNext(), nil
+		}
+
 	case "enter":
 		if m.currentState != stateIdle {
 			// Ignore enter while processing.
@@ -143,6 +167,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if question == "" {
 			return m, nil
 		}
+		m.recordHistory(question)
 
 		// Handle inline commands.
 		if strings.HasPrefix(question, "/") {
@@ -206,9 +231,60 @@ func (m Model) handleReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, waitForEventCmd(m.eventChan)
 }
 
+// handleHistorySearchKey handles key input during reverse incremental
+// history search (Ctrl+R). Enter accepts the current match into the input
+// box without submitting it; Esc/Ctrl+C cancels; repeated Ctrl+R steps to
+// the next older match; any other rune narrows the search.
+func (m Model) handleHistorySearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC, tea.KeyEsc:
+		m.currentState = stateIdle
+		m.searchQuery = ""
+		m.searchMatchIdx = -1
+		return m, nil
+
+	case tea.KeyCtrlR:
+		if m.searchMatchIdx > 0 {
+			m.searchMatchIdx = m.findHistoryMatch(m.searchQuery, m.searchMatchIdx-1)
+		} else {
+			m.searchMatchIdx = -1
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		if len(m.searchQuery) > 0 {
+			r := []rune(m.searchQuery)
+			m.searchQuery = string(r[:len(r)-1])
+			m.searchMatchIdx = m.findHistoryMatch(m.searchQuery, len(m.history)-1)
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		if m.searchMatchIdx >= 0 {
+			m.input.SetValue(m.history[m.searchMatchIdx])
+			m.input.CursorEnd()
+		}
+		m.currentState = stateIdle
+		m.searchQuery = ""
+		m.searchMatchIdx = -1
+		return m, nil
+
+	case tea.KeyRunes, tea.KeySpace:
+		m.searchQuery += msg.String()
+		m.searchMatchIdx = m.findHistoryMatch(m.searchQuery, len(m.history)-1)
+		return m, nil
+
+	default:
+		return m, nil
+	}
+}
+
 // handleInlineCommand processes inline commands like /help, /clear, /exit.
 func (m Model) handleInlineCommand(cmd string) (tea.Model, tea.Cmd) {
-	switch strings.ToLower(strings.TrimSpace(cmd)) {
+	trimmed := strings.TrimSpace(cmd)
+	lower := strings.ToLower(trimmed)
+
+	switch lower {
 	case "/help":
 		m.showHelp()
 		m.input.Reset()
@@ -225,18 +301,53 @@ func (m Model) handleInlineCommand(cmd string) (tea.Model, tea.Cmd) {
 	case "/exit", "/quit":
 		m.quitting = true
 		return m, tea.Quit
+	}
 
-	default:
-		// Delegate to the external command handler (e.g. /browser in coral terminal).
-		if m.commandHandler != nil {
-			m.input.Reset()
-			return m, m.commandHandler(strings.ToLower(strings.TrimSpace(cmd)))
-		}
-		m.lastError = fmt.Errorf("unknown command: %s (try /help)", cmd)
-		m.currentState = stateError
+	if lower == "/model" || strings.HasPrefix(lower, "/model ") {
+		arg := strings.TrimSpace(trimmed[len("/model"):])
+		return m.handleModelCommand(arg)
+	}
+
+	// Delegate to the external command handler (e.g. /browser in coral terminal).
+	if m.commandHandler != nil {
 		m.input.Reset()
+		return m, m.commandHandler(lower)
+	}
+	m.lastError = fmt.Errorf("unknown command: %s (try /help)", cmd)
+	m.currentState = stateError
+	m.input.Reset()
+	return m, nil
+}
+
+// handleModelCommand implements /model [provider:model-id]. With no argument
+// it reports the current model; with an argument it switches the agent's
+// active LLM provider for subsequent turns, keeping conversation history.
+func (m Model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
+	m.input.Reset()
+
+	if arg == "" {
+		m.conversation = append(m.conversation, Message{
+			Role: "system",
+			Content: fmt.Sprintf(
+				"Current model: **%s**\n\nUsage: `/model <provider:model-id>` (e.g. `/model anthropic:claude-opus-4-6`)",
+				m.modelName),
+		})
 		return m, nil
 	}
+
+	display, err := m.agent.SwitchModel(arg)
+	if err != nil {
+		m.lastError = fmt.Errorf("failed to switch model: %w", err)
+		m.currentState = stateError
+		return m, nil
+	}
+
+	m.modelName = display
+	m.conversation = append(m.conversation, Message{
+		Role:    "system",
+		Content: fmt.Sprintf("Switched model to **%s**.", display),
+	})
+	return m, nil
 }
 
 // showHelp displays help information in the conversation.
@@ -244,9 +355,10 @@ func (m *Model) showHelp() {
 	helpText := `## Coral Ask - Interactive Mode
 
 **Available commands:**
-- /help      - Show this help message
-- /clear     - Clear conversation history and start fresh
-- /exit      - Exit interactive session
+- /help         - Show this help message
+- /clear        - Clear conversation history and start fresh
+- /model [spec] - Show or switch the active LLM model (e.g. /model anthropic:claude-opus-4-6)
+- /exit         - Exit interactive session
 
 **Natural language queries:**
 Just type your question (no prefix needed)
@@ -259,6 +371,8 @@ Just type your question (no prefix needed)
 **Keyboard shortcuts:**
 - Ctrl+C     - Cancel current query (or exit if idle)
 - Ctrl+D     - Exit interactive session
+- Up / Down  - Navigate input history
+- Ctrl+R     - Reverse search input history
 - Enter      - Submit question`
 
 	// Add help as a system message (won't be sent to LLM).

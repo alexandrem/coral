@@ -17,13 +17,17 @@ const (
 	stateQuerying
 	stateStreaming
 	stateError
-	stateScriptReview // waiting for user to approve or reject a script write
+	stateScriptReview  // waiting for user to approve or reject a script write
+	stateHistorySearch // reverse incremental search through input history (Ctrl+R)
 )
 
 // Agent interface to avoid import cycle.
 type Agent interface {
 	AskWithChannel(ctx any, question, conversationID string, dryRun bool, ch chan<- any) (any, error)
 	ResetConversation(conversationID string)
+	// SwitchModel replaces the active LLM provider for subsequent turns and
+	// returns the display model name. Backs the /model inline command.
+	SwitchModel(modelSpec string) (string, error)
 }
 
 // Message represents a conversation message (to avoid import cycle).
@@ -82,6 +86,36 @@ type Model struct {
 	// commandHandler is called for inline commands not handled by the model itself.
 	// Set by coral terminal to handle /browser and other terminal-level commands.
 	commandHandler func(cmd string) tea.Cmd
+
+	// Input history (persistent Up/Down navigation and Ctrl+R search).
+	history       []string
+	historyIdx    int    // -1 = not navigating
+	historyDraft  string // input saved before navigating into history
+	appendHistory func(entry string)
+
+	// History search state (Ctrl+R reverse incremental search).
+	searchQuery    string
+	searchMatchIdx int // index into history of the current match, -1 = none
+}
+
+// SetHistory configures persistent input history for Up/Down navigation and
+// Ctrl+R search. entries are ordered oldest-first. appendFn is called with
+// each submitted line for persistence; it may be nil to keep in-session
+// navigation without persisting to disk.
+func (m *Model) SetHistory(entries []string, appendFn func(string)) {
+	m.history = append([]string(nil), entries...)
+	m.historyIdx = -1
+	m.appendHistory = appendFn
+}
+
+// SetInputValue pre-fills the input box with text without submitting the
+// query, so the user can review or edit before pressing Enter. Used by
+// coral terminal to populate a follow-up question generated from a browser
+// dashboard click.
+func (m Model) SetInputValue(v string) Model {
+	m.input.SetValue(v)
+	m.input.CursorEnd()
+	return m
 }
 
 // SetCommandHandler sets a handler for unrecognised inline commands (e.g. /browser).
@@ -142,6 +176,8 @@ func NewModel(
 		height:           24,
 		quitting:         false,
 		saveConversation: saveFunc,
+		historyIdx:       -1,
+		searchMatchIdx:   -1,
 	}, nil
 }
 
