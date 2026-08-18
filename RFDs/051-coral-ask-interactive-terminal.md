@@ -608,13 +608,18 @@ don't affect core functionality. The basic prompt shows essential information
 (where you're querying, which model) which is sufficient for MVP. Token/cost
 tracking requires LLM provider integration work across all providers.
 
-**Advanced Input Features** (Future - RFD TBD)
+**Advanced Input Features** (Partial — history and search implemented; rest
+Future - RFD TBD)
 
-Bubbletea provides basic text input. Advanced features are deferred:
+Bubbletea provides basic text input. Advanced features were deferred; two are
+now implemented, the rest remain future work:
 
-- Persistent command history across sessions (up/down to navigate)
+- ✅ **Implemented** — Persistent command history across sessions (Up/Down to
+  navigate), shared between `coral ask` and `coral terminal` via
+  `~/.coral/history`
+- ✅ **Implemented** — Fuzzy history search (Ctrl+R style), reverse
+  incremental search over input history
 - Tab completion for service names and inline commands
-- Fuzzy history search (Ctrl+R style)
 - Multiline input with continuation (`\` line endings or Shift+Enter)
 - Smart completion based on MCP tool schemas
 
@@ -637,15 +642,23 @@ management deferred:
 management (browsing, searching, exporting) is useful but not critical for
 iterative debugging workflow.
 
-**Runtime Configuration Changes** (Future - RFD TBD)
+**Runtime Configuration Changes** (Partial — `/model` implemented; rest
+Future - RFD TBD)
 
 The core implementation uses configuration from `~/.coral/config.yaml`. Runtime
-changes require:
+changes were deferred; `/model` is now implemented:
 
-- `/model <name>` command to switch models mid-session
-- `/colony <name>` command to switch target colony
+- ✅ **Implemented** — `/model <provider:model-id>` command to switch models
+  mid-session, keeping conversation history intact; a bare `/model` reports
+  the current model
+- `/colony <name>` command to switch target colony — still future. In CLI
+  dispatch mode (RFD 100), `coral_cli` subprocess calls don't currently
+  support a per-call colony override (most `coral query *` commands have no
+  `--colony` flag at all), so a correct implementation needs that plumbed
+  through first rather than switching only the displayed context
 - In-session configuration overrides
-- Validation and error handling for invalid switches
+- Validation and error handling for invalid switches (covered for `/model`;
+  still future for `/colony` and other settings)
 
 **Rationale:** For MVP, developers can exit and restart with different config.
 Runtime switching adds complexity and error cases.
