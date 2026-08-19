@@ -198,16 +198,18 @@ func mergeKey(c ProcessCandidate) string {
 // provider group is processed; a later provider candidate for that same
 // port — even carrying its own PID — joins the existing static-rooted group
 // instead of creating a second entry for the same port, which would
-// otherwise produce two conflicting Beyla rules for one process. A PID
-// index tracks that join so any further candidate for the same PID (e.g. a
+// otherwise produce two conflicting Beyla rules for one process. Ports from
+// provider candidates are deliberately not indexed: the same numeric port
+// can be owned by different processes in different network namespaces. A
+// PID index tracks joins so any further candidate for the same PID (e.g. a
 // second provider with no port data of its own) also lands in that group.
 func merge(priorityGroups [][]ProcessCandidate) map[string]ProcessCandidate {
 	grouped := make(map[string][]ProcessCandidate)
-	portToKey := make(map[int]string)
+	staticPortToKey := make(map[int]string)
 	pidToKey := make(map[int]string)
 	var order []string
 
-	for _, group := range priorityGroups {
+	for groupIndex, group := range priorityGroups {
 		for _, c := range group {
 			key := ""
 
@@ -218,7 +220,7 @@ func merge(priorityGroups [][]ProcessCandidate) map[string]ProcessCandidate {
 			}
 			if key == "" {
 				for _, port := range c.Ports {
-					if k, ok := portToKey[port]; ok {
+					if k, ok := staticPortToKey[port]; ok {
 						key = k
 						break
 					}
@@ -238,9 +240,11 @@ func merge(priorityGroups [][]ProcessCandidate) map[string]ProcessCandidate {
 					pidToKey[c.PID] = key
 				}
 			}
-			for _, port := range c.Ports {
-				if _, exists := portToKey[port]; !exists {
-					portToKey[port] = key
+			if groupIndex == 0 {
+				for _, port := range c.Ports {
+					if _, exists := staticPortToKey[port]; !exists {
+						staticPortToKey[port] = key
+					}
 				}
 			}
 		}

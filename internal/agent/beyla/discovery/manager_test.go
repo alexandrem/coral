@@ -165,6 +165,44 @@ func TestStaticCandidateJoinsProviderCandidateByPort(t *testing.T) {
 	}
 }
 
+// TestProviderCandidatesOnSamePortStayDistinct verifies that port numbers
+// are not treated as globally unique process identities. Containers in
+// separate network namespaces commonly listen on the same container-local
+// port and must each produce their own discovery candidate (RFD 112).
+func TestProviderCandidatesOnSamePortStayDistinct(t *testing.T) {
+	ctx := context.Background()
+
+	provider := &fakeProvider{
+		name:  "procfs",
+		probe: true,
+		candidates: []ProcessCandidate{
+			{PID: 100, Name: "cpu-app", Ports: []int{8080}},
+			{PID: 200, Name: "netns-app", Ports: []int{8080}},
+		},
+	}
+
+	var got []ProcessCandidate
+	mgr := NewDiscoveryManager(zerolog.Nop(), time.Second, func(c []ProcessCandidate) { got = c })
+	mgr.RegisterProvider(provider)
+
+	mgr.Poll(ctx)
+
+	if len(got) != 2 {
+		t.Fatalf("expected processes in separate network namespaces to remain distinct, got %d: %+v", len(got), got)
+	}
+
+	byPID := make(map[int]ProcessCandidate, len(got))
+	for _, c := range got {
+		byPID[c.PID] = c
+	}
+	if byPID[100].Name != "cpu-app" {
+		t.Errorf("PID 100 Name = %q, want %q", byPID[100].Name, "cpu-app")
+	}
+	if byPID[200].Name != "netns-app" {
+		t.Errorf("PID 200 Name = %q, want %q", byPID[200].Name, "netns-app")
+	}
+}
+
 func TestStaticCandidateSurvivesPollWithNoMatchingProvider(t *testing.T) {
 	ctx := context.Background()
 
