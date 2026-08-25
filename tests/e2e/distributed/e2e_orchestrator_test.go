@@ -340,6 +340,17 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_AskWithTools", cliAskSuite.TestAskWithTools)
 	s.Run("CLI_AskContinuation", cliAskSuite.TestAskContinuation)
 
+	// Run CLIAskDispatchSuite (dispatch-mode bootstrap parity — RFD 114).
+	cliAskDispatchSuite := &CLIAskDispatchSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliAskDispatchSuite.SetT(s.T())
+	cliAskDispatchSuite.SetupSuite()
+	defer cliAskDispatchSuite.TearDownSuite()
+
+	s.Run("CLI_AskDispatchCLIDefault", cliAskDispatchSuite.TestCLIDispatchIsDefaultAndBootstraps)
+	s.Run("CLI_AskDispatchMCPParity", cliAskDispatchSuite.TestMCPDispatchBootstrapParity)
+
 	// Run CLIAskConfigSuite (ask config wizard — RFD 055)
 	cliAskConfigSuite := &CLIAskConfigSuite{
 		E2EDistributedSuite: s.E2EDistributedSuite,
@@ -422,6 +433,23 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_DebugSessionGetNotFound", cliDebugSuite.TestDebugSessionGetNotFound)
 	s.Run("CLI_QueryCPUProfile", cliDebugSuite.TestQueryCPUProfileCommand)
 	s.Run("CLI_QueryMemoryProfile", cliDebugSuite.TestQueryMemoryProfileCommand)
+
+	// Run CLITriageSuite (coral triage composite diagnosis — RFD 114).
+	cliTriageSuite := &CLITriageSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliTriageSuite.SetT(s.T())
+	cliTriageSuite.SetupSuite()
+	defer cliTriageSuite.TearDownSuite()
+
+	s.Run("CLI_TriageAttachDurationRequiresAttach", cliTriageSuite.TestTriageAttachDurationRequiresAttach)
+	s.Run("CLI_TriageInvalidFormatRejected", cliTriageSuite.TestTriageInvalidFormatRejected)
+	s.Run("CLI_TriageUnknownServiceReturnsNoData", cliTriageSuite.TestTriageUnknownServiceReturnsNoData)
+	s.Run("CLI_TriageHealthyServiceSkipsCandidateAndAttach", cliTriageSuite.TestTriageHealthyServiceSkipsCandidateAndAttach)
+	s.Run("CLI_TriageDegradedServiceReadOnly", cliTriageSuite.TestTriageDegradedServiceReadOnly)
+	s.Run("CLI_TriageDegradedServiceAttachSkipsWithoutCandidate", cliTriageSuite.TestTriageDegradedServiceAttachSkipsWithoutCandidate)
+	s.Run("CLI_TriageAllServicesSelectsWorst", cliTriageSuite.TestTriageAllServicesSelectsWorst)
+	s.Run("CLI_TriageTextOutputShowsFailureProminently", cliTriageSuite.TestTriageTextOutputShowsFailureProminently)
 
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true

@@ -459,6 +459,25 @@ than a group to recurse into. `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and
 `docs/engineering/11_mcp_and_llm_interfacing.md` were updated to describe the
 new default dispatch mode, the shared bootstrap, and `coral triage`.
 
+### Integration test follow-up
+
+The Testing Strategy's "Integration tests" were not part of the original
+implementation — only unit tests against a fake client and mock LLM landed
+(commit `85ba5fb`). `tests/e2e/distributed/cli_triage_test.go` and
+`cli_ask_dispatch_test.go` now cover them against a real colony/agent/service
+stack: read-only diagnosis of a genuinely critical service (driven via
+otel-app's real `/api/checkout` error injection), the documented
+`not_found`/`skipped` partial result this specific degradation path
+deterministically produces (no CPU/memory issue text and no profiling data to
+resolve a candidate from), deterministic all-services worst-selection, the
+`--attach`/`--attach-duration` and `--format` argument-validation errors, and
+CLI-default vs. explicit-MCP dispatch bootstrap parity via `coral ask
+--debug`'s system-prompt output. Exercising the `candidate_status: found` /
+`attach.status: attached` branch end-to-end needs a fixture service that is
+simultaneously error-prone and CPU-hot for a real profiling hot path; no
+current fixture app is both, so that branch remains covered only at the unit
+level (`internal/cli/triage/triage_test.go`).
+
 ## Future Work
 
 ### Remaining unmapped debug procedures
