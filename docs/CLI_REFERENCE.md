@@ -327,6 +327,42 @@ coral ask "Check errors" --dry-run
 
 ---
 
+## Triage (Composite Diagnosis)
+
+**Bounded composite diagnosis command (RFD 114): combines the health summary,
+profiling data, and function registry into one structured result.** Read-only
+by default; attaching an eBPF probe requires `--attach`.
+
+```bash
+# Diagnose the named service (regardless of its current health).
+coral triage api
+
+# Diagnose the worst currently degraded or critical service across the fleet.
+coral triage
+
+# Diagnose and attach a bounded probe to the resolved candidate.
+coral triage api --attach [--attach-duration <duration>]
+
+# Options:
+#   --since <duration>            Time range for the health summary (default: 5m)
+#   --attach                      Attach a bounded eBPF probe to the resolved candidate
+#   --attach-duration <duration>  Probe duration when --attach is set (default: 30s)
+#   --format text|json            Output format (default: text)
+```
+
+Candidate resolution uses only evidence the registry already has: profiling
+hot-path frames first (exact, service-scoped, probeable, not already probed),
+then a semantic query built from the summary's issues and regression
+messages. `coral triage` never ranks unprobed functions by latency and never
+selects an arbitrary function when neither signal is available — the result
+reports `candidate_status: not_found` instead.
+
+Outcome, candidate, and attach status are all part of a stable JSON schema
+(`outcome`, `candidate_status`, `attach.status`) so scripts and agents can
+branch on the result without parsing text.
+
+---
+
 ## Unified Query Commands
 
 **Unified interface combining eBPF and OTLP data sources.**

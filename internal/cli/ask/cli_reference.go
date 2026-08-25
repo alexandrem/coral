@@ -15,17 +15,25 @@ func GenerateCLIReference(root *cobra.Command) string {
 	var sb strings.Builder
 	sb.WriteString("coral CLI reference — --format json is appended automatically by coral_cli.\n\n")
 
-	// Include only the command groups the agent is likely to call.
+	// Include only the command groups (and top-level leaves) the agent is
+	// likely to call. The root service command is named "services", not
+	// "service" (RFD 114).
 	relevant := map[string]bool{
-		"query": true, "debug": true, "service": true,
-		"script": true, "run": true,
+		"query": true, "debug": true, "services": true,
+		"script": true, "run": true, "triage": true,
 	}
 
 	for _, cmd := range root.Commands() {
 		if !relevant[cmd.Name()] || cmd.Hidden {
 			continue
 		}
-		writeRefGroup(&sb, cmd)
+		if cmd.HasSubCommands() {
+			writeRefGroup(&sb, cmd)
+		} else {
+			// A relevant top-level leaf (e.g. triage) has no subcommands to
+			// recurse into — write it directly instead of emitting nothing.
+			writeRefLeaf(&sb, cmd)
+		}
 	}
 
 	return sb.String()

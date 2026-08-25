@@ -1,7 +1,7 @@
 ---
 rfd: "114"
 title: "Coral Triage: Composite Diagnosis Command and CLI Dispatch Unification"
-state: "draft"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "ask", "tui", "cli", "debug", "query", "auth" ]
 
 # RFD 114 - Coral Triage: Composite Diagnosis Command and CLI Dispatch Unification
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -302,47 +302,47 @@ dispatch. Only the empty-string fallback changes.
 
 ### Phase 1: Correct RPC authorization
 
-- [ ] Replace stale debug procedure keys in the HTTP RBAC map with
+- [x] Replace stale debug procedure keys in the HTTP RBAC map with
       `QueryFunctions` and `AttachUprobe`.
-- [ ] Reference generated Connect procedure constants where practical.
-- [ ] Test that status-only credentials are denied, query credentials can call
+- [x] Reference generated Connect procedure constants where practical.
+- [x] Test that status-only credentials are denied, query credentials can call
       `QueryFunctions`, and only debug credentials can call `AttachUprobe`.
 
 ### Phase 2: Unify dispatch and bootstrap context
 
-- [ ] Change the unset dispatch fallback in `NewAgent` from MCP to CLI.
-- [ ] Introduce a shared JSON command runner for prompt bootstrap, backed by
+- [x] Change the unset dispatch fallback in `NewAgent` from MCP to CLI.
+- [x] Introduce a shared JSON command runner for prompt bootstrap, backed by
       local CLI execution in CLI mode and `coral_cli` MCP calls in MCP mode.
-- [ ] Parse the real JSON shapes returned by `services` and `query summary`.
-- [ ] Include service and degraded-health context in both dispatch modes.
-- [ ] Update the CLI system prompt to recommend `triage` for combined
+- [x] Parse the real JSON shapes returned by `services` and `query summary`.
+- [x] Include service and degraded-health context in both dispatch modes.
+- [x] Update the CLI system prompt to recommend `triage` for combined
       health-and-location questions.
-- [ ] Update configuration comments and engineering documentation.
-- [ ] Test the unset default, explicit MCP mode, both runners, malformed JSON,
+- [x] Update configuration comments and engineering documentation.
+- [x] Test the unset default, explicit MCP mode, both runners, malformed JSON,
       command failures, and real service/summary JSON fixtures.
 
 ### Phase 3: Implement `coral triage`
 
-- [ ] Add `internal/cli/triage/` with an internal client interface so selection
+- [x] Add `internal/cli/triage/` with an internal client interface so selection
       and partial-result behavior can be unit tested without a live colony.
-- [ ] Implement deterministic service selection using
+- [x] Implement deterministic service selection using
       `critical > degraded > healthy > unknown`, error rate, average latency,
       and name.
-- [ ] Implement exact hot-path resolution and semantic issue fallback without
+- [x] Implement exact hot-path resolution and semantic issue fallback without
       relying on `Metrics.P95` or `PrioritizeSlow`.
-- [ ] Add `--since` (default `5m`), `--attach`, `--attach-duration` (default
+- [x] Add `--since` (default `5m`), `--attach`, `--attach-duration` (default
       `30s`), and `--format text|json`.
-- [ ] Validate that `--attach-duration` requires `--attach`.
-- [ ] Implement stable full and partial result schemas.
-- [ ] Register `triage` in `internal/cli/root.go`.
+- [x] Validate that `--attach-duration` requires `--attach`.
+- [x] Implement stable full and partial result schemas.
+- [x] Register `triage` in `internal/cli/root.go`.
 
 ### Phase 4: Agent reference and documentation
 
-- [ ] Add the top-level `triage` leaf explicitly to `GenerateCLIReference`.
-- [ ] Correct the relevant command-group name from `service` to `services`.
-- [ ] Test that `triage` and `services` appear and unrelated top-level commands
+- [x] Add the top-level `triage` leaf explicitly to `GenerateCLIReference`.
+- [x] Correct the relevant command-group name from `service` to `services`.
+- [x] Test that `triage` and `services` appear and unrelated top-level commands
       remain excluded.
-- [ ] Update `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and
+- [x] Update `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and
       `docs/engineering/11_mcp_and_llm_interfacing.md`.
 
 ## Testing Strategy
@@ -399,12 +399,75 @@ longer be authorized. Release notes must call out this security correction.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
-`coral triage`, dispatch unification, JSON bootstrap parsing, and the RBAC
-correction are unimplemented.
+All four phases are complete: the RBAC procedure-name correction, CLI dispatch
+default + shared bootstrap, `coral triage`, and CLI reference/docs. `make
+test` and `make lint` are clean.
+
+Phase 1: `internal/colony/httpapi/rbac.go` now keys the debug entries
+by the generated `colonyv1connect` procedure constants
+(`ColonyDebugServiceAttachUprobeProcedure`,
+`ColonyDebugServiceQueryFunctionsProcedure`,
+`ColonyDebugServiceUpdateProbeFilterProcedure`) instead of string literals for
+retired RPC names, so a future proto rename cannot silently drift from RBAC
+again.
+
+While auditing the map, several other entries also named RPCs that no longer
+exist (`StartSession`, `StopSession`, `AttachProbe`, `DetachProbe`,
+`GetResults`, `ListSessions`, `StreamEvents`) and were dead code — they never
+matched any real procedure path, so removing them changes no behavior. Their
+closest current equivalents (`DetachUprobe`, `GetDebugResults`,
+`ListDebugSessions`) still fall through to the `PermissionStatus` default,
+same class of gap as the one this RFD fixes for `QueryFunctions` and
+`AttachUprobe`, but assigning them a permission is a product decision outside
+this RFD's stated scope; flagged as Future Work below rather than fixed
+silently.
+
+Phase 2: `NewAgent`'s unset dispatch fallback is now
+`config.DispatchModeCLI` (`resolveDispatchMode` in
+`internal/cli/ask/agent.go`); explicit `mcp` is unaffected. Both dispatch
+modes bootstrap service and health context through a shared `commandRunner`
+interface (`cliCommandRunner` execs locally, `mcpCommandRunner` calls the
+proxy's `coral_cli` tool) that parses the real `coral services --format json`
+and `coral query summary --format json` shapes — the retired MCP-tool text
+parsers (`parseHealthAlerts`, `compactServiceAlert`) were deleted along with
+their now-inapplicable tests. The CLI system prompt's `triage` recommendation was added once the command
+existed (rule 6 in `buildCLISystemPrompt`).
+
+Phase 3: `internal/cli/triage/` implements `coral triage [service]`
+as a thin CLI/formatting layer (`command.go`) over a client-agnostic
+`diagnose` function (`triage.go`) that takes a narrow `client` interface
+(`QueryUnifiedSummary`, `QueryFunctions`, `AttachUprobe`), letting service
+selection and candidate/partial-result behavior run against a `fakeClient` in
+tests without a live colony. Candidate resolution walks
+`ProfilingSummary.TopCpuHotspots[0].Frames` from leaf to caller (the proto
+field is documented root-to-leaf, so the walk iterates the slice in reverse)
+when present, or otherwise falls back to a semantic query built from
+`Issues` + regression messages — the two paths are mutually exclusive per the
+RFD text, not chained. `QueryFunctions` is always called with `ServiceName`
+set, so the server's own SQL filter — confirmed by reading
+`FunctionRegistry.vectorSearch`/`textSearch` — is what actually prevents a
+cross-service match; the client only does exact-name comparison
+(`database.ShortFunctionName` on both sides) on top of that. Registered in
+`internal/cli/root.go`.
+
+Phase 4: `GenerateCLIReference`'s allowlist now includes `services` (fixing
+the pre-existing `service`/`services` name mismatch, which meant the group
+was silently never emitted) and `triage`, handled as a top-level leaf rather
+than a group to recurse into. `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and
+`docs/engineering/11_mcp_and_llm_interfacing.md` were updated to describe the
+new default dispatch mode, the shared bootstrap, and `coral triage`.
 
 ## Future Work
+
+### Remaining unmapped debug procedures
+
+`DetachUprobe`, `GetDebugResults`, and `ListDebugSessions` are not in the HTTP
+RBAC map and currently default to `PermissionStatus`. A future change should
+decide and assign their intended permissions (most likely `PermissionDebug`
+for detach and `PermissionQuery` for the two read operations, mirroring
+`AttachUprobe` and `QueryFunctions`).
 
 ### Registry-backed function performance ranking
 

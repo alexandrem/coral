@@ -238,9 +238,17 @@ commands so it knows the available subcommands and flags.
 
 ```yaml
 # ~/.coral/config.yaml (or colony.yaml)
-ask:
-  dispatch_mode: cli   # default for TUI; "mcp" for external clients
+ai:
+  ask:
+    agent:
+      dispatch_mode: cli   # default for coral ask and coral terminal (RFD 114)
+                            # set "mcp" only when the Agent must dispatch through an MCP proxy
 ```
+
+For combined health-and-code-location questions, the agent prefers
+`coral triage [service]` (RFD 114) over composing separate `query` and
+`debug` calls — see [Triage](./CLI_REFERENCE.md#triage-composite-diagnosis)
+in the CLI reference.
 
 See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` and
 `coral terminal` syntax.
