@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/llm"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
