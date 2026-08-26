@@ -134,19 +134,27 @@ func (s *CLITriageSuite) waitForSummary(serviceName string, match func(*colonyv1
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
 
 	var found *colonyv1.UnifiedSummaryResult
+	var lastSeen *colonyv1.UnifiedSummaryResult
 	err = helpers.WaitForCondition(s.ctx, func() bool {
 		resp, queryErr := helpers.QueryColonySummary(s.ctx, colonyClient, serviceName, "5m")
 		if queryErr != nil {
 			return false
 		}
 		for _, r := range resp.Summaries {
-			if r.ServiceName == serviceName && match(r) {
-				found = r
-				return true
+			if r.ServiceName == serviceName {
+				lastSeen = r
+				if match(r) {
+					found = r
+					return true
+				}
 			}
 		}
 		return false
 	}, timeout, 2*time.Second)
+	if err != nil && lastSeen != nil {
+		s.T().Logf("last seen %s summary: status=%s error_rate=%.1f%% avg_latency=%.0fms issues=%v",
+			serviceName, lastSeen.Status, lastSeen.ErrorRate, lastSeen.AvgLatencyMs, lastSeen.Issues)
+	}
 	s.Require().NoError(err, "timed out waiting for %s summary condition", serviceName)
 	return found
 }
@@ -190,6 +198,7 @@ func (s *CLITriageSuite) TestTriageUnknownServiceReturnsNoData() {
 // candidate resolution or attachment (RFD 114 Solution: "A healthy named
 // service returns its summary with outcome healthy and does not attach").
 func (s *CLITriageSuite) TestTriageHealthyServiceSkipsCandidateAndAttach() {
+	s.generateHealthyTraffic(10)
 	summary := s.waitForSummary(triageHealthyService, func(r *colonyv1.UnifiedSummaryResult) bool {
 		return r.Status == "healthy"
 	}, 60*time.Second)

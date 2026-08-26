@@ -84,18 +84,26 @@ func (s *CLIAskDispatchSuite) waitForDegraded(serviceName string, timeout time.D
 	s.Require().NoError(err, "Failed to get colony endpoint")
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
 
+	var lastSeen *colonyv1.UnifiedSummaryResult
 	err = helpers.WaitForCondition(s.ctx, func() bool {
 		resp, queryErr := helpers.QueryColonySummary(s.ctx, colonyClient, serviceName, "5m")
 		if queryErr != nil {
 			return false
 		}
 		for _, r := range resp.Summaries {
-			if r.ServiceName == serviceName && (r.Status == "critical" || r.Status == "degraded") {
-				return true
+			if r.ServiceName == serviceName {
+				lastSeen = r
+				if r.Status == "critical" || r.Status == "degraded" {
+					return true
+				}
 			}
 		}
 		return false
 	}, timeout, 2*time.Second)
+	if err != nil && lastSeen != nil {
+		s.T().Logf("last seen %s summary: status=%s error_rate=%.1f%% avg_latency=%.0fms issues=%v",
+			serviceName, lastSeen.Status, lastSeen.ErrorRate, lastSeen.AvgLatencyMs, lastSeen.Issues)
+	}
 	s.Require().NoError(err, "timed out waiting for %s to become critical/degraded", serviceName)
 }
 
