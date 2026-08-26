@@ -86,7 +86,13 @@ func (s *CLIAskDispatchSuite) waitForDegraded(serviceName string, timeout time.D
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
 
 	var lastSeen *colonyv1.UnifiedSummaryResult
+	iteration := 0
 	err = helpers.WaitForCondition(s.ctx, func() bool {
+		iteration++
+		if iteration > 1 {
+			// Periodically pulse more errors in case Beyla was attaching or prior successful spans diluted the error rate.
+			s.generateCheckoutErrors(20)
+		}
 		resp, queryErr := helpers.QueryColonySummary(s.ctx, colonyClient, serviceName, "5m")
 		if queryErr != nil {
 			return false

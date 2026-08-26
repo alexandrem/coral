@@ -135,7 +135,16 @@ func (s *CLITriageSuite) waitForSummary(serviceName string, match func(*colonyv1
 
 	var found *colonyv1.UnifiedSummaryResult
 	var lastSeen *colonyv1.UnifiedSummaryResult
+	iteration := 0
 	err = helpers.WaitForCondition(s.ctx, func() bool {
+		iteration++
+		if iteration > 2 {
+			if serviceName == triageDegradedService {
+				s.generateCheckoutErrors(20)
+			} else if serviceName == triageHealthyService {
+				s.generateHealthyTraffic(5)
+			}
+		}
 		resp, queryErr := helpers.QueryColonySummary(s.ctx, colonyClient, serviceName, "5m")
 		if queryErr != nil {
 			return false

@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
@@ -274,6 +275,7 @@ func instrumentHandler(name string, handler func(http.ResponseWriter, *http.Requ
 		// Mark span as error if status code indicates an error.
 		if rw.statusCode >= 400 {
 			span.SetAttributes(attribute.Bool("error", true))
+			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", rw.statusCode))
 		}
 	}
 }
@@ -377,6 +379,7 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 			// Randomly inject errors.
 			if rand.Intn(100) < step.errorPct {
 				stepSpan.SetAttributes(attribute.Bool("error", true))
+				stepSpan.SetStatus(codes.Error, fmt.Sprintf("Checkout failed at step: %s", step.name))
 				stepSpan.End()
 				w.WriteHeader(http.StatusInternalServerError)
 				fmt.Fprintf(w, `{"error": "Checkout failed at step: %s"}`, step.name)
