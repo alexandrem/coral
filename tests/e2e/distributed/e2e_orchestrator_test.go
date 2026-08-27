@@ -262,6 +262,16 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.T().Log("GROUP 5: CLI Commands")
 	s.T().Log("========================================")
 
+	// runSubtest runs a subtest while forwarding the subtest-scoped T to the subsuite,
+	// ensuring assertion failures (and FailNow) are attributed to the subtest rather
+	// than crashing the parent Test5_CLICommands goroutine without diagnostics.
+	runSubtest := func(subSuite suite.TestingSuite, name string, testFunc func()) {
+		s.Run(name, func() {
+			subSuite.SetT(s.T())
+			testFunc()
+		})
+	}
+
 	// Run CLIMeshSuite (colony and agent commands - Phase 1)
 	cliMeshSuite := &CLIMeshSuite{
 		E2EDistributedSuite: s.E2EDistributedSuite,
@@ -270,15 +280,15 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliMeshSuite.SetupSuite() // Initialize cliEnv
 	defer cliMeshSuite.TearDownSuite()
 
-	s.Run("CLI_ColonyStatus", cliMeshSuite.TestColonyStatusCommand)
-	s.Run("CLI_ColonyAgents", cliMeshSuite.TestColonyAgentsCommand)
-	s.Run("CLI_AgentList", cliMeshSuite.TestAgentListCommand)
-	s.Run("CLI_ServiceList", cliMeshSuite.TestServiceListCommand)
+	runSubtest(cliMeshSuite, "CLI_ColonyStatus", cliMeshSuite.TestColonyStatusCommand)
+	runSubtest(cliMeshSuite, "CLI_ColonyAgents", cliMeshSuite.TestColonyAgentsCommand)
+	runSubtest(cliMeshSuite, "CLI_AgentList", cliMeshSuite.TestAgentListCommand)
+	runSubtest(cliMeshSuite, "CLI_ServiceList", cliMeshSuite.TestServiceListCommand)
 	// Skip CLI_ErrorHandling - we don't have a colony endpoint env var yet
-	// s.Run("CLI_ErrorHandling", cliMeshSuite.TestInvalidColonyEndpoint)
-	s.Run("CLI_TableFormatting", cliMeshSuite.TestTableOutputFormatting)
-	s.Run("CLI_MeshPing", cliMeshSuite.TestMeshPingCommand)
-	s.Run("CLI_JSONValidity", cliMeshSuite.TestJSONOutputValidity)
+	// runSubtest(cliMeshSuite, "CLI_ErrorHandling", cliMeshSuite.TestInvalidColonyEndpoint)
+	runSubtest(cliMeshSuite, "CLI_TableFormatting", cliMeshSuite.TestTableOutputFormatting)
+	runSubtest(cliMeshSuite, "CLI_MeshPing", cliMeshSuite.TestMeshPingCommand)
+	runSubtest(cliMeshSuite, "CLI_JSONValidity", cliMeshSuite.TestJSONOutputValidity)
 
 	// Run CLIQuerySuite (query commands - Phase 2)
 	cliQuerySuite := &CLIQuerySuite{
@@ -288,16 +298,16 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliQuerySuite.SetupSuite() // Initialize cliEnv
 	defer cliQuerySuite.TearDownSuite()
 
-	s.Run("CLI_QuerySummary", cliQuerySuite.TestQuerySummaryCommand)
-	s.Run("CLI_QueryServices", cliQuerySuite.TestQueryServicesCommand)
-	s.Run("CLI_QueryTraces", cliQuerySuite.TestQueryTracesCommand)
-	s.Run("CLI_QueryMetrics", cliQuerySuite.TestQueryMetricsCommand)
-	s.Run("CLI_QueryFlagCombinations", cliQuerySuite.TestQueryFlagCombinations)
-	s.Run("CLI_QueryInvalidFlags", cliQuerySuite.TestQueryInvalidFlags)
-	s.Run("CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
-	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
-	s.Run("CLI_QueryTopology", cliQuerySuite.TestCLIQueryTopology)
-	s.Run("CLI_ClientOnlyWorkerDiscovery", cliQuerySuite.TestClientOnlyWorkerDiscovery)
+	runSubtest(cliQuerySuite, "CLI_QuerySummary", cliQuerySuite.TestQuerySummaryCommand)
+	runSubtest(cliQuerySuite, "CLI_QueryServices", cliQuerySuite.TestQueryServicesCommand)
+	runSubtest(cliQuerySuite, "CLI_QueryTraces", cliQuerySuite.TestQueryTracesCommand)
+	runSubtest(cliQuerySuite, "CLI_QueryMetrics", cliQuerySuite.TestQueryMetricsCommand)
+	runSubtest(cliQuerySuite, "CLI_QueryFlagCombinations", cliQuerySuite.TestQueryFlagCombinations)
+	runSubtest(cliQuerySuite, "CLI_QueryInvalidFlags", cliQuerySuite.TestQueryInvalidFlags)
+	runSubtest(cliQuerySuite, "CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
+	runSubtest(cliQuerySuite, "CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
+	runSubtest(cliQuerySuite, "CLI_QueryTopology", cliQuerySuite.TestCLIQueryTopology)
+	runSubtest(cliQuerySuite, "CLI_ClientOnlyWorkerDiscovery", cliQuerySuite.TestClientOnlyWorkerDiscovery)
 
 	// Run L4TopologySuite (RFD 033 — L4 network topology via ReportConnections)
 	l4Suite := &L4TopologySuite{
@@ -307,10 +317,10 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	l4Suite.SetupSuite()
 	defer l4Suite.TearDownSuite()
 
-	s.Run("L4_EdgesAppearInTopology", l4Suite.TestL4EdgesAppearInTopology)
-	s.Run("L4_IncludeL4FalseFilters", l4Suite.TestIncludeL4FalseFiltersL4Edges)
-	s.Run("L4_JSONLayerField", l4Suite.TestL4JSONLayerField)
-	s.Run("L4_InternalEdgeResolution", l4Suite.TestL4InternalEdgeResolution)
+	runSubtest(l4Suite, "L4_EdgesAppearInTopology", l4Suite.TestL4EdgesAppearInTopology)
+	runSubtest(l4Suite, "L4_IncludeL4FalseFilters", l4Suite.TestIncludeL4FalseFiltersL4Edges)
+	runSubtest(l4Suite, "L4_JSONLayerField", l4Suite.TestL4JSONLayerField)
+	runSubtest(l4Suite, "L4_InternalEdgeResolution", l4Suite.TestL4InternalEdgeResolution)
 
 	// Run CLIConfigSuite (config commands - Phase 3)
 	cliConfigSuite := &CLIConfigSuite{
@@ -320,13 +330,13 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliConfigSuite.SetupSuite()
 	defer cliConfigSuite.TearDownSuite()
 
-	s.Run("CLI_ConfigGetContexts", cliConfigSuite.TestConfigGetContextsCommand)
-	s.Run("CLI_ConfigCurrentContext", cliConfigSuite.TestConfigCurrentContextCommand)
-	s.Run("CLI_ConfigUseContext", cliConfigSuite.TestConfigUseContextCommand)
-	s.Run("CLI_ConfigInvalidContext", cliConfigSuite.TestConfigInvalidContext)
-	s.Run("CLI_ConfigOutputFormats", cliConfigSuite.TestConfigOutputFormats)
-	s.Run("CLI_ConfigWithoutColony", cliConfigSuite.TestConfigCommandsWithoutColony)
-	s.Run("CLI_ConfigHelpText", cliConfigSuite.TestConfigHelpText)
+	runSubtest(cliConfigSuite, "CLI_ConfigGetContexts", cliConfigSuite.TestConfigGetContextsCommand)
+	runSubtest(cliConfigSuite, "CLI_ConfigCurrentContext", cliConfigSuite.TestConfigCurrentContextCommand)
+	runSubtest(cliConfigSuite, "CLI_ConfigUseContext", cliConfigSuite.TestConfigUseContextCommand)
+	runSubtest(cliConfigSuite, "CLI_ConfigInvalidContext", cliConfigSuite.TestConfigInvalidContext)
+	runSubtest(cliConfigSuite, "CLI_ConfigOutputFormats", cliConfigSuite.TestConfigOutputFormats)
+	runSubtest(cliConfigSuite, "CLI_ConfigWithoutColony", cliConfigSuite.TestConfigCommandsWithoutColony)
+	runSubtest(cliConfigSuite, "CLI_ConfigHelpText", cliConfigSuite.TestConfigHelpText)
 
 	// Run CLIAskSuite (ask command)
 	cliAskSuite := &CLIAskSuite{
@@ -336,9 +346,20 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliAskSuite.SetupSuite()
 	defer cliAskSuite.TearDownSuite()
 
-	s.Run("CLI_AskBasicFlow", cliAskSuite.TestAskBasicFlow)
-	s.Run("CLI_AskWithTools", cliAskSuite.TestAskWithTools)
-	s.Run("CLI_AskContinuation", cliAskSuite.TestAskContinuation)
+	runSubtest(cliAskSuite, "CLI_AskBasicFlow", cliAskSuite.TestAskBasicFlow)
+	runSubtest(cliAskSuite, "CLI_AskWithTools", cliAskSuite.TestAskWithTools)
+	runSubtest(cliAskSuite, "CLI_AskContinuation", cliAskSuite.TestAskContinuation)
+
+	// Run CLIAskDispatchSuite (dispatch-mode bootstrap parity — RFD 114).
+	cliAskDispatchSuite := &CLIAskDispatchSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliAskDispatchSuite.SetT(s.T())
+	cliAskDispatchSuite.SetupSuite()
+	defer cliAskDispatchSuite.TearDownSuite()
+
+	runSubtest(cliAskDispatchSuite, "CLI_AskDispatchCLIDefault", cliAskDispatchSuite.TestCLIDispatchIsDefaultAndBootstraps)
+	runSubtest(cliAskDispatchSuite, "CLI_AskDispatchMCPParity", cliAskDispatchSuite.TestMCPDispatchBootstrapParity)
 
 	// Run CLIAskConfigSuite (ask config wizard — RFD 055)
 	cliAskConfigSuite := &CLIAskConfigSuite{
@@ -348,19 +369,19 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliAskConfigSuite.SetupSuite()
 	defer cliAskConfigSuite.TearDownSuite()
 
-	s.Run("CLI_AskConfigHelpText", cliAskConfigSuite.TestAskConfigHelpText)
-	s.Run("CLI_AskConfigDryRun", cliAskConfigSuite.TestAskConfigDryRun)
-	s.Run("CLI_AskConfigNonInteractiveGoogle", cliAskConfigSuite.TestAskConfigNonInteractiveGoogle)
-	s.Run("CLI_AskConfigNonInteractiveOpenAI", cliAskConfigSuite.TestAskConfigNonInteractiveOpenAI)
-	s.Run("CLI_AskConfigDoesNotWriteAIProvider", cliAskConfigSuite.TestAskConfigDoesNotWriteAIProvider)
-	s.Run("CLI_AskConfigCreatesBackup", cliAskConfigSuite.TestAskConfigCreatesBackup)
-	s.Run("CLI_AskConfigShow", cliAskConfigSuite.TestAskConfigShow)
-	s.Run("CLI_AskConfigShowUnconfigured", cliAskConfigSuite.TestAskConfigShowUnconfigured)
-	s.Run("CLI_AskConfigValidateWithEnvVar", cliAskConfigSuite.TestAskConfigValidateWithEnvVar)
-	s.Run("CLI_AskConfigValidateMissingModel", cliAskConfigSuite.TestAskConfigValidateMissingModel)
-	s.Run("CLI_AskConfigUnknownProvider", cliAskConfigSuite.TestAskConfigUnknownProvider)
-	s.Run("CLI_AskConfigListProvidersShowsModels", cliAskConfigSuite.TestAskConfigListProvidersShowsModels)
-	s.Run("CLI_AskConfigMissingAPIKeyEnvVar", cliAskConfigSuite.TestAskConfigMissingAPIKeyEnvVar)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigHelpText", cliAskConfigSuite.TestAskConfigHelpText)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigDryRun", cliAskConfigSuite.TestAskConfigDryRun)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigNonInteractiveGoogle", cliAskConfigSuite.TestAskConfigNonInteractiveGoogle)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigNonInteractiveOpenAI", cliAskConfigSuite.TestAskConfigNonInteractiveOpenAI)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigDoesNotWriteAIProvider", cliAskConfigSuite.TestAskConfigDoesNotWriteAIProvider)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigCreatesBackup", cliAskConfigSuite.TestAskConfigCreatesBackup)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigShow", cliAskConfigSuite.TestAskConfigShow)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigShowUnconfigured", cliAskConfigSuite.TestAskConfigShowUnconfigured)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigValidateWithEnvVar", cliAskConfigSuite.TestAskConfigValidateWithEnvVar)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigValidateMissingModel", cliAskConfigSuite.TestAskConfigValidateMissingModel)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigUnknownProvider", cliAskConfigSuite.TestAskConfigUnknownProvider)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigListProvidersShowsModels", cliAskConfigSuite.TestAskConfigListProvidersShowsModels)
+	runSubtest(cliAskConfigSuite, "CLI_AskConfigMissingAPIKeyEnvVar", cliAskConfigSuite.TestAskConfigMissingAPIKeyEnvVar)
 
 	// Run CLIDebugCorrelationsSuite (coral debug correlations — RFD 091).
 	cliDebugCorrSuite := &CLIDebugCorrelationsSuite{
@@ -370,19 +391,19 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliDebugCorrSuite.SetupSuite()
 	defer cliDebugCorrSuite.TearDownSuite()
 
-	s.Run("CLI_DebugCorrelationsListEmpty", cliDebugCorrSuite.TestCorrelationsListEmpty)
-	s.Run("CLI_DebugCorrelationsListShowsDeployed", cliDebugCorrSuite.TestCorrelationsListShowsDeployed)
-	s.Run("CLI_DebugCorrelationsListJSON", cliDebugCorrSuite.TestCorrelationsListJSON)
-	s.Run("CLI_DebugCorrelationsListServiceFilter", cliDebugCorrSuite.TestCorrelationsListServiceFilter)
-	s.Run("CLI_DebugCorrelationsRemove", cliDebugCorrSuite.TestCorrelationsRemove)
-	s.Run("CLI_DebugCorrelationsRemoveNotFound", cliDebugCorrSuite.TestCorrelationsRemoveNotFound)
+	runSubtest(cliDebugCorrSuite, "CLI_DebugCorrelationsListEmpty", cliDebugCorrSuite.TestCorrelationsListEmpty)
+	runSubtest(cliDebugCorrSuite, "CLI_DebugCorrelationsListShowsDeployed", cliDebugCorrSuite.TestCorrelationsListShowsDeployed)
+	runSubtest(cliDebugCorrSuite, "CLI_DebugCorrelationsListJSON", cliDebugCorrSuite.TestCorrelationsListJSON)
+	runSubtest(cliDebugCorrSuite, "CLI_DebugCorrelationsListServiceFilter", cliDebugCorrSuite.TestCorrelationsListServiceFilter)
+	runSubtest(cliDebugCorrSuite, "CLI_DebugCorrelationsRemove", cliDebugCorrSuite.TestCorrelationsRemove)
+	runSubtest(cliDebugCorrSuite, "CLI_DebugCorrelationsRemoveNotFound", cliDebugCorrSuite.TestCorrelationsRemoveNotFound)
 
 	// Discovery CA tests (RFD 085) - using CLIMeshSuite.
-	s.Run("CLI_AddRemoteConnectionFailsWithoutCA", cliMeshSuite.TestAddRemoteConnectionFailsWithoutCA)
-	s.Run("CLI_AddRemoteFromDiscoverySuccess", cliMeshSuite.TestAddRemoteFromDiscoverySuccess)
-	s.Run("CLI_AddRemoteWithWrongFingerprint", cliMeshSuite.TestAddRemoteWithWrongFingerprint)
-	s.Run("CLI_AddRemoteConnectionSucceedsWithStoredCA", cliMeshSuite.TestAddRemoteConnectionSucceedsWithStoredCA)
-	s.Run("CLI_AddRemoteCADataEnvVar", cliMeshSuite.TestAddRemoteCADataEnvVar)
+	runSubtest(cliMeshSuite, "CLI_AddRemoteConnectionFailsWithoutCA", cliMeshSuite.TestAddRemoteConnectionFailsWithoutCA)
+	runSubtest(cliMeshSuite, "CLI_AddRemoteFromDiscoverySuccess", cliMeshSuite.TestAddRemoteFromDiscoverySuccess)
+	runSubtest(cliMeshSuite, "CLI_AddRemoteWithWrongFingerprint", cliMeshSuite.TestAddRemoteWithWrongFingerprint)
+	runSubtest(cliMeshSuite, "CLI_AddRemoteConnectionSucceedsWithStoredCA", cliMeshSuite.TestAddRemoteConnectionSucceedsWithStoredCA)
+	runSubtest(cliMeshSuite, "CLI_AddRemoteCADataEnvVar", cliMeshSuite.TestAddRemoteCADataEnvVar)
 
 	// DuckDB integration tests
 	duckdbSuite := &DuckDBSuite{
@@ -392,9 +413,9 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	duckdbSuite.SetupSuite()
 	defer duckdbSuite.TearDownSuite()
 
-	s.Run("TestDuckDBListAgentsRemote", duckdbSuite.TestDuckDBListAgentsRemote)
-	s.Run("TestDuckDBQueryRemote", duckdbSuite.TestDuckDBQueryRemote)
-	s.Run("TestDuckDBShellRemote", duckdbSuite.TestDuckDBShellRemote)
+	runSubtest(duckdbSuite, "TestDuckDBListAgentsRemote", duckdbSuite.TestDuckDBListAgentsRemote)
+	runSubtest(duckdbSuite, "TestDuckDBQueryRemote", duckdbSuite.TestDuckDBQueryRemote)
+	runSubtest(duckdbSuite, "TestDuckDBShellRemote", duckdbSuite.TestDuckDBShellRemote)
 
 	// coral run (RFD 076 / RFD 093) — TypeScript script execution via embedded Deno.
 	cliRunSuite := &CLIRunSuite{
@@ -404,10 +425,10 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliRunSuite.SetupSuite()
 	defer cliRunSuite.TearDownSuite()
 
-	s.Run("CLI_RunBasicScript", cliRunSuite.TestRunBasicScript)
-	s.Run("CLI_RunScriptError", cliRunSuite.TestRunScriptError)
-	s.Run("CLI_RunTimeoutFlag", cliRunSuite.TestRunTimeoutFlag)
-	s.Run("CLI_RunHelpText", cliRunSuite.TestRunHelpText)
+	runSubtest(cliRunSuite, "CLI_RunBasicScript", cliRunSuite.TestRunBasicScript)
+	runSubtest(cliRunSuite, "CLI_RunScriptError", cliRunSuite.TestRunScriptError)
+	runSubtest(cliRunSuite, "CLI_RunTimeoutFlag", cliRunSuite.TestRunTimeoutFlag)
+	runSubtest(cliRunSuite, "CLI_RunHelpText", cliRunSuite.TestRunHelpText)
 
 	// Run CLIDebugSuite (debug and profiling CLI commands).
 	cliDebugSuite := &CLIDebugSuite{
@@ -417,11 +438,28 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	cliDebugSuite.SetupSuite()
 	defer cliDebugSuite.TearDownSuite()
 
-	s.Run("CLI_DebugSearchCommand", cliDebugSuite.TestDebugSearchCommand)
-	s.Run("CLI_DebugSessionList", cliDebugSuite.TestDebugSessionListCommand)
-	s.Run("CLI_DebugSessionGetNotFound", cliDebugSuite.TestDebugSessionGetNotFound)
-	s.Run("CLI_QueryCPUProfile", cliDebugSuite.TestQueryCPUProfileCommand)
-	s.Run("CLI_QueryMemoryProfile", cliDebugSuite.TestQueryMemoryProfileCommand)
+	runSubtest(cliDebugSuite, "CLI_DebugSearchCommand", cliDebugSuite.TestDebugSearchCommand)
+	runSubtest(cliDebugSuite, "CLI_DebugSessionList", cliDebugSuite.TestDebugSessionListCommand)
+	runSubtest(cliDebugSuite, "CLI_DebugSessionGetNotFound", cliDebugSuite.TestDebugSessionGetNotFound)
+	runSubtest(cliDebugSuite, "CLI_QueryCPUProfile", cliDebugSuite.TestQueryCPUProfileCommand)
+	runSubtest(cliDebugSuite, "CLI_QueryMemoryProfile", cliDebugSuite.TestQueryMemoryProfileCommand)
+
+	// Run CLITriageSuite (coral triage composite diagnosis — RFD 114).
+	cliTriageSuite := &CLITriageSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliTriageSuite.SetT(s.T())
+	cliTriageSuite.SetupSuite()
+	defer cliTriageSuite.TearDownSuite()
+
+	runSubtest(cliTriageSuite, "CLI_TriageAttachDurationRequiresAttach", cliTriageSuite.TestTriageAttachDurationRequiresAttach)
+	runSubtest(cliTriageSuite, "CLI_TriageInvalidFormatRejected", cliTriageSuite.TestTriageInvalidFormatRejected)
+	runSubtest(cliTriageSuite, "CLI_TriageUnknownServiceReturnsNoData", cliTriageSuite.TestTriageUnknownServiceReturnsNoData)
+	runSubtest(cliTriageSuite, "CLI_TriageHealthyServiceSkipsCandidateAndAttach", cliTriageSuite.TestTriageHealthyServiceSkipsCandidateAndAttach)
+	runSubtest(cliTriageSuite, "CLI_TriageDegradedServiceReadOnly", cliTriageSuite.TestTriageDegradedServiceReadOnly)
+	runSubtest(cliTriageSuite, "CLI_TriageDegradedServiceAttachSkipsWithoutCandidate", cliTriageSuite.TestTriageDegradedServiceAttachSkipsWithoutCandidate)
+	runSubtest(cliTriageSuite, "CLI_TriageAllServicesSelectsWorst", cliTriageSuite.TestTriageAllServicesSelectsWorst)
+	runSubtest(cliTriageSuite, "CLI_TriageTextOutputShowsFailureProminently", cliTriageSuite.TestTriageTextOutputShowsFailureProminently)
 
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true

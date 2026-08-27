@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
@@ -274,6 +275,7 @@ func instrumentHandler(name string, handler func(http.ResponseWriter, *http.Requ
 		// Mark span as error if status code indicates an error.
 		if rw.statusCode >= 400 {
 			span.SetAttributes(attribute.Bool("error", true))
+			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", rw.statusCode))
 		}
 	}
 }
@@ -353,6 +355,16 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("POST /api/checkout", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// E2E suites that validate alerting need an unambiguous error signal.
+		// Keep the normal checkout simulation probabilistic, but make an
+		// explicit test-only request deterministically fail so the test does not
+		// depend on random error injection or the amount of pre-existing traffic.
+		if r.URL.Query().Get("force_error") == "1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, `{"error":"forced checkout failure"}`)
+			return
+		}
+
 		// Simulate various checkout steps with varying latency.
 		steps := []struct {
 			name     string
@@ -377,6 +389,7 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 			// Randomly inject errors.
 			if rand.Intn(100) < step.errorPct {
 				stepSpan.SetAttributes(attribute.Bool("error", true))
+				stepSpan.SetStatus(codes.Error, fmt.Sprintf("Checkout failed at step: %s", step.name))
 				stepSpan.End()
 				w.WriteHeader(http.StatusInternalServerError)
 				fmt.Fprintf(w, `{"error": "Checkout failed at step: %s"}`, step.name)

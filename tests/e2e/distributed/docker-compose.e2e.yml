@@ -14,6 +14,7 @@ services:
       - CORAL_BEYLA_POLL_INTERVAL=1s
       - CORAL_SYSTEM_METRICS_POLL_INTERVAL=1s
       - CORAL_PROFILING_POLL_INTERVAL=1s
+      - CORAL_FUNCTIONS_POLL_INTERVAL=1s
       - CORAL_DISCOVERY_REGISTER_INTERVAL=1s
       - CORAL_CONNECTIONS_CACHE_TTL=1s
     healthcheck:
@@ -62,6 +63,8 @@ services:
       - CORAL_AGENT_BIND_ALL=true
       - CORAL_HEARTBEAT_INTERVAL=5s
       - CORAL_MEMORY_PROFILING_INTERVAL=5s
+      - CORAL_BEYLA_DISCOVERY_SYNC_INTERVAL=5s
+      - CORAL_SAMPLE_RATE=1.0
     ports:
       - "8083:8080" # memory-app HTTP (in agent-1 namespace)
       - "9005:9004" # memory-app SDK debug (in agent-1 namespace)

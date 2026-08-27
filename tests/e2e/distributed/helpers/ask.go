@@ -21,6 +21,19 @@ func RunAsk(ctx context.Context, env map[string]string, question, model, format 
 	return RunCLIWithEnv(ctx, env, args...)
 }
 
+// RunAskDebug runs 'coral ask' with --debug so the agent's dispatch-mode
+// system prompt (including service/health bootstrap context, RFD 114) is
+// printed to stderr and captured in CLIResult.Output.
+func RunAskDebug(ctx context.Context, env map[string]string, question, model string) *CLIResult {
+	args := []string{"ask", question, "--stream=false", "--debug"}
+
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+
+	return RunCLIWithEnv(ctx, env, args...)
+}
+
 // RunAskContinue runs 'coral ask' with the --continue flag.
 func RunAskContinue(ctx context.Context, env map[string]string, question, model string) *CLIResult {
 	args := []string{"ask", question, "--continue", "--stream=false"}

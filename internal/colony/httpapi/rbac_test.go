@@ -4,6 +4,7 @@ package httpapi
 import (
 	"testing"
 
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/auth"
 )
 
@@ -30,14 +31,12 @@ func TestGetRequiredPermission(t *testing.T) {
 		{"/coral.colony.v1.ColonyService/CallTool", auth.PermissionAnalyze},
 		{"/coral.colony.v1.ColonyService/StreamTool", auth.PermissionAnalyze},
 
-		// Debug operations.
-		{"/coral.colony.v1.ColonyDebugService/StartSession", auth.PermissionDebug},
-		{"/coral.colony.v1.ColonyDebugService/StopSession", auth.PermissionDebug},
-		{"/coral.colony.v1.ColonyDebugService/AttachProbe", auth.PermissionDebug},
-		{"/coral.colony.v1.ColonyDebugService/DetachProbe", auth.PermissionDebug},
-		{"/coral.colony.v1.ColonyDebugService/GetResults", auth.PermissionQuery},
-		{"/coral.colony.v1.ColonyDebugService/ListSessions", auth.PermissionQuery},
-		{"/coral.colony.v1.ColonyDebugService/StreamEvents", auth.PermissionDebug},
+		// Debug operations, keyed by the generated Connect procedure
+		// constants so a future proto rename cannot silently drift from
+		// RBAC (RFD 114).
+		{colonyv1connect.ColonyDebugServiceAttachUprobeProcedure, auth.PermissionDebug},
+		{colonyv1connect.ColonyDebugServiceQueryFunctionsProcedure, auth.PermissionQuery},
+		{colonyv1connect.ColonyDebugServiceUpdateProbeFilterProcedure, auth.PermissionDebug},
 
 		// Admin operations.
 		{"/coral.colony.v1.ColonyService/RequestCertificate", auth.PermissionAdmin},
@@ -158,6 +157,50 @@ func TestRBACMinimalPermissions(t *testing.T) {
 	// Should not have admin access.
 	if auth.HasPermission(statusToken, auth.PermissionAdmin) {
 		t.Error("Status token should not have Admin permission")
+	}
+}
+
+func TestRBACDebugProcedureCorrection(t *testing.T) {
+	// RFD 114: QueryFunctions and AttachUprobe were previously mapped under
+	// stale procedure names, so both fell through to the PermissionStatus
+	// default. Verify the corrected mappings enforce the intended
+	// permissions using real tokens.
+	statusToken := &auth.APIToken{
+		TokenID:     "status-only",
+		Permissions: []auth.Permission{auth.PermissionStatus},
+	}
+	queryToken := &auth.APIToken{
+		TokenID:     "query",
+		Permissions: []auth.Permission{auth.PermissionQuery},
+	}
+	debugToken := &auth.APIToken{
+		TokenID:     "debug",
+		Permissions: []auth.Permission{auth.PermissionDebug},
+	}
+
+	queryFunctionsRequired := GetRequiredPermission(colonyv1connect.ColonyDebugServiceQueryFunctionsProcedure)
+	if queryFunctionsRequired != auth.PermissionQuery {
+		t.Fatalf("QueryFunctions requires %v, want PermissionQuery", queryFunctionsRequired)
+	}
+	if auth.HasPermission(statusToken, queryFunctionsRequired) {
+		t.Error("status-only token should not be able to call QueryFunctions")
+	}
+	if !auth.HasPermission(queryToken, queryFunctionsRequired) {
+		t.Error("query token should be able to call QueryFunctions")
+	}
+
+	attachUprobeRequired := GetRequiredPermission(colonyv1connect.ColonyDebugServiceAttachUprobeProcedure)
+	if attachUprobeRequired != auth.PermissionDebug {
+		t.Fatalf("AttachUprobe requires %v, want PermissionDebug", attachUprobeRequired)
+	}
+	if auth.HasPermission(statusToken, attachUprobeRequired) {
+		t.Error("status-only token should not be able to call AttachUprobe")
+	}
+	if auth.HasPermission(queryToken, attachUprobeRequired) {
+		t.Error("query token should not be able to call AttachUprobe")
+	}
+	if !auth.HasPermission(debugToken, attachUprobeRequired) {
+		t.Error("debug token should be able to call AttachUprobe")
 	}
 }
 

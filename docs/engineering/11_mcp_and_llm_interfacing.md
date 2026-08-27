@@ -56,14 +56,23 @@ Coral abstracts LLM providers to remain vendor-agnostic.
 
 The `Agent` manages the high-level reasoning loop:
 
-1. **Context Discovery**: Before the first user prompt, the agent calls
-   `coral service list --format json` (via `coral_cli`) to populate the system
-   prompt with live service knowledge. The full service dependency graph —
-   including L4 network edges — is available on demand via
+1. **Context Discovery**: Before the first user prompt, the agent runs
+   `coral services --format json` and `coral query summary --since 5m --format
+   json` through a shared `commandRunner` (RFD 114) to populate the system
+   prompt with the live service list and degraded/critical health alerts. Both
+   dispatch modes share this bootstrap — CLI mode executes locally,
+   MCP mode calls it through the proxy's `coral_cli` tool — so a conversation
+   never starts blind regardless of dispatch mode. CLI mode additionally
+   includes the full service dependency graph, available on demand via
    `coral query topology --format json`, which includes a `layer` field
    (`L7`, `L4`, or `BOTH`) on every connection (RFD 033).
 2. **System Prompting**: Injects the CLI reference and current
    healthy/unhealthy service snapshots to guide the LLM's command composition.
+   For a combined health-and-code-location question, the prompt recommends
+   `coral triage [service]` (RFD 114) — a bounded composite command that
+   resolves a probeable candidate function from the same summary and
+   profiling data in one call, rather than several separate `query`/`debug`
+   calls.
 3. **Execution Loop**:
    - LLM requests `coral_cli` calls with an `args` array.
    - Agent forks the subprocess and captures stdout.
@@ -92,5 +101,6 @@ synthesis into a single automated workflow.
 - [**RFD 051**: Coral Ask Interactive Terminal](../../RFDs/051-coral-ask-interactive-terminal.md)
 - [**RFD 054**: Smart Parameter Extraction](../../RFDs/054-coral-ask-smart-parameter-extraction.md)
 - [**RFD 055**: Coral Ask Configuration](../../RFDs/055-coral-ask-config.md)
+- [**RFD 114**: Coral Triage — Composite Diagnosis and Dispatch Unification](../../RFDs/114-coral-triage.md)
 - [**RFD 091**: Probe Correlation DSL](../../RFDs/091-probe-correlation-dsl.md)
 - [**RFD 100**: CLI-Native Agent Tool Dispatch](../../RFDs/100-cli-native-agent-dispatch.md)

@@ -1,6 +1,8 @@
 package ask
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,28 +12,105 @@ import (
 	"github.com/coral-mesh/coral/internal/config"
 )
 
-func TestParseHealthAlerts(t *testing.T) {
-	// buildSummary constructs a coral_query_summary-style text block.
-	buildSummary := func(blocks ...string) string {
-		return "Service Health Summary:\n\n" + strings.Join(blocks, "\n\n") + "\n\n"
+// fakeCommandRunner is a test double for commandRunner (RFD 114), letting
+// bootstrap parsing be tested independently of both dispatch-mode transports.
+type fakeCommandRunner struct {
+	output string
+	err    error
+}
+
+func (f *fakeCommandRunner) run(_ context.Context, _ []string) (string, error) {
+	return f.output, f.err
+}
+
+func TestResolveDispatchMode(t *testing.T) {
+	t.Run("unset defaults to cli", func(t *testing.T) {
+		assert.Equal(t, config.DispatchModeCLI, resolveDispatchMode(""))
+	})
+
+	t.Run("explicit mcp is preserved", func(t *testing.T) {
+		assert.Equal(t, config.DispatchModeMCP, resolveDispatchMode(config.DispatchModeMCP))
+	})
+
+	t.Run("explicit cli is preserved", func(t *testing.T) {
+		assert.Equal(t, config.DispatchModeCLI, resolveDispatchMode(config.DispatchModeCLI))
+	})
+}
+
+func TestBootstrapServiceContext(t *testing.T) {
+	t.Run("real services JSON fixture", func(t *testing.T) {
+		runner := &fakeCommandRunner{output: `{"services":[{"name":"api"},{"name":"checkout"}]}`}
+		result := bootstrapServiceContext(t.Context(), runner, false)
+		assert.Equal(t, "api, checkout", result)
+	})
+
+	t.Run("command failure", func(t *testing.T) {
+		runner := &fakeCommandRunner{err: errors.New("coral services: exit status 1")}
+		result := bootstrapServiceContext(t.Context(), runner, false)
+		assert.Equal(t, "(service list unavailable)", result)
+	})
+
+	t.Run("malformed JSON", func(t *testing.T) {
+		runner := &fakeCommandRunner{output: "not json"}
+		result := bootstrapServiceContext(t.Context(), runner, false)
+		assert.Equal(t, "(no services registered)", result)
+	})
+}
+
+func TestBootstrapHealthAlerts(t *testing.T) {
+	t.Run("real query summary JSON fixture", func(t *testing.T) {
+		runner := &fakeCommandRunner{
+			output: `[{"service_name":"api","status":"critical","error_rate":50,"avg_latency_ms":900,"request_count":10}]`,
+		}
+		result := bootstrapHealthAlerts(t.Context(), runner, false)
+		assert.Contains(t, result, "❌ api")
+		assert.Contains(t, result, "Status: critical")
+	})
+
+	t.Run("command failure", func(t *testing.T) {
+		runner := &fakeCommandRunner{err: errors.New("coral query summary: exit status 1")}
+		result := bootstrapHealthAlerts(t.Context(), runner, false)
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("malformed JSON", func(t *testing.T) {
+		runner := &fakeCommandRunner{output: "not json"}
+		result := bootstrapHealthAlerts(t.Context(), runner, false)
+		assert.Equal(t, "", result)
+	})
+}
+
+func TestFormatHealthAlerts(t *testing.T) {
+	// buildSummaryJSON constructs a "coral query summary --format json" fixture:
+	// an array of summary objects, matching printSummaryJSON's real output shape
+	// (RFD 114), not the retired MCP tool's text output.
+	buildSummaryJSON := func(entries ...string) string {
+		return "[" + strings.Join(entries, ",") + "]"
 	}
-	healthy := "✅ api-gateway (ebpf)\n   Status: OK\n   Requests: 500\n   Error Rate: 0.00%\n   Avg Latency: 12.50ms\n"
-	idle := "💤 worker (ebpf)\n   Status: IDLE\n   Requests: 0\n   Error Rate: 0.00%\n   Avg Latency: 0.00ms\n"
-	degraded := "⚠️ user-service (registered+ebpf)\n   Status: DEGRADED\n   Requests: 50\n   Error Rate: 23.50%\n   Avg Latency: 1200.00ms\n"
-	critical := "❌ db-proxy (registered)\n   Status: CRITICAL\n   Requests: 12\n   Error Rate: 98.00%\n   Avg Latency: 5000.00ms\n"
+	healthy := `{"service_name":"api-gateway","status":"healthy","request_count":500,"error_rate":0,"avg_latency_ms":12.5}`
+	degraded := `{"service_name":"user-service","status":"degraded","request_count":50,"error_rate":23.5,"avg_latency_ms":1200}`
+	critical := `{"service_name":"db-proxy","status":"critical","request_count":12,"error_rate":98,"avg_latency_ms":5000}`
 
 	t.Run("empty input", func(t *testing.T) {
-		assert.Equal(t, "", parseHealthAlerts(""))
+		assert.Equal(t, "", formatHealthAlerts(""))
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		assert.Equal(t, "", formatHealthAlerts("not json"))
+	})
+
+	t.Run("empty array", func(t *testing.T) {
+		assert.Equal(t, "", formatHealthAlerts("[]"))
 	})
 
 	t.Run("all healthy services", func(t *testing.T) {
-		assert.Equal(t, "", parseHealthAlerts(buildSummary(healthy, idle)))
+		assert.Equal(t, "", formatHealthAlerts(buildSummaryJSON(healthy)))
 	})
 
 	t.Run("single degraded service", func(t *testing.T) {
-		result := parseHealthAlerts(buildSummary(healthy, degraded))
+		result := formatHealthAlerts(buildSummaryJSON(healthy, degraded))
 		assert.Contains(t, result, "⚠️ user-service")
-		assert.Contains(t, result, "Status: DEGRADED")
+		assert.Contains(t, result, "Status: degraded")
 		assert.Contains(t, result, "Error Rate: 23.50%")
 		assert.Contains(t, result, "Avg Latency: 1200.00ms")
 		assert.Contains(t, result, "Requests: 50")
@@ -39,72 +118,39 @@ func TestParseHealthAlerts(t *testing.T) {
 	})
 
 	t.Run("single critical service", func(t *testing.T) {
-		result := parseHealthAlerts(buildSummary(critical))
+		result := formatHealthAlerts(buildSummaryJSON(critical))
 		assert.Contains(t, result, "❌ db-proxy")
-		assert.Contains(t, result, "Status: CRITICAL")
+		assert.Contains(t, result, "Status: critical")
 		assert.Contains(t, result, "Error Rate: 98.00%")
 	})
 
 	t.Run("mixed: healthy and degraded and critical", func(t *testing.T) {
-		result := parseHealthAlerts(buildSummary(healthy, degraded, idle, critical))
+		result := formatHealthAlerts(buildSummaryJSON(healthy, degraded, critical))
 		assert.Contains(t, result, "⚠️ user-service")
 		assert.Contains(t, result, "❌ db-proxy")
 		assert.NotContains(t, result, "api-gateway")
-		assert.NotContains(t, result, "worker")
 		// Each alert is on its own line.
 		lines := strings.Split(strings.TrimSpace(result), "\n")
 		assert.Equal(t, 2, len(lines))
 	})
-
-	t.Run("regression and host resource lines are excluded", func(t *testing.T) {
-		withExtras := "⚠️ svc (ebpf)\n   Status: DEGRADED\n   Requests: 10\n   Error Rate: 50.00%\n   Avg Latency: 800.00ms\n   Host Resources:\n     CPU: 95%\n   Regressions:\n     ⚠️  error rate spike\n"
-		result := parseHealthAlerts(buildSummary(withExtras))
-		assert.Contains(t, result, "⚠️ svc")
-		assert.Contains(t, result, "Error Rate: 50.00%")
-		assert.NotContains(t, result, "Host Resources")
-		assert.NotContains(t, result, "CPU:")
-		assert.NotContains(t, result, "error rate spike")
-	})
-
-	t.Run("header-only input (no service blocks)", func(t *testing.T) {
-		assert.Equal(t, "", parseHealthAlerts("Service Health Summary:\n\n"))
-	})
 }
 
-func TestCompactServiceAlert(t *testing.T) {
-	t.Run("header only", func(t *testing.T) {
-		result := compactServiceAlert("⚠️ svc (ebpf)", nil)
-		assert.Equal(t, "⚠️ svc (ebpf)", result)
+func TestFormatServiceContext(t *testing.T) {
+	t.Run("empty input", func(t *testing.T) {
+		assert.Equal(t, "(no services registered)", formatServiceContext(""))
 	})
 
-	t.Run("includes all key fields", func(t *testing.T) {
-		lines := []string{
-			"   Status: DEGRADED",
-			"   Requests: 50",
-			"   Error Rate: 23.50%",
-			"   Avg Latency: 1200.00ms",
-		}
-		result := compactServiceAlert("⚠️ user-service (ebpf)", lines)
-		assert.Equal(t, "⚠️ user-service (ebpf) | Status: DEGRADED | Requests: 50 | Error Rate: 23.50% | Avg Latency: 1200.00ms", result)
+	t.Run("invalid JSON", func(t *testing.T) {
+		assert.Equal(t, "(no services registered)", formatServiceContext("not json"))
 	})
 
-	t.Run("ignores non-key lines", func(t *testing.T) {
-		lines := []string{
-			"   Status: CRITICAL",
-			"   Host Resources:",
-			"     CPU: 99%",
-			"   Regressions:",
-			"     ⚠️  latency spike",
-		}
-		result := compactServiceAlert("❌ db-proxy (registered)", lines)
-		assert.Equal(t, "❌ db-proxy (registered) | Status: CRITICAL", result)
+	t.Run("no services registered", func(t *testing.T) {
+		assert.Equal(t, "(no services registered)", formatServiceContext(`{"services":[]}`))
 	})
 
-	t.Run("handles leading whitespace in lines", func(t *testing.T) {
-		lines := []string{"   Error Rate: 5.00%", "   Avg Latency: 200.00ms"}
-		result := compactServiceAlert("⚠️ svc (ebpf)", lines)
-		assert.Contains(t, result, "Error Rate: 5.00%")
-		assert.Contains(t, result, "Avg Latency: 200.00ms")
+	t.Run("lists service names", func(t *testing.T) {
+		result := formatServiceContext(`{"services":[{"name":"api"},{"name":"checkout"}]}`)
+		assert.Equal(t, "api, checkout", result)
 	})
 }
 
