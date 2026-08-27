@@ -10,8 +10,8 @@ import (
 )
 
 // triageDegradedService is driven into a real critical/degraded state via
-// genuine 5xx traffic (see generateCheckoutErrors). It is the only fixture
-// app with a controllable error path.
+// genuine deterministic 5xx traffic (see generateCheckoutErrors). It is the
+// only fixture app with a controllable error path.
 const triageDegradedService = "otel-app"
 
 // triageHealthyService is exercised only through its always-successful
@@ -28,7 +28,7 @@ const triageHealthyService = "sdk-app"
 // tests against a fake client (internal/cli/triage/triage_test.go). This
 // suite fills that gap against a real colony/agent/service stack.
 //
-// Candidate resolution scope: otel-app's /api/checkout error injection drives
+// Candidate resolution scope: otel-app's forced /api/checkout error path drives
 // a real critical/degraded QueryUnifiedSummary status without ever touching
 // summary.Issues or summary.Regressions (those are only populated by the
 // host CPU/memory and profiling-regression paths — see
@@ -88,16 +88,15 @@ func (s *CLITriageSuite) TearDownSuite() {
 	s.E2EDistributedSuite.TearDownSuite()
 }
 
-// generateCheckoutErrors drives real POST /api/checkout traffic against
-// otel-app. Each call has roughly a 34% cumulative chance of a real 5xx
-// (main.go's per-step errorPct across 5 steps), which reliably clears the 5%
-// "critical" error-rate threshold (internal/colony/ebpf_service.go) at n=80.
+// generateCheckoutErrors drives real deterministic 5xx POST /api/checkout
+// traffic against otel-app. The query flag is deliberately limited to this
+// test fixture so error-rate assertions are not probabilistic.
 func (s *CLITriageSuite) generateCheckoutErrors(n int) {
 	endpoint, err := s.fixture.GetOTELAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get otel-app endpoint")
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	url := fmt.Sprintf("http://%s/api/checkout", endpoint)
+	url := fmt.Sprintf("http://%s/api/checkout?force_error=1", endpoint)
 	for i := 0; i < n; i++ {
 		resp, err := client.Post(url, "application/json", nil)
 		if err != nil {

@@ -69,7 +69,9 @@ func (s *CLIAskDispatchSuite) generateCheckoutErrors(n int) {
 	s.Require().NoError(err, "Failed to get otel-app endpoint")
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	url := fmt.Sprintf("http://%s/api/checkout", endpoint)
+	// force_error provides deterministic 5xx traffic for the alert bootstrap
+	// assertion; ordinary checkout traffic intentionally has randomized errors.
+	url := fmt.Sprintf("http://%s/api/checkout?force_error=1", endpoint)
 	for i := 0; i < n; i++ {
 		resp, err := client.Post(url, "application/json", nil)
 		if err != nil {

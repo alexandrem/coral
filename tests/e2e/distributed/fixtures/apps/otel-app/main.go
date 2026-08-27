@@ -355,6 +355,16 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("POST /api/checkout", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// E2E suites that validate alerting need an unambiguous error signal.
+		// Keep the normal checkout simulation probabilistic, but make an
+		// explicit test-only request deterministically fail so the test does not
+		// depend on random error injection or the amount of pre-existing traffic.
+		if r.URL.Query().Get("force_error") == "1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, `{"error":"forced checkout failure"}`)
+			return
+		}
+
 		// Simulate various checkout steps with varying latency.
 		steps := []struct {
 			name     string
