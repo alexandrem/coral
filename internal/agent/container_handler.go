@@ -3,11 +3,13 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -66,6 +68,10 @@ func (h *ContainerHandler) ContainerExec(
 			Str("session_id", sessionID).
 			Str("container_name", input.ContainerName).
 			Msg("Failed to detect container PID")
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			return nil, connectErr
+		}
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("failed to detect container PID: %w", err))
 	}
 
@@ -192,12 +198,93 @@ func (h *ContainerHandler) ContainerExec(
 	return connect.NewResponse(resp), nil
 }
 
+// cgroupMatchesName reports whether any line in cgroupContent contains name
+// as a case-sensitive substring.
+func cgroupMatchesName(cgroupContent, name string) bool {
+	for _, line := range strings.Split(cgroupContent, "\n") {
+		if strings.Contains(line, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// findPidByCgroupName finds the main process PID of the container whose cgroup
+// path contains name as a substring. When the cgroup path does not contain the
+// name (standard Docker uses an opaque container ID), it falls back to matching
+// against the process comm (/proc/<pid>/comm). All processes within the same
+// container share an identical cgroup file, so the cgroup content is used as a
+// stable container identity key regardless of which criterion matched.
+//
+// Returns CodeNotFound when no container matches and CodeFailedPrecondition
+// when the name is ambiguous across multiple containers.
+func (h *ContainerHandler) findPidByCgroupName(name string) (int, error) {
+	allPids, err := proc.ListPids()
+	if err != nil {
+		return 0, fmt.Errorf("failed to read /proc: %w", err)
+	}
+
+	// Group by cgroup content: all threads/processes in the same container
+	// produce an identical /proc/<pid>/cgroup file, so the content is a
+	// stable container identity key. Track the lowest PID per container
+	// (the init process, which started before any other process).
+	containerPIDs := make(map[string]int) // cgroup content -> lowest PID
+	for _, pid := range allPids {
+		if pid <= 0 || pid == os.Getpid() {
+			continue
+		}
+		content, err := proc.ReadCgroup(pid)
+		if err != nil {
+			continue // process may have exited or be inaccessible.
+		}
+		// Primary: match by cgroup path substring (works on Kubernetes and
+		// Docker setups where the container name appears in the cgroup path).
+		// Fallback: match by process comm (works on standard Docker where the
+		// cgroup path contains only an opaque container ID).
+		comm, _ := proc.ReadComm(pid)
+		if !cgroupMatchesName(content, name) && !strings.Contains(comm, name) {
+			continue
+		}
+		key := strings.TrimSpace(content)
+		if existing, ok := containerPIDs[key]; !ok || pid < existing {
+			containerPIDs[key] = pid
+		}
+	}
+
+	switch len(containerPIDs) {
+	case 0:
+		return 0, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("no container matching %q found", name))
+	case 1:
+		for _, pid := range containerPIDs {
+			return pid, nil
+		}
+	}
+
+	// Multiple distinct containers match — include lowest PIDs as a hint.
+	pids := make([]int, 0, len(containerPIDs))
+	for _, pid := range containerPIDs {
+		pids = append(pids, pid)
+	}
+	sort.Ints(pids)
+	return 0, connect.NewError(connect.CodeFailedPrecondition,
+		fmt.Errorf("ambiguous container name %q: matches %d containers (PIDs: %v); use a more specific name",
+			name, len(containerPIDs), pids))
+}
+
 // detectContainerPID finds the main container process PID.
 // Works in:
 // - Docker-compose sidecar: shared PID namespace with app container
 // - K8s sidecar: shareProcessNamespace: true
 // - K8s DaemonSet: hostPID: true (sees all node containers)
 func (h *ContainerHandler) detectContainerPID(containerName string) (int, error) {
+	// When a name is provided, use cgroup-based lookup for precise targeting.
+	// This supports DaemonSet mode and multi-container pods.
+	if containerName != "" {
+		return h.findPidByCgroupName(containerName)
+	}
+
+	// Unnamed fallback: return the lowest visible PID (sidecar mode).
 	// Scan /proc for numeric directories (PIDs).
 	allPids, err := proc.ListPids()
 	if err != nil {
