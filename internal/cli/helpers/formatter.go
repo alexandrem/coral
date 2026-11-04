@@ -124,7 +124,7 @@ func (f *YAMLFormatter) Format(data interface{}, writer io.Writer) error {
 
 func getHeaders(t reflect.Type) []string {
 	var headers []string
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	for i := 0; i < t.NumField(); i++ {
@@ -139,7 +139,7 @@ func getHeaders(t reflect.Type) []string {
 
 func getRowValues(v reflect.Value) []string {
 	var values []string
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	t := v.Type()

@@ -19,7 +19,7 @@ func LoadFromEnv(cfg interface{}) error {
 // loadFromEnv recursively loads environment variables into a config struct.
 func loadFromEnv(v reflect.Value, prefix string) error {
 	// Dereference pointer
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil
 		}
@@ -47,7 +47,7 @@ func loadFromEnv(v reflect.Value, prefix string) error {
 
 		// Handle nested structs or pointers
 		// We verify if it really is a struct inside loadFromEnv
-		if (field.Kind() == reflect.Struct || field.Kind() == reflect.Ptr) && envTag == "" {
+		if (field.Kind() == reflect.Struct || field.Kind() == reflect.Pointer) && envTag == "" {
 			if err := loadFromEnv(field, prefix); err != nil {
 				return err
 			}
