@@ -165,3 +165,49 @@ func TestManager_AutoStop(t *testing.T) {
 
 	t.Logf("Collector expired but events still available as expected")
 }
+
+// TestManager_JanitorExitsOnCancel verifies that the janitor keeps running
+// cleanup passes until its context is canceled, then returns.
+func TestManager_JanitorExitsOnCancel(t *testing.T) {
+	m := &Manager{
+		logger:     zerolog.New(zerolog.NewTestWriter(t)),
+		collectors: make(map[string]*runningCollector),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	exited := make(chan struct{})
+	m.wg.Add(1)
+	go func() {
+		defer close(exited)
+		m.janitor(ctx, time.Millisecond)
+	}()
+
+	// Let a few cleanup passes run before canceling.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("janitor did not return after context cancellation")
+	}
+}
+
+// TestManager_StopIsIdempotent verifies that Stop waits for the janitor
+// and can be called more than once.
+func TestManager_StopIsIdempotent(t *testing.T) {
+	manager := NewManager(Config{Logger: zerolog.New(zerolog.NewTestWriter(t))})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = manager.Stop()
+		_ = manager.Stop()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+}

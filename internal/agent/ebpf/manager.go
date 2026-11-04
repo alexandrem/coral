@@ -28,6 +28,11 @@ type Manager struct {
 	// subscriber is an optional callback invoked when GetEvents returns events.
 	subscriber EventSubscriber
 	subMu      sync.RWMutex
+
+	// cancel stops background goroutines owned by the manager, and wg
+	// tracks them so Stop can wait for them to exit.
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // runningCollector tracks a single active collector instance.
@@ -50,16 +55,19 @@ type Config struct {
 // NewManager creates a new eBPF manager.
 func NewManager(config Config) *Manager {
 	caps := detectCapabilities()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	m := &Manager{
 		logger:     config.Logger.With().Str("component", "ebpf_manager").Logger(),
 		collectors: make(map[string]*runningCollector),
 		caps:       caps,
+		cancel:     cancel,
 	}
 
-	// Start background janitor to clean up expired collectors.
-	// NOTE: this will be stopped when process ends only. We should improve this.
-	go m.janitor()
+	// Start background janitor to clean up expired collectors. It runs until
+	// Stop is called.
+	m.wg.Add(1)
+	go m.janitor(ctx, janitorInterval)
 
 	return m
 }
@@ -250,8 +258,13 @@ func (m *Manager) UpdateFilter(collectorID string, filter UprobeFilter) error {
 // Start is a no-op; the manager is ready after NewManager.
 func (m *Manager) Start() error { return nil }
 
-// Stop stops all running collectors and shuts down the manager.
+// Stop stops the janitor and all running collectors. It is safe to call more
+// than once.
 func (m *Manager) Stop() error {
+	// Wait for the janitor before taking m.mu, since a cleanup pass holds it.
+	m.cancel()
+	m.wg.Wait()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -357,14 +370,25 @@ func (m *Manager) createCollector(kind agentv1.EbpfCollectorKind, config map[str
 	}
 }
 
+// janitorInterval is how often the janitor looks for expired collectors.
+const janitorInterval = 5 * time.Minute
+
 // janitor periodically cleans up expired collectors that haven't been explicitly stopped.
 // Gives a 1-hour grace period after expiration for event fetching before cleanup.
-func (m *Manager) janitor() {
-	ticker := time.NewTicker(5 * time.Minute)
+// It returns when ctx is canceled.
+func (m *Manager) janitor(ctx context.Context, interval time.Duration) {
+	defer m.wg.Done()
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		m.cleanupExpiredCollectors()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.cleanupExpiredCollectors()
+		}
 	}
 }
 
