@@ -14,7 +14,6 @@ type Builder struct {
 	groupBy    []string
 	orderBy    []orderClause
 	limit      int
-	args       []interface{}
 	timeColumn string // Configurable: timestamp, bucket_time, start_time
 }
 
@@ -35,7 +34,6 @@ func NewQueryBuilder(table string) *Builder {
 	return &Builder{
 		table:      table,
 		timeColumn: "timestamp", // default
-		args:       make([]interface{}, 0),
 	}
 }
 
@@ -173,6 +171,8 @@ func (b *Builder) Limit(n int) *Builder {
 }
 
 // Build constructs the SQL query and returns the query string and arguments.
+// Build does not mutate the builder, so it is safe to call multiple times;
+// each call returns a freshly allocated arguments slice.
 // Returns (query, args, error).
 func (b *Builder) Build() (string, []interface{}, error) {
 	if b.table == "" {
@@ -180,6 +180,15 @@ func (b *Builder) Build() (string, []interface{}, error) {
 	}
 
 	var query strings.Builder
+
+	argCap := 0
+	for _, w := range b.where {
+		argCap += len(w.args)
+	}
+	if b.limit > 0 {
+		argCap++
+	}
+	args := make([]interface{}, 0, argCap)
 
 	// SELECT clause.
 	query.WriteString("SELECT ")
@@ -199,7 +208,7 @@ func (b *Builder) Build() (string, []interface{}, error) {
 		exprs := make([]string, len(b.where))
 		for i, w := range b.where {
 			exprs[i] = w.expr
-			b.args = append(b.args, w.args...)
+			args = append(args, w.args...)
 		}
 		query.WriteString(strings.Join(exprs, " AND "))
 	}
@@ -227,10 +236,10 @@ func (b *Builder) Build() (string, []interface{}, error) {
 	// LIMIT clause.
 	if b.limit > 0 {
 		query.WriteString(" LIMIT ?")
-		b.args = append(b.args, b.limit)
+		args = append(args, b.limit)
 	}
 
-	return query.String(), b.args, nil
+	return query.String(), args, nil
 }
 
 // MustBuild builds the query and panics on error.
