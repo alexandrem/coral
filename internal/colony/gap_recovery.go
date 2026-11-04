@@ -252,7 +252,7 @@ func (s *GapRecoveryService) recoverSystemMetrics(ctx context.Context, agent *re
 	}
 
 	// Bucket by each metric's own timestamp: a gap may span many minutes.
-	summaries := aggregateSystemMetrics(agent.AgentID, resp.Msg.Metrics, systemMetricMinute)
+	summaries := aggregateSystemMetrics(agent.AgentID, resp.Msg.Metrics)
 	if len(summaries) > 0 {
 		return s.db.InsertSystemMetricsSummaries(ctx, summaries)
 	}

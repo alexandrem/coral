@@ -149,7 +149,7 @@ func TestAggregateSystemMetricsForRecovery(t *testing.T) {
 		{Name: "mem_bytes", Value: 2048, Unit: "bytes", MetricType: "counter", Timestamp: ts + 1000, Attributes: "{}"},
 	}
 
-	summaries := aggregateSystemMetrics("agent-1", metrics, systemMetricMinute)
+	summaries := aggregateSystemMetrics("agent-1", metrics)
 	require.Len(t, summaries, 2)
 
 	// Find cpu_usage summary.
@@ -193,7 +193,7 @@ func TestAggregateSystemMetricsForRecovery_MultiMinuteGap(t *testing.T) {
 		}
 	}
 
-	summaries := aggregateSystemMetrics("agent-1", metrics, systemMetricMinute)
+	summaries := aggregateSystemMetrics("agent-1", metrics)
 	require.Len(t, summaries, 30, "expected one bucket per minute")
 
 	byBucket := make(map[time.Time]database.SystemMetricsSummary, len(summaries))
@@ -211,10 +211,10 @@ func TestAggregateSystemMetricsForRecovery_MultiMinuteGap(t *testing.T) {
 }
 
 func TestAggregateSystemMetricsForRecovery_Empty(t *testing.T) {
-	summaries := aggregateSystemMetrics("agent-1", nil, systemMetricMinute)
+	summaries := aggregateSystemMetrics("agent-1", nil)
 	assert.Nil(t, summaries)
 
-	summaries = aggregateSystemMetrics("agent-1", []*agentv1.SystemMetric{}, systemMetricMinute)
+	summaries = aggregateSystemMetrics("agent-1", []*agentv1.SystemMetric{})
 	assert.Nil(t, summaries)
 }
 

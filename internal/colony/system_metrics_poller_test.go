@@ -86,13 +86,8 @@ func TestCalculatePercentile(t *testing.T) {
 
 // TestAggregateMetrics tests the metric aggregation logic.
 func TestAggregateMetrics(t *testing.T) {
-	poller := &SystemMetricsPoller{
-		pollInterval: 1 * time.Minute,
-	}
-
 	agentID := "test-agent-1"
 	startTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(1 * time.Minute)
 
 	tests := []struct {
 		name     string
@@ -361,7 +356,7 @@ func TestAggregateMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := poller.aggregateMetrics(agentID, tt.metrics, startTime, endTime)
+			result := aggregateSystemMetrics(agentID, tt.metrics)
 
 			if len(result) != len(tt.expected) {
 				t.Fatalf("aggregateMetrics returned %d summaries, expected %d",
@@ -442,16 +437,11 @@ func TestAggregateMetrics(t *testing.T) {
 
 // TestAggregateMetricsEdgeCases tests edge cases in aggregation.
 func TestAggregateMetricsEdgeCases(t *testing.T) {
-	poller := &SystemMetricsPoller{
-		pollInterval: 1 * time.Minute,
-	}
-
 	agentID := "test-agent-1"
 	startTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(1 * time.Minute)
 
 	t.Run("nil metrics", func(t *testing.T) {
-		result := poller.aggregateMetrics(agentID, nil, startTime, endTime)
+		result := aggregateSystemMetrics(agentID, nil)
 		if len(result) != 0 {
 			t.Errorf("Expected empty result for nil metrics, got %d summaries", len(result))
 		}
@@ -469,7 +459,7 @@ func TestAggregateMetricsEdgeCases(t *testing.T) {
 			},
 		}
 
-		result := poller.aggregateMetrics(agentID, metrics, startTime, endTime)
+		result := aggregateSystemMetrics(agentID, metrics)
 		if len(result) != 1 {
 			t.Fatalf("Expected 1 summary, got %d", len(result))
 		}
@@ -492,7 +482,7 @@ func TestAggregateMetricsEdgeCases(t *testing.T) {
 			},
 		}
 
-		result := poller.aggregateMetrics(agentID, metrics, startTime, endTime)
+		result := aggregateSystemMetrics(agentID, metrics)
 		if len(result) != 1 {
 			t.Fatalf("Expected 1 summary, got %d", len(result))
 		}
@@ -514,7 +504,7 @@ func TestAggregateMetricsEdgeCases(t *testing.T) {
 			},
 		}
 
-		result := poller.aggregateMetrics(agentID, metrics, startTime, endTime)
+		result := aggregateSystemMetrics(agentID, metrics)
 		if len(result) != 1 {
 			t.Fatalf("Expected 1 summary, got %d", len(result))
 		}
@@ -523,4 +513,71 @@ func TestAggregateMetricsEdgeCases(t *testing.T) {
 			t.Errorf("Negative value not handled correctly: %.0f", result[0].MinValue)
 		}
 	})
+}
+
+// TestCompleteMinutesPrefix tests that only complete minutes are aggregated.
+func TestCompleteMinutesPrefix(t *testing.T) {
+	base := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	// Four samples per minute (15s interval) for minutes 12:00, 12:01 and 12:02.
+	var metrics []*agentv1.SystemMetric
+	for i := 0; i < 12; i++ {
+		metrics = append(metrics, &agentv1.SystemMetric{
+			Name:      "cpu_usage",
+			Timestamp: base.Add(time.Duration(i) * 15 * time.Second).UnixMilli(),
+			SeqId:     uint64(i + 1),
+		})
+	}
+
+	tests := []struct {
+		name      string
+		metrics   []*agentv1.SystemMetric
+		cutoff    time.Time
+		truncated bool
+		want      int
+	}{
+		{"empty", nil, base.Add(3 * time.Minute), false, 0},
+		{"all minutes complete", metrics, base.Add(3 * time.Minute), false, 12},
+		{"current minute held back", metrics, base.Add(2 * time.Minute), false, 8},
+		{"only current minute", metrics[:4], base, false, 0},
+		{"truncated holds back last minute", metrics, base.Add(3 * time.Minute), true, 8},
+		{"truncated last minute already before cutoff", metrics[:6], base.Add(3 * time.Minute), true, 4},
+		{"truncated single minute is not held back", metrics[:4], base.Add(3 * time.Minute), true, 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := completeMinutesPrefix(tt.metrics, tt.cutoff, tt.truncated); got != tt.want {
+				t.Errorf("completeMinutesPrefix() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAggregateMetricsBacklog tests that a multi-minute backlog (e.g. after a
+// colony restart) is spread over one bucket per minute.
+func TestAggregateMetricsBacklog(t *testing.T) {
+	base := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	var metrics []*agentv1.SystemMetric
+	for i := 0; i < 40; i++ { // 10 minutes, 4 samples per minute.
+		metrics = append(metrics, &agentv1.SystemMetric{
+			Name:       "cpu_usage",
+			Value:      float64(i / 4),
+			MetricType: "gauge",
+			Timestamp:  base.Add(time.Duration(i) * 15 * time.Second).UnixMilli(),
+		})
+	}
+
+	result := aggregateSystemMetrics("test-agent-1", metrics)
+	if len(result) != 10 {
+		t.Fatalf("expected 10 buckets, got %d", len(result))
+	}
+	for _, s := range result {
+		minute := int(s.BucketTime.Sub(base) / time.Minute)
+		if s.SampleCount != 4 || s.MinValue != float64(minute) || s.MaxValue != float64(minute) {
+			t.Errorf("bucket %s: count=%d min=%v max=%v, want count=4 min=max=%d",
+				s.BucketTime, s.SampleCount, s.MinValue, s.MaxValue, minute)
+		}
+	}
 }
