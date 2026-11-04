@@ -3,8 +3,10 @@ package duckdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -234,6 +236,143 @@ func TestBatchUpsert_UnsupportedFieldFallsBack(t *testing.T) {
 		{ID: "b"},
 	}))
 	assert.Equal(t, []string{"id=a name=x", "id=b name=<nil>"}, dumpTable(t, db, "nullable", "id"))
+}
+
+// ormTestCounter is a minimal upsertable row used by the conflict tests.
+type ormTestCounter struct {
+	ID    string `duckdb:"id,pk"`
+	Value int64  `duckdb:"value"`
+}
+
+const ormTestCounterSchema = `CREATE TABLE counters (id TEXT PRIMARY KEY, value BIGINT)`
+
+// openConcurrentTestDB opens a database that allows several connections, so
+// that concurrent transactions can conflict.
+func openConcurrentTestDB(t *testing.T, schema string) *sql.DB {
+	t.Helper()
+	db := openORMTestDB(t, schema)
+	db.SetMaxOpenConns(4)
+	return db
+}
+
+// lockRow inserts counters row "a" and leaves an uncommitted update of it in
+// an open transaction, so that any other transaction writing the row
+// fails with a write-write conflict.
+func lockRow(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO counters VALUES ('a', 0)`)
+	require.NoError(t, err)
+
+	winner, err := db.Begin()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = winner.Rollback() })
+	_, err = winner.Exec(`UPDATE counters SET value = 1 WHERE id = 'a'`)
+	require.NoError(t, err)
+}
+
+// beginTx starts a transaction that is rolled back when the test ends.
+func beginTx(t *testing.T, db *sql.DB) *sql.Tx {
+	t.Helper()
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	return tx
+}
+
+func TestIsTransactionConflict(t *testing.T) {
+	db := openConcurrentTestDB(t, ormTestCounterSchema)
+	lockRow(t, db)
+	loser := beginTx(t, db)
+	_, conflictErr := loser.Exec(`UPDATE counters SET value = 2 WHERE id = 'a'`)
+	require.ErrorContains(t, conflictErr, "Conflict on update")
+
+	_, abortedErr := loser.Exec(`SELECT 1`)
+	require.ErrorContains(t, abortedErr, "Current transaction is aborted")
+
+	_, dupErr := db.Exec(`INSERT INTO counters VALUES ('a', 9)`)
+	require.ErrorContains(t, dupErr, "Duplicate key")
+
+	// Two transactions inserting the same key: the second commit loses.
+	tx1 := beginTx(t, db)
+	tx2 := beginTx(t, db)
+	_, err := tx1.Exec(`INSERT INTO counters VALUES ('b', 1)`)
+	require.NoError(t, err)
+	_, err = tx2.Exec(`INSERT INTO counters VALUES ('b', 2)`)
+	require.NoError(t, err)
+	require.NoError(t, tx1.Commit())
+	commitRaceErr := tx2.Commit()
+	require.ErrorContains(t, commitRaceErr, "PRIMARY KEY or UNIQUE constraint violated")
+
+	_, syntaxErr := db.Exec(`SELEC 1`)
+	require.Error(t, syntaxErr)
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"update conflict", conflictErr, true},
+		{"wrapped update conflict", fmt.Errorf("batch exec: %w", conflictErr), true},
+		{"commit lost primary key race", commitRaceErr, true},
+		{"aborted transaction", abortedErr, false},
+		{"duplicate key", dupErr, false},
+		{"syntax error", syntaxErr, false},
+		{"non-duckdb error mentioning conflict", errors.New("transaction conflict on serialization"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsTransactionConflict(tt.err), "err: %v", tt.err)
+		})
+	}
+}
+
+func TestBatchUpsert_ExternalTxDoesNotRetry(t *testing.T) {
+	db := openConcurrentTestDB(t, ormTestCounterSchema)
+	lockRow(t, db)
+	tx := beginTx(t, db)
+
+	start := time.Now()
+	err := NewTable[ormTestCounter](tx, "counters").BatchUpsert(context.Background(),
+		[]*ormTestCounter{{ID: "a", Value: 2}})
+	require.Error(t, err)
+	assert.True(t, IsTransactionConflict(err), "the original conflict must be returned: %v", err)
+	assert.NotContains(t, err.Error(), "failed after", "an aborted transaction must not be retried")
+	assert.Less(t, time.Since(start), time.Second)
+}
+
+func TestUpsert_ExternalTxDoesNotRetry(t *testing.T) {
+	db := openConcurrentTestDB(t, ormTestCounterSchema)
+	lockRow(t, db)
+	tx := beginTx(t, db)
+
+	err := NewTable[ormTestCounter](tx, "counters").Upsert(context.Background(), &ormTestCounter{ID: "a", Value: 2})
+	require.Error(t, err)
+	assert.True(t, IsTransactionConflict(err), "the original conflict must be returned: %v", err)
+	assert.NotContains(t, err.Error(), "failed after", "an aborted transaction must not be retried")
+}
+
+func TestUpsert_RetriesConcurrentConflicts(t *testing.T) {
+	db := openConcurrentTestDB(t, ormTestCounterSchema)
+	table := NewTable[ormTestCounter](db, "counters")
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 4*50)
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				errs <- table.Upsert(ctx, &ormTestCounter{ID: fmt.Sprintf("k%d", i%3), Value: int64(g)})
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
 }
 
 func BenchmarkBatchUpsert(b *testing.B) {

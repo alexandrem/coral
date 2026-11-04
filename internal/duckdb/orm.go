@@ -278,10 +278,10 @@ func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		_, err := t.db.ExecContext(ctx, query, values...)
 		return err
-	}, isTransactionConflict)
+	})
 }
 
 // Insert inserts a new item into the database.
@@ -317,10 +317,10 @@ func (t *Table[T]) Insert(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		_, err := t.db.ExecContext(ctx, query, values...)
 		return err
-	}, isTransactionConflict)
+	})
 }
 
 // BatchUpsert inserts or updates multiple items atomically.
@@ -333,7 +333,9 @@ func (t *Table[T]) Insert(ctx context.Context, item *T) error {
 // immutable columns keep the first item's values.
 //
 // Inside a *sql.Tx, or when a field type is not supported by the appender, it
-// falls back to executing a prepared statement per item.
+// falls back to executing a prepared statement per item. Inside a *sql.Tx,
+// conflicts are not retried: DuckDB aborts the transaction on its first error,
+// so the caller must retry the whole transaction.
 func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 	if len(items) == 0 {
 		return nil
@@ -349,7 +351,7 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 	if db, ok := t.db.(*sql.DB); ok && t.stageExprs != nil {
 		err := retry.Do(ctx, cfg, func() error {
 			return t.batchUpsertStaged(ctx, db, items)
-		}, isTransactionConflict)
+		}, IsTransactionConflict)
 		if !errors.Is(err, errAppenderUnavailable) {
 			return err
 		}
@@ -466,7 +468,7 @@ func (t *Table[T]) batchUpsertPrepared(ctx context.Context, cfg retry.Config, it
 		t.onConflictClause(),
 	)
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		// 3. Transact
 		// Check if db is already a Tx or a DB
 		var tx *sql.Tx
@@ -526,7 +528,7 @@ func (t *Table[T]) batchUpsertPrepared(ctx context.Context, cfg retry.Config, it
 		}
 
 		return nil
-	}, isTransactionConflict)
+	})
 }
 
 // Get retrieves a single item by its value in the first PK column.
@@ -607,7 +609,7 @@ func (t *Table[T]) Update(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		result, err := t.db.ExecContext(ctx, query, values...)
 		if err != nil {
 			return err
@@ -621,7 +623,7 @@ func (t *Table[T]) Update(ctx context.Context, item *T) error {
 			return fmt.Errorf("no rows updated (record may not exist)")
 		}
 		return nil
-	}, isTransactionConflict)
+	})
 }
 
 // UpdateFields updates specific fields of an item by PK.
@@ -672,7 +674,7 @@ func (t *Table[T]) UpdateFields(ctx context.Context, pk any, fieldUpdates map[st
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		result, err := t.db.ExecContext(ctx, query, values...)
 		if err != nil {
 			return err
@@ -685,7 +687,7 @@ func (t *Table[T]) UpdateFields(ctx context.Context, pk any, fieldUpdates map[st
 			return fmt.Errorf("no rows updated (record may not exist)")
 		}
 		return nil
-	}, isTransactionConflict)
+	})
 }
 
 // Delete removes an item by its value in the first PK column.
@@ -766,16 +768,34 @@ func (t *Table[T]) scanRows(rows *sql.Rows) (*T, error) {
 	return &item, nil
 }
 
-func isTransactionConflict(err error) bool {
-	if err == nil {
+// withRetry runs fn, retrying it with cfg while it fails with a transaction
+// conflict.
+//
+// When the table is bound to a caller's *sql.Tx, fn runs exactly once: DuckDB
+// aborts a transaction on its first error, so further attempts inside the same
+// transaction can only fail with "Current transaction is aborted". Callers that
+// own the transaction must retry at the boundary where they begin it.
+func (t *Table[T]) withRetry(ctx context.Context, cfg retry.Config, fn func() error) error {
+	if _, inTx := t.db.(*sql.Tx); inTx {
+		return fn()
+	}
+	return retry.Do(ctx, cfg, fn, IsTransactionConflict)
+}
+
+// IsTransactionConflict reports whether err is a transient DuckDB
+// optimistic-concurrency failure that succeeds when retried in a new
+// transaction.
+//
+// It matches TransactionContext errors that report a write-write conflict
+// ("Conflict on update!", "Conflict on tuple deletion!", "Catalog write-write
+// conflict ...") or a commit that lost a race to insert the same primary key.
+// Other TransactionContext errors, such as "Current transaction is aborted",
+// are permanent and are not matched, nor are errors from other sources.
+func IsTransactionConflict(err error) bool {
+	var dErr *duckdbDriver.Error
+	if !errors.As(err, &dErr) || dErr.Type != duckdbDriver.ErrorTypeTransaction {
 		return false
 	}
-	msg := err.Error()
-	// Detect various DuckDB transaction conflict patterns
-	return strings.Contains(msg, "Conflict on update") ||
-		strings.Contains(msg, "conflict") ||
-		strings.Contains(msg, "transaction") ||
-		strings.Contains(msg, "serialization") ||
-		strings.Contains(msg, "TransactionContext Error") ||
-		(strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "constraint violated"))
+	return strings.Contains(strings.ToLower(dErr.Msg), "conflict") ||
+		strings.Contains(dErr.Msg, "PRIMARY KEY or UNIQUE constraint violated")
 }

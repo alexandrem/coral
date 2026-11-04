@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/retry"
 )
 
@@ -108,22 +108,7 @@ func (d *Database) UpsertService(ctx context.Context, service *Service) error {
 		}
 
 		return nil
-	}, isTransactionConflict)
-}
-
-// isTransactionConflict checks if an error is a DuckDB transaction conflict.
-func isTransactionConflict(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	// Detect various DuckDB transaction conflict patterns
-	return strings.Contains(msg, "Conflict on update") ||
-		strings.Contains(msg, "conflict") ||
-		strings.Contains(msg, "transaction") ||
-		strings.Contains(msg, "serialization") ||
-		strings.Contains(msg, "TransactionContext Error") ||
-		(strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "constraint violated"))
+	}, duckdb.IsTransactionConflict)
 }
 
 // UpdateServiceLastSeen updates the last_seen timestamp for all services belonging to an agent.
