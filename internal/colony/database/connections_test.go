@@ -161,6 +161,89 @@ func TestMaterializeConnections_AggregatesMultipleCalls(t *testing.T) {
 	assert.Equal(t, 3, connCount, "All three calls should be aggregated into one edge")
 }
 
+// edgeCount returns the stored connection_count for the from → to edge.
+func edgeCount(t *testing.T, db *Database, from, to string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.db.QueryRow(
+		"SELECT connection_count FROM service_connections WHERE from_service = ? AND to_service = ?",
+		from, to,
+	).Scan(&n))
+	return n
+}
+
+func TestMaterializeConnections_IdempotentOverOverlappingWindows(t *testing.T) {
+	db, cleanup := newTestDatabase(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	for i := range 3 {
+		suffix := string(rune('a' + i))
+		insertCrossServiceSpan(t, db,
+			"trace00000000000000000000000030"+suffix,
+			"parentspan00030"+suffix,
+			"childspan000030"+suffix,
+			"frontend", "backend",
+			-time.Duration(i+1)*time.Minute,
+		)
+	}
+
+	// Re-running over the same window (as GetServiceConnections does every TTL)
+	// must not add the same calls again.
+	since := time.Now().Add(-time.Hour)
+	for range 4 {
+		require.NoError(t, db.MaterializeConnections(ctx, since))
+	}
+	assert.Equal(t, 3, edgeCount(t, db, "frontend", "backend"),
+		"Repeated materialization over the same spans must not inflate the count")
+
+	// New traffic is reflected exactly once.
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000031",
+		"parentspan000031",
+		"childspan0000031",
+		"frontend", "backend",
+		0,
+	)
+	require.NoError(t, db.MaterializeConnections(ctx, since))
+	require.NoError(t, db.MaterializeConnections(ctx, since))
+	assert.Equal(t, 4, edgeCount(t, db, "frontend", "backend"))
+}
+
+func TestMaterializeConnections_EdgeOutsideWindowResetToZero(t *testing.T) {
+	db, cleanup := newTestDatabase(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000040",
+		"parentspan000040",
+		"childspan0000040",
+		"frontend", "backend",
+		-30*time.Minute,
+	)
+
+	require.NoError(t, db.MaterializeConnections(ctx, time.Now().Add(-time.Hour)))
+	assert.Equal(t, 1, edgeCount(t, db, "frontend", "backend"))
+
+	var firstBefore, lastBefore time.Time
+	require.NoError(t, db.db.QueryRow(
+		"SELECT first_observed, last_observed FROM service_connections WHERE from_service = 'frontend'",
+	).Scan(&firstBefore, &lastBefore))
+
+	// The window has moved past the only call: the edge is kept for topology,
+	// but it no longer reports calls from an earlier window.
+	require.NoError(t, db.MaterializeConnections(ctx, time.Now().Add(-10*time.Minute)))
+	assert.Equal(t, 0, edgeCount(t, db, "frontend", "backend"))
+
+	var firstAfter, lastAfter time.Time
+	require.NoError(t, db.db.QueryRow(
+		"SELECT first_observed, last_observed FROM service_connections WHERE from_service = 'frontend'",
+	).Scan(&firstAfter, &lastAfter))
+	assert.True(t, firstBefore.Equal(firstAfter), "first_observed must be preserved")
+	assert.True(t, lastBefore.Equal(lastAfter), "last_observed must be preserved")
+}
+
 func TestMaterializeConnections_MultipleDistinctEdges(t *testing.T) {
 	db, cleanup := newTestDatabase(t)
 	defer cleanup()

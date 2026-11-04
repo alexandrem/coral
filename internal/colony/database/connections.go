@@ -8,21 +8,28 @@ import (
 
 // ServiceConnection represents a discovered connection between services.
 type ServiceConnection struct {
-	FromService     string    `duckdb:"from_service,pk"`
-	ToService       string    `duckdb:"to_service,pk"`
-	Protocol        string    `duckdb:"protocol,pk"`
-	FirstObserved   time.Time `duckdb:"first_observed"`
-	LastObserved    time.Time `duckdb:"last_observed"`
-	ConnectionCount int       `duckdb:"connection_count"`
+	FromService   string    `duckdb:"from_service,pk"`
+	ToService     string    `duckdb:"to_service,pk"`
+	Protocol      string    `duckdb:"protocol,pk"`
+	FirstObserved time.Time `duckdb:"first_observed"`
+	LastObserved  time.Time `duckdb:"last_observed"`
+	// ConnectionCount is the number of calls observed in the most recent
+	// materialization window. It is zero for edges with no calls in that window.
+	ConnectionCount int `duckdb:"connection_count"`
 }
 
 // MaterializeConnections re-derives service connections from the beyla_traces table
 // and upserts the results into service_connections (RFD 092).
+//
+// The operation is idempotent: connection_count is recomputed from the spans in
+// [since, now] and replaces the stored value, so repeated runs over overlapping
+// windows do not inflate counts. Edges with no calls in the window are kept, with
+// their count reset to zero.
 func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) error {
 	d.connectionsMu.Lock()
 	defer d.connectionsMu.Unlock()
 
-	// default to last materialized time minus 1 minute for overlap if since is zero.
+	// Default to a 1-hour window if since is zero.
 	if since.IsZero() {
 		since = time.Now().Add(-1 * time.Hour)
 	}
@@ -30,18 +37,6 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	d.logger.Info().
 		Time("since", since).
 		Msg("Materializing service connections from Beyla traces")
-
-	// Verify we have spans to work with.
-	var count int
-	if err := d.db.QueryRowContext(ctx, "SELECT count(*) FROM beyla_traces WHERE start_time >= ?", since).Scan(&count); err != nil {
-		return fmt.Errorf("failed to check trace count: %w", err)
-	}
-	if count == 0 {
-		d.logger.Info().Msg("No recent traces found for materialization")
-		return nil
-	}
-
-	d.logger.Info().Int("trace_count", count).Msg("Processing traces for materialization")
 
 	// Performance optimization: Pre-filter potential parent spans to a window around 'since'.
 	// This avoids full table scans during the fuzzy matching strategies.
@@ -138,13 +133,30 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 		SELECT from_service, to_service, protocol, connection_count, first_observed, last_observed
 		FROM aggregated
 		ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
-			connection_count = service_connections.connection_count + excluded.connection_count,
-			last_observed    = CASE WHEN EXCLUDED.last_observed > service_connections.last_observed THEN EXCLUDED.last_observed ELSE service_connections.last_observed END
+			connection_count = excluded.connection_count,
+			first_observed   = LEAST(service_connections.first_observed, excluded.first_observed),
+			last_observed    = GREATEST(service_connections.last_observed, excluded.last_observed)
 	`
 
-	res, err := d.db.ExecContext(ctx, query, candidatesSince, since)
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin materialization transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Reset all counts so that edges absent from the current window report zero
+	// rather than a stale value from an earlier window.
+	if _, err := tx.ExecContext(ctx, "UPDATE service_connections SET connection_count = 0 WHERE connection_count <> 0"); err != nil {
+		return fmt.Errorf("failed to reset connection counts: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, query, candidatesSince, since)
 	if err != nil {
 		return fmt.Errorf("failed to materialize connections: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit materialized connections: %w", err)
 	}
 
 	rows, _ := res.RowsAffected()
