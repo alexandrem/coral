@@ -216,11 +216,10 @@ bin/coral connect frontend:3000 api:8080:/health
 
 ## Documentation
 
-#### Engineering & Architecture
+#### Architecture
 
-- **[Engineering Knowledge Map](docs/engineering/00_knowledge_map.md)**:
-  Conceptual deep dives into system architecture, eBPF internals, and core
-  design principles.
+- **[Architecture Book](docs/architecture/README.md)**: Component responsibilities,
+  data ownership, collection and investigation flows, and failure behavior.
 
 #### User Experience
 

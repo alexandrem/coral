@@ -10,6 +10,9 @@ instrumentation or redeployment required. Go, DuckDB, Anthropic API.
 
 **Linting**: Code must pass linting (`make lint`) before commits.
 
+**Architecture Documentation** (`/architecture-docs`): Use the skill for internal
+system explanations in `docs/architecture/`. Start at its `README.md` reading map.
+
 **RFD Writing** (`/rfd-write`): Use the skill. Read `RFDs/000-RFD-TEMPLATE.md`
 first. Scope must be completable — split if >5 phases or blocked by other RFDs.
 No time estimates.

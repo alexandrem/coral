@@ -343,7 +343,7 @@ dispatch. Only the empty-string fallback changes.
 - [ ] Test that `triage` and `services` appear and unrelated top-level commands
       remain excluded.
 - [ ] Update `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and
-      `docs/engineering/11_mcp_and_llm_interfacing.md`.
+      `docs/architecture/mcp-and-llm.md`.
 
 ## Testing Strategy
 
