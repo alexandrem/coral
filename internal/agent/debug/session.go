@@ -48,6 +48,8 @@ type SessionManager struct {
 }
 
 // NewSessionManager creates a new SessionManager.
+//
+//nolint:staticcheck // SA4023: Non-Linux stub always returns an error; Linux requires this check.
 func NewSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resolver ServiceResolver) *SessionManager {
 	// Initialize kernel symbolizer once for all CPU profiling sessions
 	kernelSymbolizer, err := NewKernelSymbolizer(logger)
@@ -195,6 +197,8 @@ func (m *SessionManager) CloseSession(sessionID string) error {
 }
 
 // ProfileCPU collects CPU profile samples for a process (RFD 070).
+//
+//nolint:staticcheck // SA4023: Non-Linux stubs always return errors; Linux requires these checks.
 func (m *SessionManager) ProfileCPU(pid int, durationSeconds int, frequencyHz int) (*CPUProfileResult, error) {
 	// Start CPU profiling session with kernel symbolizer
 	session, err := StartCPUProfile(pid, durationSeconds, frequencyHz, m.kernelSymbolizer, m.logger)

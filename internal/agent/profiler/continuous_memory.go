@@ -195,8 +195,8 @@ func (p *ContinuousMemoryProfiler) collectAndStore(service MemoryServiceInfo) er
 	}
 
 	// Extract build ID from the binary.
-	buildID, err := ExtractBuildIDFromPID(service.PID)
-	if err != nil {
+	buildID, err := ExtractBuildIDFromPID(service.PID) //nolint:staticcheck // SA4023: Related diagnostic for the platform-dependent error check below.
+	if err != nil { //nolint:staticcheck // SA4023: Non-Linux stub always returns an error; Linux requires this check.
 		p.logger.Warn().
 			Err(err).
 			Str("service_id", service.ServiceID).
