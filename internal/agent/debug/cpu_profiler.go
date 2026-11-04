@@ -360,7 +360,7 @@ func FormatFoldedStacks(samples []*agentv1.StackSample) string {
 				buf.WriteString(";")
 			}
 		}
-		buf.WriteString(fmt.Sprintf(" %d\n", sample.Count))
+		_, _ = fmt.Fprintf(&buf, " %d\n", sample.Count)
 	}
 
 	return buf.String()
