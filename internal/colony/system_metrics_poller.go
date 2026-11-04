@@ -217,19 +217,38 @@ func (p *SystemMetricsPoller) pollAgent(ctx context.Context, agent *registry.Ent
 	return resp.Msg.Metrics, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
-// aggregateMetrics aggregates metrics into 1-minute buckets with min/max/avg/p95 calculations.
+// aggregateMetrics aggregates one poll's metrics into 1-minute bucket summaries.
+// All metrics are attributed to the bucket containing startTime.
 func (p *SystemMetricsPoller) aggregateMetrics(
 	agentID string,
 	metrics []*agentv1.SystemMetric,
-	startTime, endTime time.Time,
+	startTime, _ time.Time,
+) []database.SystemMetricsSummary {
+	bucketTime := startTime.Truncate(time.Minute)
+	return aggregateSystemMetrics(agentID, metrics, func(*agentv1.SystemMetric) time.Time {
+		return bucketTime
+	})
+}
+
+// systemMetricMinute returns the 1-minute bucket containing the metric's own timestamp.
+func systemMetricMinute(m *agentv1.SystemMetric) time.Time {
+	return time.UnixMilli(m.Timestamp).Truncate(time.Minute)
+}
+
+// aggregateSystemMetrics groups metrics by bucket, name and attributes, and
+// computes min/max/avg/p95/delta for each group. bucketOf returns the bucket
+// time of a metric. It is shared by SystemMetricsPoller and GapRecoveryService.
+func aggregateSystemMetrics(
+	agentID string,
+	metrics []*agentv1.SystemMetric,
+	bucketOf func(*agentv1.SystemMetric) time.Time,
 ) []database.SystemMetricsSummary {
 	if len(metrics) == 0 {
 		return nil
 	}
 
-	// Group metrics by metric name and attributes.
-	// Key format: "metric_name|attributes_json"
 	type metricKey struct {
+		bucketTime time.Time
 		name       string
 		attributes string
 	}
@@ -244,38 +263,30 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 
 	for _, metric := range metrics {
 		key := metricKey{
+			bucketTime: bucketOf(metric),
 			name:       metric.Name,
 			attributes: metric.Attributes,
 		}
 
-		if _, exists := grouped[key]; !exists {
-			grouped[key] = &metricGroup{
-				values:     make([]float64, 0),
+		group, exists := grouped[key]
+		if !exists {
+			group = &metricGroup{
 				unit:       metric.Unit,
 				metricType: metric.MetricType,
 			}
+			grouped[key] = group
 		}
 
-		grouped[key].values = append(grouped[key].values, metric.Value)
+		group.values = append(group.values, metric.Value)
 	}
-
-	// Aggregate each group into a summary.
-	// Bucket time is truncated to the start of the minute for consistency.
-	bucketTime := startTime.Truncate(time.Minute)
 
 	summaries := make([]database.SystemMetricsSummary, 0, len(grouped))
 
 	for key, group := range grouped {
-		if len(group.values) == 0 {
-			continue
-		}
-
-		// Sort values for percentile calculation.
-		sortedValues := make([]float64, len(group.values))
-		copy(sortedValues, group.values)
+		// Sort values for percentile calculation. Each group owns its slice.
+		sortedValues := group.values
 		sort.Float64s(sortedValues)
 
-		// Calculate min, max, avg.
 		minVal := sortedValues[0]
 		maxVal := sortedValues[len(sortedValues)-1]
 		sum := 0.0
@@ -284,18 +295,16 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 		}
 		avgVal := sum / float64(len(sortedValues))
 
-		// Calculate p95.
 		p95Val := calculatePercentile(sortedValues, 0.95)
 
-		// Calculate delta for counters.
 		// For counter metrics, delta is the difference between max and min (total change in window).
 		deltaVal := 0.0
 		if group.metricType == "counter" || group.metricType == "delta" {
 			deltaVal = maxVal - minVal
 		}
 
-		summary := database.SystemMetricsSummary{
-			BucketTime:  bucketTime,
+		summaries = append(summaries, database.SystemMetricsSummary{
+			BucketTime:  key.bucketTime,
 			AgentID:     agentID,
 			MetricName:  key.name,
 			MinValue:    minVal,
@@ -303,13 +312,11 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 			AvgValue:    avgVal,
 			P95Value:    p95Val,
 			DeltaValue:  deltaVal,
-			SampleCount: uint64(len(group.values)),
+			SampleCount: uint64(len(sortedValues)),
 			Unit:        group.unit,
 			MetricType:  group.metricType,
 			Attributes:  key.attributes,
-		}
-
-		summaries = append(summaries, summary)
+		})
 	}
 
 	return summaries

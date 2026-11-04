@@ -93,7 +93,7 @@ func (p *MemoryProfilePoller) PollOnce(ctx context.Context) error {
 			return err
 		}
 
-		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
+		summaries := aggregateMemoryProfileSamples(ctx, p.db, p.logger, agent.AgentID, samples)
 		allSummaries = append(allSummaries, summaries...)
 
 		if maxSeqID > 0 {
@@ -213,8 +213,13 @@ func (p *MemoryProfilePoller) pollAgent(ctx context.Context, agent *registry.Ent
 	return resp.Msg.Samples, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
-// aggregateSamples aggregates memory profile samples into 1-minute buckets.
-func (p *MemoryProfilePoller) aggregateSamples(ctx context.Context,
+// aggregateMemoryProfileSamples aggregates memory profile samples into 1-minute buckets.
+// Samples with the same stack (within the same minute bucket) are merged by summing allocations.
+// It is shared by MemoryProfilePoller and GapRecoveryService.
+func aggregateMemoryProfileSamples(
+	ctx context.Context,
+	db *database.Database,
+	logger zerolog.Logger,
 	agentID string,
 	samples []*agentv1.MemoryProfileSample,
 ) []database.MemoryProfileSummary {
@@ -240,9 +245,9 @@ func (p *MemoryProfilePoller) aggregateSamples(ctx context.Context,
 	for _, sample := range samples {
 		bucketTime := sample.Timestamp.AsTime().Truncate(time.Minute)
 
-		frameIDs, err := p.db.EncodeStackFrames(ctx, sample.StackFrames)
+		frameIDs, err := db.EncodeStackFrames(ctx, sample.StackFrames)
 		if err != nil {
-			p.logger.Warn().
+			logger.Warn().
 				Err(err).
 				Int("stack_depth", len(sample.StackFrames)).
 				Msg("Failed to encode stack frames, skipping memory sample")

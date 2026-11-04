@@ -140,15 +140,16 @@ func TestGapRecoveryService_RunCleanup(t *testing.T) {
 // --- Aggregation Helper Tests ---
 
 func TestAggregateSystemMetricsForRecovery(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 10, 0, 5, 0, time.UTC).UnixMilli()
 	metrics := []*agentv1.SystemMetric{
-		{Name: "cpu_usage", Value: 50.0, Unit: "%", MetricType: "gauge", Timestamp: time.Now().UnixMilli(), Attributes: "{}"},
-		{Name: "cpu_usage", Value: 80.0, Unit: "%", MetricType: "gauge", Timestamp: time.Now().UnixMilli(), Attributes: "{}"},
-		{Name: "cpu_usage", Value: 70.0, Unit: "%", MetricType: "gauge", Timestamp: time.Now().UnixMilli(), Attributes: "{}"},
-		{Name: "mem_bytes", Value: 1024, Unit: "bytes", MetricType: "counter", Timestamp: time.Now().UnixMilli(), Attributes: "{}"},
-		{Name: "mem_bytes", Value: 2048, Unit: "bytes", MetricType: "counter", Timestamp: time.Now().UnixMilli(), Attributes: "{}"},
+		{Name: "cpu_usage", Value: 50.0, Unit: "%", MetricType: "gauge", Timestamp: ts, Attributes: "{}"},
+		{Name: "cpu_usage", Value: 80.0, Unit: "%", MetricType: "gauge", Timestamp: ts + 1000, Attributes: "{}"},
+		{Name: "cpu_usage", Value: 70.0, Unit: "%", MetricType: "gauge", Timestamp: ts + 2000, Attributes: "{}"},
+		{Name: "mem_bytes", Value: 1024, Unit: "bytes", MetricType: "counter", Timestamp: ts, Attributes: "{}"},
+		{Name: "mem_bytes", Value: 2048, Unit: "bytes", MetricType: "counter", Timestamp: ts + 1000, Attributes: "{}"},
 	}
 
-	summaries := aggregateSystemMetricsForRecovery("agent-1", metrics)
+	summaries := aggregateSystemMetrics("agent-1", metrics, systemMetricMinute)
 	require.Len(t, summaries, 2)
 
 	// Find cpu_usage summary.
@@ -174,11 +175,46 @@ func TestAggregateSystemMetricsForRecovery(t *testing.T) {
 	assert.Equal(t, 1024.0, memSummary.DeltaValue, "counter delta should be max-min")
 }
 
+// TestAggregateSystemMetricsForRecovery_MultiMinuteGap verifies that a gap
+// spanning several minutes produces one bucket per minute instead of
+// collapsing every sample into the earliest minute.
+func TestAggregateSystemMetricsForRecovery_MultiMinuteGap(t *testing.T) {
+	start := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+
+	// 30 minutes of data, 4 samples per minute (15s interval). Minute i has value i.
+	var metrics []*agentv1.SystemMetric
+	for minute := 0; minute < 30; minute++ {
+		for s := 0; s < 4; s++ {
+			ts := start.Add(time.Duration(minute)*time.Minute + time.Duration(s)*15*time.Second)
+			metrics = append(metrics, &agentv1.SystemMetric{
+				Name: "cpu_usage", Value: float64(minute), Unit: "%", MetricType: "gauge",
+				Timestamp: ts.UnixMilli(), Attributes: "{}",
+			})
+		}
+	}
+
+	summaries := aggregateSystemMetrics("agent-1", metrics, systemMetricMinute)
+	require.Len(t, summaries, 30, "expected one bucket per minute")
+
+	byBucket := make(map[time.Time]database.SystemMetricsSummary, len(summaries))
+	for _, s := range summaries {
+		byBucket[s.BucketTime.UTC()] = s
+	}
+	for minute := 0; minute < 30; minute++ {
+		bucket := start.Add(time.Duration(minute) * time.Minute)
+		s, ok := byBucket[bucket]
+		require.True(t, ok, "missing bucket %s", bucket)
+		assert.Equal(t, uint64(4), s.SampleCount)
+		assert.Equal(t, float64(minute), s.MinValue)
+		assert.Equal(t, float64(minute), s.MaxValue)
+	}
+}
+
 func TestAggregateSystemMetricsForRecovery_Empty(t *testing.T) {
-	summaries := aggregateSystemMetricsForRecovery("agent-1", nil)
+	summaries := aggregateSystemMetrics("agent-1", nil, systemMetricMinute)
 	assert.Nil(t, summaries)
 
-	summaries = aggregateSystemMetricsForRecovery("agent-1", []*agentv1.SystemMetric{})
+	summaries = aggregateSystemMetrics("agent-1", []*agentv1.SystemMetric{}, systemMetricMinute)
 	assert.Nil(t, summaries)
 }
 
@@ -195,6 +231,7 @@ func TestAggregateCPUProfileForRecovery(t *testing.T) {
 		{
 			Timestamp:   timestamppb.New(now),
 			BuildId:     "build-1",
+			Tgid:        42,
 			StackFrames: []string{"main.go:10", "handler.go:20"},
 			SampleCount: 5,
 			ServiceName: "api-service",
@@ -202,19 +239,33 @@ func TestAggregateCPUProfileForRecovery(t *testing.T) {
 		{
 			Timestamp:   timestamppb.New(now),
 			BuildId:     "build-1",
+			Tgid:        42,
 			StackFrames: []string{"main.go:10", "handler.go:20"},
 			SampleCount: 3,
 			ServiceName: "api-service",
 		},
 	}
 
-	summaries := svc.aggregateCPUProfileForRecovery(ctx, "agent-1", samples)
+	summaries := aggregateCPUProfileSamples(ctx, svc.db, svc.logger, "agent-1", samples)
 	require.Len(t, summaries, 1, "Same stack should be merged")
 	assert.Equal(t, "agent-1", summaries[0].AgentID)
 	assert.Equal(t, "api-service", summaries[0].ServiceName)
 	assert.Equal(t, uint32(8), summaries[0].SampleCount, "Sample counts should be summed")
 	assert.NotEmpty(t, summaries[0].StackHash)
 	assert.NotEmpty(t, summaries[0].StackFrameIDs)
+	assert.Equal(t, uint32(42), summaries[0].TGID, "TGID should be preserved")
+
+	// The same stack in another process must not be merged.
+	samples = append(samples, &agentv1.CPUProfileSample{
+		Timestamp:   timestamppb.New(now),
+		BuildId:     "build-1",
+		Tgid:        43,
+		StackFrames: []string{"main.go:10", "handler.go:20"},
+		SampleCount: 2,
+		ServiceName: "api-service",
+	})
+	summaries = aggregateCPUProfileSamples(ctx, svc.db, svc.logger, "agent-1", samples)
+	require.Len(t, summaries, 2, "Different TGIDs should not be merged")
 }
 
 func TestAggregateMemoryProfileForRecovery(t *testing.T) {
@@ -245,7 +296,7 @@ func TestAggregateMemoryProfileForRecovery(t *testing.T) {
 		},
 	}
 
-	summaries := svc.aggregateMemoryProfileForRecovery(ctx, "agent-1", samples)
+	summaries := aggregateMemoryProfileSamples(ctx, svc.db, svc.logger, "agent-1", samples)
 	require.Len(t, summaries, 1, "Same stack should be merged")
 	assert.Equal(t, "agent-1", summaries[0].AgentID)
 	assert.Equal(t, int64(3072), summaries[0].AllocBytes, "Alloc bytes should be summed")

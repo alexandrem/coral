@@ -101,7 +101,7 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 		}
 
 		// Aggregate samples into 1-minute buckets.
-		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
+		summaries := aggregateCPUProfileSamples(ctx, p.db, p.logger, agent.AgentID, samples)
 		allSummaries = append(allSummaries, summaries...)
 
 		// Track checkpoint for commit after storage.
@@ -225,9 +225,13 @@ func (p *CPUProfilePoller) pollAgent(ctx context.Context, agent *registry.Entry)
 	return resp.Msg.Samples, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
-// aggregateSamples aggregates CPU profile samples into 1-minute buckets.
+// aggregateCPUProfileSamples aggregates CPU profile samples into 1-minute buckets.
 // Samples with the same stack (within the same minute bucket) are merged by summing sample counts.
-func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
+// It is shared by CPUProfilePoller and GapRecoveryService.
+func aggregateCPUProfileSamples(
+	ctx context.Context,
+	db *database.Database,
+	logger zerolog.Logger,
 	agentID string,
 	samples []*agentv1.CPUProfileSample,
 ) []database.CPUProfileSummary {
@@ -256,9 +260,9 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 		bucketTime := sample.Timestamp.AsTime().Truncate(time.Minute)
 
 		// Encode stack frames to integer IDs using colony's frame dictionary.
-		frameIDs, err := p.db.EncodeStackFrames(ctx, sample.StackFrames)
+		frameIDs, err := db.EncodeStackFrames(ctx, sample.StackFrames)
 		if err != nil {
-			p.logger.Warn().
+			logger.Warn().
 				Err(err).
 				Int("stack_depth", len(sample.StackFrames)).
 				Msg("Failed to encode stack frames, skipping sample")
