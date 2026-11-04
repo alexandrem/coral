@@ -8,15 +8,19 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
+	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/constants"
 )
 
@@ -192,6 +196,166 @@ func TestCheckpointPolling_SessionReset(t *testing.T) {
 	require.NotNil(t, cp3)
 	assert.Equal(t, newSessionID, cp3.SessionID)
 	assert.Equal(t, maxSeqID, cp3.LastSeqID)
+}
+
+// stubSystemMetricsAgent serves QuerySystemMetrics from a fixed record set
+// and records the start seq_id of each query. Other methods are not
+// implemented.
+type stubSystemMetricsAgent struct {
+	agentv1connect.AgentServiceClient
+	sessionID string
+	metrics   []*agentv1.SystemMetric
+	starts    []uint64
+}
+
+func (s *stubSystemMetricsAgent) QuerySystemMetrics(
+	_ context.Context,
+	req *connect.Request[agentv1.QuerySystemMetricsRequest],
+) (*connect.Response[agentv1.QuerySystemMetricsResponse], error) {
+	s.starts = append(s.starts, req.Msg.StartSeqId)
+	resp := &agentv1.QuerySystemMetricsResponse{SessionId: s.sessionID}
+	for _, m := range s.metrics {
+		if m.SeqId > req.Msg.StartSeqId {
+			resp.Metrics = append(resp.Metrics, m)
+			resp.MaxSeqId = m.SeqId
+		}
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// stubCPUProfileAgent serves QueryCPUProfileSamples from a fixed sample set
+// and records the start seq_id of each query.
+type stubCPUProfileAgent struct {
+	agentv1connect.AgentDebugServiceClient
+	sessionID string
+	samples   []*agentv1.CPUProfileSample
+	starts    []uint64
+}
+
+func (s *stubCPUProfileAgent) QueryCPUProfileSamples(
+	_ context.Context,
+	req *connect.Request[agentv1.QueryCPUProfileSamplesRequest],
+) (*connect.Response[agentv1.QueryCPUProfileSamplesResponse], error) {
+	s.starts = append(s.starts, req.Msg.StartSeqId)
+	resp := &agentv1.QueryCPUProfileSamplesResponse{SessionId: s.sessionID}
+	for _, sample := range s.samples {
+		if sample.SeqId > req.Msg.StartSeqId {
+			resp.Samples = append(resp.Samples, sample)
+			resp.MaxSeqId = sample.SeqId
+		}
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// systemMetricsAt returns one metric per seq_id, all at ts.
+func systemMetricsAt(ts time.Time, seqIDs ...uint64) []*agentv1.SystemMetric {
+	metrics := make([]*agentv1.SystemMetric, 0, len(seqIDs))
+	for _, id := range seqIDs {
+		metrics = append(metrics, &agentv1.SystemMetric{
+			Name: "cpu_usage", Value: 1, MetricType: "gauge",
+			Timestamp: ts.UnixMilli(), Attributes: "{}", SeqId: id,
+		})
+	}
+	return metrics
+}
+
+// TestSystemMetricsPoller_SessionResetDetectsGaps verifies that after an agent
+// session change, gaps are detected relative to the re-query (seq_id 0), not
+// the stale checkpoint. With the stale checkpoint (500) every new seq_id is
+// below it, so the gap was silently missed.
+func TestSystemMetricsPoller_SessionResetDetectsGaps(t *testing.T) {
+	ctx := context.Background()
+	db := setupGapRecoveryTestDB(t)
+	agent := &registry.Entry{AgentID: "agent-1"}
+	require.NoError(t, db.UpdatePollingCheckpoint(ctx, agent.AgentID, systemMetricsDataType, "session-old", 500))
+
+	old := time.Now().Add(-5 * time.Minute).Truncate(time.Minute)
+	stub := &stubSystemMetricsAgent{
+		sessionID: "session-new",
+		metrics:   systemMetricsAt(old, 1, 2, 5, 6), // 3–4 missing.
+	}
+	p := NewSystemMetricsPoller(ctx, registry.New(nil), db, time.Minute, 0, zerolog.Nop())
+	p.clientFactory = func(*registry.Entry) agentv1connect.AgentServiceClient { return stub }
+
+	cutoff := time.Now().Truncate(time.Minute)
+	metrics, sessionID, maxSeqID, err := p.pollAgent(ctx, agent, cutoff)
+	require.NoError(t, err)
+
+	assert.Equal(t, []uint64{500, 0}, stub.starts, "should re-query from 0 after session change")
+	assert.Len(t, metrics, 4)
+	assert.Equal(t, "session-new", sessionID)
+	assert.Equal(t, uint64(6), maxSeqID)
+
+	gaps, err := db.GetPendingSequenceGaps(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, gaps, 1)
+	assert.Equal(t, uint64(3), gaps[0].StartSeqID)
+	assert.Equal(t, uint64(4), gaps[0].EndSeqID)
+}
+
+// TestSystemMetricsPoller_HoldsBackIncompleteMinute verifies that pollAgent
+// returns only complete minutes, sets max_seq_id to the last returned record,
+// and does not report gaps in the held-back records (they are fetched again).
+func TestSystemMetricsPoller_HoldsBackIncompleteMinute(t *testing.T) {
+	ctx := context.Background()
+	db := setupGapRecoveryTestDB(t)
+	agent := &registry.Entry{AgentID: "agent-1"}
+
+	cutoff := time.Now().Add(-time.Hour).Truncate(time.Minute)
+	var all []*agentv1.SystemMetric
+	all = append(all, systemMetricsAt(cutoff.Add(-2*time.Minute), 1, 2)...)
+	all = append(all, systemMetricsAt(cutoff.Add(-time.Minute), 3, 4)...)
+	all = append(all, systemMetricsAt(cutoff, 5, 8)...) // Incomplete minute, with a gap (6–7).
+
+	stub := &stubSystemMetricsAgent{sessionID: "session-1", metrics: all}
+	p := NewSystemMetricsPoller(ctx, registry.New(nil), db, time.Minute, 0, zerolog.Nop())
+	p.clientFactory = func(*registry.Entry) agentv1connect.AgentServiceClient { return stub }
+
+	metrics, _, maxSeqID, err := p.pollAgent(ctx, agent, cutoff)
+	require.NoError(t, err)
+	assert.Len(t, metrics, 4, "only the two complete minutes")
+	assert.Equal(t, uint64(4), maxSeqID, "checkpoint must not pass held-back records")
+
+	gaps, err := db.GetPendingSequenceGaps(ctx, 10)
+	require.NoError(t, err)
+	assert.Empty(t, gaps, "gaps in held-back records must not be reported yet")
+
+	// Only the incomplete minute: nothing is returned and the checkpoint stays.
+	stub.metrics = all[4:]
+	metrics, _, maxSeqID, err = p.pollAgent(ctx, agent, cutoff)
+	require.NoError(t, err)
+	assert.Empty(t, metrics)
+	assert.Zero(t, maxSeqID)
+}
+
+// TestCPUProfilePoller_SessionResetDetectsGaps is the CPU profile counterpart
+// of TestSystemMetricsPoller_SessionResetDetectsGaps.
+func TestCPUProfilePoller_SessionResetDetectsGaps(t *testing.T) {
+	ctx := context.Background()
+	db := setupGapRecoveryTestDB(t)
+	agent := &registry.Entry{AgentID: "agent-1"}
+	require.NoError(t, db.UpdatePollingCheckpoint(ctx, agent.AgentID, cpuProfileDataType, "session-old", 500))
+
+	old := timestamppb.New(time.Now().Add(-5 * time.Minute))
+	stub := &stubCPUProfileAgent{sessionID: "session-new"}
+	for _, id := range []uint64{1, 2, 5} { // 3–4 missing.
+		stub.samples = append(stub.samples, &agentv1.CPUProfileSample{Timestamp: old, SeqId: id})
+	}
+	p := NewCPUProfilePoller(ctx, registry.New(nil), db, time.Minute, 0, zerolog.Nop())
+	p.clientFactory = func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
+		return stub
+	}
+
+	samples, _, _, err := p.pollAgent(ctx, agent)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{500, 0}, stub.starts, "should re-query from 0 after session change")
+	assert.Len(t, samples, 3)
+
+	gaps, err := db.GetPendingSequenceGaps(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, gaps, 1)
+	assert.Equal(t, uint64(3), gaps[0].StartSeqID)
+	assert.Equal(t, uint64(4), gaps[0].EndSeqID)
 }
 
 // TestCheckpointPolling_GapDetection tests that gaps in seq_ids are detected and recorded.

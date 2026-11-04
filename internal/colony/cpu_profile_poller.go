@@ -212,7 +212,7 @@ func (p *CPUProfilePoller) pollAgent(ctx context.Context, agent *registry.Entry)
 				timestamps[i] = s.Timestamp.AsTime().UnixMilli()
 			}
 		}
-		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().
 				Str("agent", agent.AgentID).
 				Uint64("gap_start", gap.StartSeqID).

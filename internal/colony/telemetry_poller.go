@@ -200,7 +200,7 @@ func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) 
 			seqIDs[i] = span.SeqId
 			timestamps[i] = span.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().
 				Str("agent", agent.AgentID).
 				Uint64("gap_start", gap.StartSeqID).

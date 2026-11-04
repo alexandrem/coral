@@ -257,7 +257,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = m.SeqId
 			timestamps[i] = m.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(httpSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.HttpStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla HTTP sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaHTTPDataType, gap.StartSeqID, gap.EndSeqID)
 		}
@@ -280,7 +280,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = m.SeqId
 			timestamps[i] = m.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(grpcSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.GrpcStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla gRPC sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaGRPCDataType, gap.StartSeqID, gap.EndSeqID)
 		}
@@ -303,7 +303,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = m.SeqId
 			timestamps[i] = m.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(sqlSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.SqlStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla SQL sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaSQLDataType, gap.StartSeqID, gap.EndSeqID)
 		}
@@ -326,7 +326,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = s.SeqId
 			timestamps[i] = s.StartTime
 		}
-		for _, gap := range poller.DetectGaps(tracesSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.TracesStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla traces sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaTracesDataType, gap.StartSeqID, gap.EndSeqID)
 		}

@@ -211,6 +211,10 @@ type Gap struct {
 // that commit out of order, gaps are only reported if the record after the gap has a
 // timestamp older than the grace period (10 seconds).
 //
+// lastCheckpointSeqID must be the start seq_id of the query that returned the
+// records, not the stored checkpoint: they differ after a session reset, where
+// the query restarts from 0. A higher, stale value hides every gap below it.
+//
 // seqIDs must be sorted in ascending order (as returned by ORDER BY seq_id ASC).
 // timestampsMs are the corresponding timestamps in Unix milliseconds, aligned by index.
 func DetectGaps(lastCheckpointSeqID uint64, seqIDs []uint64, timestampsMs []int64) []Gap {

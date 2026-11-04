@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -33,6 +34,7 @@ type SystemMetricsPoller struct {
 	pollInterval  time.Duration
 	retentionDays int // How long to keep system metrics summaries (default: 30 days).
 	logger        zerolog.Logger
+	clientFactory func(agent *registry.Entry) agentv1connect.AgentServiceClient
 }
 
 // NewSystemMetricsPoller creates a new system metrics poller.
@@ -64,6 +66,7 @@ func NewSystemMetricsPoller(
 		pollInterval:  pollInterval,
 		retentionDays: retentionDays,
 		logger:        componentLogger,
+		clientFactory: GetAgentClient,
 	}
 }
 
@@ -171,7 +174,7 @@ func (p *SystemMetricsPoller) pollAgent(
 	}
 
 	// Query agent with sequence-based request.
-	client := GetAgentClient(agent)
+	client := p.clientFactory(agent)
 	req := connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
 		StartSeqId:  startSeqID,
 		MaxRecords:  int32(constants.DefaultColonyQueryMaxRecords),
@@ -224,7 +227,7 @@ func (p *SystemMetricsPoller) pollAgent(
 		seqIDs[i] = m.SeqId
 		timestamps[i] = m.Timestamp
 	}
-	for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+	for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
 		p.logger.Warn().
 			Str("agent", agent.AgentID).
 			Uint64("gap_start", gap.StartSeqID).
