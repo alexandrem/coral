@@ -3,7 +3,6 @@
 package ebpf
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -32,6 +31,24 @@ type uprobeEvent struct {
 	EventType   uint8
 	_           [7]byte // padding
 	DurationNs  uint64
+}
+
+// uprobeEventSize is the size in bytes of the C struct uprobe_event.
+const uprobeEventSize = 32
+
+// decodeUprobeEvent decodes a little-endian uprobe_event record without
+// reflection or allocation. Offsets mirror the C struct layout in
+// bpf/uprobe.c (padding bytes 17..23 are skipped).
+func decodeUprobeEvent(data []byte, ev *uprobeEvent) error {
+	if len(data) < uprobeEventSize {
+		return fmt.Errorf("uprobe event too short: got %d bytes, want %d", len(data), uprobeEventSize)
+	}
+	ev.TimestampNs = binary.LittleEndian.Uint64(data[0:8])
+	ev.Pid = binary.LittleEndian.Uint32(data[8:12])
+	ev.Tid = binary.LittleEndian.Uint32(data[12:16])
+	ev.EventType = data[16]
+	ev.DurationNs = binary.LittleEndian.Uint64(data[24:32])
+	return nil
 }
 
 // uprobeFilterConfig matches the C struct filter_config in bpf/uprobe.c (RFD 090).
@@ -300,6 +317,13 @@ func (c *UprobeCollector) readEvents() {
 		Str("service", c.config.ServiceName).
 		Msg("Event reader goroutine started, waiting for events...")
 
+	// Reuse the record and its sample buffer across reads to avoid a
+	// per-event allocation on the hot path.
+	var (
+		record   ringbuf.Record
+		rawEvent uprobeEvent
+	)
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -312,8 +336,7 @@ func (c *UprobeCollector) readEvents() {
 		// This allows us to periodically log that we're still waiting
 		c.reader.SetDeadline(time.Now().Add(5 * time.Second))
 
-		record, err := c.reader.Read()
-		if err != nil {
+		if err := c.reader.ReadInto(&record); err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				c.logger.Info().Msg("Ring buffer closed, exiting event reader")
 				return
@@ -331,9 +354,8 @@ func (c *UprobeCollector) readEvents() {
 			Int("size", len(record.RawSample)).
 			Msg("✓ Read record from ring buffer")
 
-		// Parse event from raw bytes
-		var rawEvent uprobeEvent
-		if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &rawEvent); err != nil {
+		// Parse event from raw bytes.
+		if err := decodeUprobeEvent(record.RawSample, &rawEvent); err != nil {
 			c.logger.Error().Err(err).Msg("Failed to parse event")
 			continue
 		}
