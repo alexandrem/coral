@@ -27,17 +27,32 @@ Implementation: [shell handler](../../internal/agent/shell_handler.go),
 ## Container process selection
 
 `coral exec SERVICE ...` resolves the service or an explicit agent ID to an
-agent endpoint, then calls `ContainerExec`. The handler scans visible numeric
-`/proc` entries, excludes its own PID, and selects the lowest remaining positive
-PID. PID 1 is a valid candidate. This heuristic fits a shared-PID sidecar in
-which the application starts before the agent.
+agent endpoint, then calls `ContainerExec`. The request's `container_name`
+field carries the `--container` selector. The handler scans visible numeric
+`/proc` entries and excludes its own PID. Selector forms are explicit:
 
-The heuristic is not a runtime-backed container lookup. Although the request
-and CLI accept a container name, `detectContainerPID` currently does not use it
-to filter candidates. On a host with multiple visible applications, a service
-name or `--container` argument therefore does not prove that the chosen PID
-belongs to the intended container. This limitation belongs to target selection,
-independently of whether namespace entry succeeds.
+| Selector | Resolution |
+|----------|------------|
+| Bare value, such as `nginx` | Exact, case-sensitive match against `/proc/<pid>/comm`; hex-looking values remain process names |
+| `id:3f1c9a7e2b4d` | Container ID prefix of any non-empty length, matched against 64-hex IDs in `/proc/<pid>/cgroup` |
+| `pid:4242` | That positive PID in the agent's PID namespace |
+| Empty | Lowest visible positive PID other than the agent in sidecar mode; rejected in the host PID namespace |
+
+Name matches are grouped by mount namespace, and ID matches by container ID.
+Matches spanning multiple containers fail as ambiguous; no matches fail as
+not found. A unique container yields its lowest matching PID. This lookup
+uses procfs rather than runtime APIs: process names are not Docker or
+Kubernetes container names, and service resolution does not select a process.
+
+The handler recognizes the host PID namespace when PID 2 is `kthreadd` and
+reads host init's mount namespace. In that mode it requires an explicit
+selector and rejects processes sharing host init's mount namespace for every
+selector form. Unreadable mount namespaces cannot be selected there either.
+
+An empty selector can select PID 1 in a sidecar. For Docker shared-PID
+sidecars this is typically the application; for Kubernetes
+`shareProcessNamespace` pods it can be `pause`. Use an explicit selector when
+the lowest PID is not the intended application.
 
 Implementation: [container handler](../../internal/agent/container_handler.go)
 and [CLI exec](../../internal/cli/agent/exec.go).

@@ -771,7 +771,8 @@ coral exec <service> <command> [args...] [flags]
 #   --agent-addr <address>          Target specific agent by address
 #   --colony <colony-id>            Colony ID (default: auto-detect)
 #   --user-id <user>                User ID for audit (default: $USER)
-#   --container <name>              Container name (multi-container pods)
+#   --container <selector>          Process name, id:<ID prefix>, or pid:<n>
+#                                   Required in the host PID namespace
 #   --timeout <seconds>             Timeout in seconds (max 300, default: 30)
 #   --working-dir <path>            Working directory in container
 #   --env <KEY=VALUE>               Environment variables (repeatable)
@@ -790,11 +791,29 @@ coral exec api --env DEBUG=true env
 coral exec nginx --namespaces mnt,pid ps aux
 coral exec logs-processor --timeout 60 -- find /data -name "*.log"
 coral exec web --container nginx cat /etc/nginx/nginx.conf
+coral exec web --container id:3f1c9a7e2b4d cat /etc/nginx/nginx.conf
+coral exec web --container pid:4242 cat /etc/nginx/nginx.conf
 
 # Key differences:
 #   coral shell    → Runs on AGENT HOST (agent's environment)
 #   coral exec     → Runs in SERVICE CONTAINER (via nsenter)
 ```
+
+`--container` uses explicit selector forms:
+
+| Value | Meaning |
+|-------|---------|
+| `nginx` | Exact, case-sensitive process name (`/proc/<pid>/comm`), not a runtime container name; hex-looking values are still names |
+| `id:3f1c9a7e2b4d` | Container ID prefix of any non-empty length from `/proc/<pid>/cgroup` |
+| `pid:4242` | Positive PID as seen by the agent |
+| Omitted or empty | Lowest visible positive PID excluding the agent in sidecar mode; refused in host mode |
+
+The service argument resolves an agent separately from container selection.
+Name and ID matches must identify a single container; ambiguous matches fail.
+Use a longer ID prefix or an explicit PID to disambiguate. Host processes
+sharing host init's mount namespace are refused for all selector forms.
+In Kubernetes shared-PID pods, the lowest PID may be `pause`; select the
+application explicitly. See [Container Selection](CLI.md#container-selection).
 
 ---
 

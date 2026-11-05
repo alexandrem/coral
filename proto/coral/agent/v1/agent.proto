@@ -800,7 +800,11 @@ message ShellExecResponse {
 // ContainerExec RPC messages (RFD 056 - container namespace execution).
 
 message ContainerExecRequest {
-  // Container name (optional in sidecar mode - defaults to main container).
+  // Container selector: exact, case-sensitive process name (even if hex-looking),
+  // id:<hex prefix> of any non-empty length, or pid:<positive PID visible to agent>.
+  // Name and ID matches must identify a single container.
+  // Empty selects the lowest visible PID excluding the agent in sidecar mode;
+  // rejected in the host PID namespace.
   string container_name = 1;
 
   // Command as array (no shell interpretation).

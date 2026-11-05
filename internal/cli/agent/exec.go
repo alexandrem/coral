@@ -46,6 +46,16 @@ Use coral exec to access files that only exist in the container's view:
 
 All executions are fully audited with session IDs.
 
+Container selection (--container):
+  nginx             Exact, case-sensitive process name; hex-looking values are names
+  id:3f1c9a7e2b4d   Container ID prefix of any non-empty length
+  pid:4242          Positive PID as seen by the agent
+  omitted or empty  Lowest visible PID excluding the agent in sidecar mode;
+                    refused in the host PID namespace
+
+Name and ID matches must identify a single container; ambiguous matches fail.
+In Kubernetes shared-PID pods, the lowest PID may be pause; select the app explicitly.
+
 Examples:
   # Read nginx config from service container
   coral exec nginx cat /etc/nginx/nginx.conf
@@ -56,8 +66,11 @@ Examples:
   # Check processes in service container (with pid namespace)
   coral exec nginx --namespaces mnt,pid ps aux
 
-  # Execute in specific container (multi-container pods)
+  # Execute in a specific container (required when the agent uses hostPID):
+  # by process name, container ID prefix, or PID
   coral exec web --container nginx cat /etc/nginx/nginx.conf
+  coral exec web --container id:3f1c9a7e2b4d cat /etc/nginx/nginx.conf
+  coral exec web --container pid:4242 cat /etc/nginx/nginx.conf
 
   # Target specific agent running the service
   coral exec nginx --agent hostname-api-1 cat /app/config.yaml
@@ -123,7 +136,7 @@ Requirements:
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
 	cmd.Flags().StringVar(&colony, "colony", "", "Colony ID (default: auto-detect)")
 	cmd.Flags().StringVar(&userID, "user-id", "", "User ID for audit (default: $USER)")
-	cmd.Flags().StringVar(&containerName, "container", "", "Container name (optional in sidecar mode)")
+	cmd.Flags().StringVar(&containerName, "container", "", "Target container: process name, id:<container ID prefix>, or pid:<n>; required with hostPID")
 	cmd.Flags().Uint32Var(&timeout, "timeout", 30, "Timeout in seconds (max 300)")
 	cmd.Flags().StringVar(&workingDir, "working-dir", "", "Working directory in container")
 	cmd.Flags().StringArrayVar(&env, "env", nil, "Environment variables (KEY=VALUE)")
