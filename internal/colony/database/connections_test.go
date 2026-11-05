@@ -1,7 +1,10 @@
 package database
 
 import (
+	"bytes"
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -403,9 +406,7 @@ func TestGetServiceConnections_StaleCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// Manually expire the cache timestamp.
-	db.connectionsMu.Lock()
-	db.connectionsLastMaterialized = time.Time{}
-	db.connectionsMu.Unlock()
+	db.connectionsLastMaterialized.Store(0)
 
 	// Insert another edge — now that cache is expired, it should be picked up.
 	insertCrossServiceSpan(t, db,
@@ -419,4 +420,62 @@ func TestGetServiceConnections_StaleCache(t *testing.T) {
 	conns, err := db.GetServiceConnections(ctx, since)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(conns), 2, "Expired cache should re-materialize and include new edge")
+}
+
+func TestGetServiceConnections_ConcurrentStaleCallersMaterializeOnce(t *testing.T) {
+	var logs bytes.Buffer
+	db, err := New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.New(zerolog.SyncWriter(&logs)))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000060",
+		"parentspan000060",
+		"childspan0000060",
+		"herd-a", "herd-b",
+		0,
+	)
+
+	// Release all callers at once against a cold cache.
+	const callers = 16
+	since := time.Now().Add(-time.Hour)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, callers)
+	for i := range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = db.GetServiceConnections(context.Background(), since)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 1, strings.Count(logs.String(), "Materialization complete"),
+		"Concurrent callers on a stale cache must share a single materialization")
+}
+
+func TestGetServiceConnections_CancelledCallerDoesNotAbortRefresh(t *testing.T) {
+	db, cleanup := newTestDatabase(t)
+	defer cleanup()
+
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000070",
+		"parentspan000070",
+		"childspan0000070",
+		"cancel-a", "cancel-b",
+		0,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = db.GetServiceConnections(ctx, time.Now().Add(-time.Hour))
+
+	require.Eventually(t, func() bool { return !db.connectionsStale() }, 10*time.Second, 10*time.Millisecond,
+		"A refresh started by a cancelled caller must still complete")
 }

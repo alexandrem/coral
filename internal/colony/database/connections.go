@@ -165,22 +165,15 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	return nil
 }
 
+// connectionsRefreshTimeout bounds a shared connection materialization run, which
+// is detached from the cancellation of the request that started it.
+const connectionsRefreshTimeout = 30 * time.Second
+
 // GetServiceConnections returns materialized service connections, re-deriving them
 // from trace data when the cached data is stale (TTL 30 s) (RFD 092).
 func (d *Database) GetServiceConnections(ctx context.Context, since time.Time) ([]*ServiceConnection, error) {
-	d.connectionsMu.Lock()
-	needsMaterialization := time.Since(d.connectionsLastMaterialized) >= d.connectionsCacheTTL
-	d.connectionsMu.Unlock()
-
-	if needsMaterialization {
-		// MaterializeConnections will handle its own locking.
-		if err := d.MaterializeConnections(ctx, since); err != nil {
-			d.logger.Warn().Err(err).Msg("Failed to materialize service connections, serving stale data")
-		} else {
-			d.connectionsMu.Lock()
-			d.connectionsLastMaterialized = time.Now()
-			d.connectionsMu.Unlock()
-		}
+	if d.connectionsStale() {
+		d.refreshConnections(ctx, since)
 	}
 
 	const query = `
@@ -215,4 +208,43 @@ func (d *Database) GetServiceConnections(ctx context.Context, since time.Time) (
 	}
 
 	return results, nil
+}
+
+// connectionsStale reports whether the materialized connections are older than
+// the cache TTL.
+func (d *Database) connectionsStale() bool {
+	last := time.Unix(0, d.connectionsLastMaterialized.Load())
+	return time.Since(last) >= d.connectionsCacheTTL
+}
+
+// refreshConnections re-materializes service connections. Concurrent callers
+// share a single run, which uses the since of the caller that started it. The
+// run is detached from ctx so that one cancelled caller does not abort work the
+// others are waiting on; ctx only bounds how long this caller waits. Failures
+// are logged and callers fall back to the previously materialized data.
+func (d *Database) refreshConnections(ctx context.Context, since time.Time) {
+	ch := d.connectionsFlight.DoChan("materialize", func() (any, error) {
+		// A run may have completed between the caller's staleness check and
+		// joining the flight.
+		if !d.connectionsStale() {
+			return nil, nil
+		}
+
+		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), connectionsRefreshTimeout)
+		defer cancel()
+
+		if err := d.MaterializeConnections(runCtx, since); err != nil {
+			return nil, err
+		}
+		d.connectionsLastMaterialized.Store(time.Now().UnixNano())
+		return nil, nil
+	})
+
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			d.logger.Warn().Err(res.Err).Msg("Failed to materialize service connections, serving stale data")
+		}
+	case <-ctx.Done():
+	}
 }
