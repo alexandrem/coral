@@ -2205,7 +2205,8 @@ configs, and volumes that are not visible from the agent's host filesystem.
   in the container
 - **Namespace isolation** - Enter mount, PID, network, and other Linux
   namespaces
-- **Service-based targeting** - Execute by service name, not container ID
+- **Service-based routing** - Resolve the service to an agent, then select the
+  container process with `--container`
 - **Multi-deployment support** - Works with docker-compose sidecars, Kubernetes
   sidecars, and DaemonSets
 - **Audit logging** - All executions are recorded with session IDs
@@ -2221,6 +2222,10 @@ configs, and volumes that are not visible from the agent's host filesystem.
 All executions are fully audited and recorded.
 
 ### Basic Usage
+
+Examples without `--container` assume sidecar mode and use the lowest visible
+PID excluding the agent. In host PID mode, supply an explicit
+[container selector](#container-selection).
 
 **Execute in service container:**
 
@@ -2384,14 +2389,37 @@ coral exec app --working-dir /app pwd
 coral exec api-server test -r /app/config.yaml && echo "readable"
 ```
 
-#### Multi-Container Pods
+#### Container Selection
 
-**Execute in specific container:**
+The service name selects an agent; it does not select a container process.
+`--container` accepts three explicit forms, without guessing between them:
+
+| Value | Meaning |
+|-------|---------|
+| `nginx` | Exact, case-sensitive process name from `/proc/<pid>/comm`; a hex-looking bare value is still a name |
+| `id:3f1c9a7e2b4d` | Container ID prefix of any non-empty length, matched against `/proc/<pid>/cgroup` |
+| `pid:4242` | A positive PID as seen in the agent's PID namespace |
+| Omitted or empty | Lowest visible positive PID other than the agent itself in sidecar mode; refused in the host PID namespace |
+
+Process names are not Docker container names or Kubernetes container/pod names.
+Name and ID selectors must match a single container; ambiguous matches fail.
+Within that container, the lowest matching PID is selected. Use a longer ID
+prefix or an explicit PID to disambiguate.
+
+**Execute in a specific container:**
 
 ```bash
 coral exec web --container nginx cat /etc/nginx/nginx.conf
-coral exec web --container app cat /app/config.yaml
+coral exec web --container id:3f1c9a7e2b4d cat /app/config.yaml
+coral exec web --container pid:4242 cat /app/config.yaml
 ```
+
+An explicit selector is required with `hostPID: true` or when the agent runs
+in the host PID namespace. Processes sharing host init's mount namespace are
+refused for every selector form, including `pid:1`.
+
+In Kubernetes pods with `shareProcessNamespace: true`, the lowest PID can be
+the `pause` container. Pass an explicit selector to target the application.
 
 ---
 
@@ -2513,6 +2541,22 @@ coral shell --agent api-1
 - Check that application container is running
 - For DaemonSet mode, ensure `hostPID: true` is set
 - Use verbose mode to debug: `CORAL_VERBOSE=1 coral exec ...`
+
+#### "container selector required"
+
+The agent shares the host PID namespace. Supply `--container nginx`,
+`--container id:3f1c9a7e2b4d`, or `--container pid:4242` to select a container
+explicitly.
+
+#### Container selector "not found" or "ambiguous"
+
+- A bare value matches the exact, case-sensitive process name, not a runtime
+  container name. Add `id:` when selecting by container ID, even for a full ID.
+- Check that the target process is running and visible to the agent.
+- If multiple containers match a name or ID prefix, use a longer `id:` prefix
+  or `pid:<n>` using the PID visible to the agent.
+- Host processes sharing host init's mount namespace cannot be selected for
+  container execution.
 
 #### "timeout exceeded"
 

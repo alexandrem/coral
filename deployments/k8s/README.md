@@ -90,6 +90,30 @@ spec:
                 - SYS_RESOURCE     # For eBPF memlock
 ```
 
+### Container Selection for `coral exec`
+
+DaemonSet agents using `hostPID: true` require an explicit `--container`
+selector. The service argument resolves the agent separately from selecting
+the container process:
+
+```bash
+coral exec web --container nginx cat /etc/nginx/nginx.conf
+coral exec web --container id:3f1c9a7e2b4d cat /etc/nginx/nginx.conf
+coral exec web --container pid:4242 cat /etc/nginx/nginx.conf
+```
+
+A bare value is an exact, case-sensitive process name, not a Kubernetes
+container or pod name; hex-looking values remain process names. `id:` selects
+a container ID prefix of any non-empty length, and `pid:` selects a positive
+PID as seen by the agent. Name and ID matches spanning multiple containers
+fail as ambiguous. Host processes sharing host init's mount namespace are
+refused for every selector form.
+
+In sidecar mode, omitting `--container` selects the lowest visible positive
+PID excluding the agent. In Kubernetes pods with `shareProcessNamespace: true`,
+this may be the `pause` container, so select the application explicitly.
+See [Container Selection](../../docs/CLI.md#container-selection) for details.
+
 ### Port Configuration
 
 The Coral agent exposes the following ports which should be configured in your Pod/DaemonSet specs:

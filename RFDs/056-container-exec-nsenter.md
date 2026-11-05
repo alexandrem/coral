@@ -141,7 +141,7 @@ Claude Desktop
 3. **Protocol** (`proto/coral/agent/v1/`):
     - New RPC:
       `rpc ContainerExec(ContainerExecRequest) returns (ContainerExecResponse)`
-    - Request: command array, optional container name, timeout, working dir
+    - Request: command array, container selector (required in host PID mode), timeout, working dir
     - Response: stdout, stderr, exit code, container PID, namespaces entered
 
 **Configuration Examples:**
@@ -251,7 +251,7 @@ spec:
 ### Phase 2: Agent Implementation ✅
 
 - [x] Implement container exec RPC handler on agent
-- [x] Automatic container PID detection via /proc scanning
+- [x] Container PID selection via /proc scanning with explicit selectors
 - [x] Build and execute nsenter commands with proper namespace flags
 - [x] Capture stdout, stderr, exit codes, and execution duration
 - [x] Timeout enforcement and error handling
@@ -279,7 +279,9 @@ spec:
 ```protobuf
 // ContainerExecRequest executes command in container's namespace.
 message ContainerExecRequest {
-    // Container name (optional in sidecar mode - defaults to main container).
+    // Container selector: exact process name, id:<hex prefix>, or pid:<n>.
+    // Empty selects the lowest visible PID excluding the agent in sidecar mode;
+    // rejected in the host PID namespace.
     string container_name = 1;
 
     // Command as array (no shell interpretation).
@@ -536,10 +538,11 @@ Follow same rules as RFD 045 (ShellExec):
 
 **Advanced Container Detection** (RFD TBD):
 
-- Parse cgroup paths to identify specific containers
 - Use container labels/environment variables for validation
-- Support explicit PID override parameter
-- Handle multi-container sidecars (select by name)
+- Resolve runtime container names and Kubernetes pod/container metadata
+
+Explicit process-name, container-ID-prefix, and PID selection are implemented;
+see [Container PID Detection Algorithm](#container-pid-detection-algorithm).
 
 **UID/GID Preservation** (Low Priority):
 
@@ -597,12 +600,13 @@ implementation that works across multiple deployment modes.
 
 - Execute commands in container's mount namespace
 - Access container-mounted configs, logs, volumes
-- Automatic container PID detection via /proc scanning
+- Explicit process-name, container-ID-prefix, or PID selection via /proc
+- Lowest-PID fallback when the selector is empty in sidecar mode
 - Works in sidecar mode (shared PID namespace)
-- Works in node agent mode (hostPID: true)
+- Works in node agent mode (hostPID: true) with an explicit container selector
 - MCP tool integration for Claude Desktop (`coral_container_exec`)
 - CLI tool for ad-hoc debugging (`coral exec SERVICE`)
-- Service-centric targeting (by service name, not container ID)
+- Service-based agent routing, with container-process selection at the agent
 - Command output formatting with stdout/stderr separation
 - Exit code reporting and error handling
 
@@ -633,6 +637,11 @@ coral exec nginx --namespaces mnt,pid ps aux
 # Target specific agent
 coral exec nginx --agent hostname-api-1 cat /app/config.yaml
 
+# Select a container explicitly (required in host PID mode)
+coral exec web --container nginx cat /etc/nginx/nginx.conf
+coral exec web --container id:3f1c9a7e2b4d cat /etc/nginx/nginx.conf
+coral exec web --container pid:4242 cat /etc/nginx/nginx.conf
+
 # Custom timeout and working directory
 coral exec app --timeout 60 --working-dir /app find . -name "*.log"
 
@@ -662,31 +671,26 @@ The CLI tool:
 - CAP_SYS_ADMIN and CAP_SYS_PTRACE capabilities
 - nsenter binary in agent container
 
+An empty selector uses the lowest visible positive PID excluding the agent.
+In Kubernetes shared-PID pods this can be `pause`; select the application
+explicitly with `--container`.
+
 **For node agents** (K8s DaemonSet):
 
 - `hostPID: true` to see all node processes
+- Explicit `--container` selector (process name, `id:<hex prefix>`, or `pid:<n>`)
 - CAP_SYS_ADMIN and CAP_SYS_PTRACE capabilities
 - nsenter binary in agent container
 - Optional: namespace/pod filtering for multi-tenancy
 
 ## Deferred Features
 
-**Multi-Container Support** (Future):
+**Runtime Container Name Resolution** (Future):
 
-Explicit container selection when multiple containers exist:
-
-```json
-{
-    "service": "demo-app",
-    "container_name": "nginx",
-    "command": [
-        "ls",
-        "/app"
-    ]
-}
-```
-
-Requires cgroup parsing to map container names to PIDs.
+The current `container_name` request field accepts an explicit process-name,
+container-ID-prefix, or PID selector. Mapping Docker or Kubernetes container
+names to PIDs would require runtime or orchestration metadata; cgroup paths
+contain container IDs, not runtime container names.
 
 **Pod/Namespace Filtering for Multi-Tenancy** (Future):
 
@@ -712,65 +716,33 @@ Execute commands as the container's non-root user:
 
 ### Container PID Detection Algorithm
 
-**Basic approach** (works for sidecar mode):
+The `ContainerExecRequest.container_name` field carries the `--container`
+selector. No form is inferred from a bare value:
 
-```go
-// detectContainerPID finds the main container process.
-// Works in:
-// - Docker-compose sidecar: shared PID namespace with app container
-// - K8s sidecar: shareProcessNamespace: true
-// - K8s DaemonSet: hostPID: true (sees all node containers)
-func detectContainerPID() (int, error) {
-    // 1. Scan /proc for numeric directories (PIDs)
-    entries, err := os.ReadDir("/proc")
-    if err != nil {
-        return 0, fmt.Errorf("failed to read /proc: %w", err)
-    }
+| Value | Meaning |
+|-------|---------|
+| `nginx` | Exact, case-sensitive process name from `/proc/<pid>/comm`; a hex-looking bare value is still a name |
+| `id:3f1c9a7e2b4d` | Container ID prefix of any non-empty length, matched against 64-hex IDs in `/proc/<pid>/cgroup` |
+| `pid:4242` | A positive PID as seen in the agent's PID namespace |
+| Empty | Lowest visible positive PID excluding the agent in sidecar mode; refused in the host PID namespace |
 
-    var pids []int
-    for _, entry := range entries {
-        if !entry.IsDir() {
-            continue
-        }
+The handler excludes its own PID from all forms. Name matches are grouped by
+mount namespace; ID matches are grouped by container ID. Matches must resolve
+to one container, whose lowest matching PID is used. Missing or ambiguous
+matches fail instead of selecting an arbitrary container.
 
-        // Parse PID from directory name
-        pid, err := strconv.Atoi(entry.Name())
-        if err != nil {
-            continue // Not a numeric directory
-        }
+When PID 2 is `kthreadd`, the handler recognizes the host PID namespace and
+reads host init's mount namespace. In that mode, an empty selector is refused,
+as are processes sharing host init's mount namespace or whose mount namespace
+cannot be read, regardless of selector form.
 
-        // Skip init (PID 1) and our own process
-        if pid <= 1 || pid == os.Getpid() {
-            continue
-        }
+An empty selector can select PID 1 in sidecar mode. In Kubernetes
+`shareProcessNamespace` pods that can be the `pause` container, so use an
+explicit application selector. Service-to-agent resolution is separate from
+this process selection; runtime container names and pod labels are not
+resolved by this algorithm.
 
-        pids = append(pids, pid)
-    }
-
-    // 2. Sort PIDs (lowest first)
-    sort.Ints(pids)
-
-    if len(pids) == 0 {
-        return 0, errors.New("no container PID found")
-    }
-
-    // 3. Return lowest PID (container starts before agent in sidecar mode)
-    return pids[0], nil
-}
-```
-
-**Enhanced approach** for K8s DaemonSet (multi-container selection):
-
-In DaemonSet mode with `hostPID: true`, you see ALL containers on the node. To
-select a specific container:
-
-1. Parse `/proc/<pid>/cgroup` to extract container ID
-2. Read `/proc/<pid>/cmdline` to identify the process
-3. Match against service name or container name from request
-4. Optionally filter by namespace/pod labels via K8s API
-
-This enables targeting specific containers: "exec into the nginx container in
-the frontend pod".
+Implementation: [container handler](../internal/agent/container_handler.go).
 
 ### nsenter Command Construction
 

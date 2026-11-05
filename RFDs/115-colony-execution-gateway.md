@@ -138,8 +138,12 @@ Pin the selected agent for the operation's lifetime. A registry change or
 disconnect never redirects a running command to another replica.
 
 Selecting an agent hosting a service does not fix container selection inside
-that agent. `ContainerExec` retains the existing `nsenter` behavior and its
-documented PID-selection and `--container` limitations.
+that agent. `ContainerExec` applies the explicit `--container` selector:
+an exact process name, `id:<container ID prefix>`, or `pid:<n>` as seen by the
+agent. An empty selector uses the lowest visible PID excluding the agent in
+sidecar mode and is refused in host PID mode. See
+[container process selection](../docs/architecture/remote-execution.md#container-process-selection)
+for matching and ambiguity rules.
 
 ### Authentication and authorization
 
