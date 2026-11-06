@@ -309,6 +309,18 @@ func (f *ComposeFixture) GetBeylaConfig(ctx context.Context, agentName string) (
 	return string(output), nil
 }
 
+// GetContainerLogs returns the full stdout and stderr log of a compose service
+// container.
+func (f *ComposeFixture) GetContainerLogs(ctx context.Context, serviceName string) (string, error) {
+	containerName := fmt.Sprintf("coral-e2e-%s-1", serviceName)
+	cmd := exec.CommandContext(ctx, "docker", "logs", containerName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to read logs from %s: %w", containerName, err)
+	}
+	return string(output), nil
+}
+
 // ReloadColonyConfig sends SIGHUP to the colony process to reload configuration
 // and API tokens from disk without restarting the container.
 func (f *ComposeFixture) ReloadColonyConfig(ctx context.Context) error {
