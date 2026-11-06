@@ -24,6 +24,9 @@ type BeylaConfig struct {
 		ExcludeServices   []ExcludeService `yaml:"exclude_services,omitempty"`
 		Services          []InstrumentRule `yaml:"services,omitempty"`
 		NetworkInterfaces []string         `yaml:"network_interfaces,omitempty"`
+		// ExcludeOtelInstrumentedServices is a pointer so an explicit false
+		// is serialized; Beyla defaults it to true when absent.
+		ExcludeOtelInstrumentedServices *bool `yaml:"exclude_otel_instrumented_services,omitempty"`
 	} `yaml:"discovery,omitempty"`
 	Attributes struct {
 		Kubernetes struct {

@@ -810,6 +810,12 @@ func TestGenerateBeylaConfigContextPropagation(t *testing.T) {
 	if !strings.Contains(string(data), "context_propagation: all") {
 		t.Errorf("generated Beyla config missing context_propagation: all; topology will not work.\nConfig:\n%s", data)
 	}
+
+	// Beyla stops instrumenting OTel SDK-instrumented processes by default,
+	// which drops their CLIENT spans and the topology edges built from them.
+	if !strings.Contains(string(data), "exclude_otel_instrumented_services: false") {
+		t.Errorf("generated Beyla config must set exclude_otel_instrumented_services: false.\nConfig:\n%s", data)
+	}
 }
 
 // observedService records one serviceObservedHandler invocation (RFD 103).

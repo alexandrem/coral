@@ -872,6 +872,13 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		{ExePath: ".*beyla.*"},
 	}
 
+	// Keep instrumenting services that export their own OTel telemetry.
+	// Beyla's default (true) stops instrumenting a process once it observes
+	// that process publishing OTLP data, which drops the CLIENT spans that
+	// topology materialization needs for any SDK-instrumented caller.
+	excludeOtelInstrumented := false
+	cfg.Discovery.ExcludeOtelInstrumentedServices = &excludeOtelInstrumented
+
 	// Discovery: process candidates merged by DiscoveryManager — static
 	// (config file + `coral connect`), and, in MonitorAll mode,
 	// ProcFSProvider/EnvVarProvider results (RFD 102). startBeyla is called
