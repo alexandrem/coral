@@ -2,6 +2,14 @@ name: Manual E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      filter:
+        description: >-
+          Optional test group or subtest to run, e.g. Test5_CLICommands or
+          Test5_CLICommands/CLI_QueryTopology. Leave empty for the full suite.
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: e2e-manual-${{ github.ref }}
@@ -73,7 +81,17 @@ jobs:
         run: cd tests/e2e/distributed && make local-up
 
       - name: Run E2E tests
-        run: cd tests/e2e/distributed && make test
+        # The filter is passed through env rather than interpolated into the
+        # script so arbitrary input cannot inject shell commands.
+        env:
+          E2E_FILTER: ${{ inputs.filter }}
+        run: |
+          cd tests/e2e/distributed
+          if [ -n "$E2E_FILTER" ]; then
+            make test-filter FILTER="$E2E_FILTER"
+          else
+            make test
+          fi
         timeout-minutes: 30
 
       - name: Collect logs on failure
