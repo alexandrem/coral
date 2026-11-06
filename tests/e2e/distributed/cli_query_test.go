@@ -626,7 +626,7 @@ func (s *CLIQuerySuite) debugColonyTopologyState() {
 	queries := []struct{ label, sql string }{
 		{"colony beyla_traces by agent/service/kind", "SELECT agent_id, service_name, span_kind, COUNT(*) AS spans, " +
 			"COUNT(parent_span_id) AS with_parent, MAX(start_time) AS last_start, " +
-			"COUNT(*) FILTER (WHERE start_time >= now() - INTERVAL 2 MINUTE) AS last_2min " +
+			"COUNT(*) FILTER (WHERE start_time >= CAST(now() AS TIMESTAMP) - INTERVAL 2 MINUTE) AS last_2min " +
 			"FROM beyla_traces GROUP BY 1, 2, 3 ORDER BY 1, 2, 3"},
 		{"colony polling checkpoints (beyla)", "SELECT agent_id, data_type, last_seq_id, session_id, updated_at " +
 			"FROM polling_checkpoints WHERE data_type LIKE 'beyla%' ORDER BY 1, 2"},
