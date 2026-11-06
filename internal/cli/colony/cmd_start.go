@@ -167,13 +167,16 @@ Examples:
 			// Discover the Colony's live public WireGuard endpoint before the
 			// device binds its fixed UDP port. Discovery registration carries
 			// this observed endpoint so Agents do not require a static
-			// CORAL_PUBLIC_ENDPOINT in ordinary NAT environments.
+			// CORAL_PUBLIC_ENDPOINT in ordinary NAT environments. Explicit
+			// endpoints override STUN: advertising an observed public address
+			// would make agents prefer it over the configured address, which
+			// may be the only reachable route (e.g. a Docker network).
 			var colonyObservedEndpoint *discoverypb.Endpoint
 			colonySTUNServers := colonyConfigForEndpoints.Discovery.STUNServers
 			if len(colonySTUNServers) == 0 {
 				colonySTUNServers = []string{constants.DefaultSTUNServer}
 			}
-			if cfg.WireGuard.Port > 0 {
+			if cfg.WireGuard.Port > 0 && len(colonyConfigForEndpoints.WireGuard.PublicEndpoints) == 0 {
 				observed := meshwg.DiscoverPublicEndpoint(
 					colonySTUNServers,
 					cfg.WireGuard.Port,

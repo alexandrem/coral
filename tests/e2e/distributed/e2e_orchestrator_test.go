@@ -116,10 +116,10 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 	serviceSuite.SetupSuite()
 	defer serviceSuite.TearDownSuite()
 
-	s.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
-	s.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
-	s.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
-	s.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
+	serviceSuite.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
+	serviceSuite.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
+	serviceSuite.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
+	serviceSuite.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
 
 	// Run ExePatternSuite tests (RFD 111: connect-by-executable-pattern) with
 	// the same shared fixture.

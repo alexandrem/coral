@@ -114,7 +114,7 @@ type ServicesConfig struct {
 //
 // At startup, Colony registers its STUN-observed WireGuard address with
 // Discovery so Agents can establish the tunnel without static configuration.
-// CORAL_PUBLIC_ENDPOINT optionally overrides or supplements that address.
+// CORAL_PUBLIC_ENDPOINT overrides that address and disables STUN discovery.
 //
 // Example production setup:
 //
