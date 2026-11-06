@@ -16,7 +16,8 @@ import (
 //
 //	CORAL_WORKERS_DISCOVERY_ENDPOINT=https://discovery.coralmesh.dev
 //
-// Without the environment variable, tests run against the local docker-compose discovery.
+// Without the environment variable, tests use the fixture's discovery endpoint:
+// public discovery by default, or local discovery when started with make local-up.
 func TestDiscoveryServiceSuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping E2E test in short mode")

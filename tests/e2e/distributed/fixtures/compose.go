@@ -236,6 +236,11 @@ func (f *ComposeFixture) GetDiscoveryEndpoint(ctx context.Context) (string, erro
 	return f.DiscoveryEndpoint, nil
 }
 
+// UsesLocalDiscovery reports whether the fixture uses the local discovery overlay.
+func (f *ComposeFixture) UsesLocalDiscovery() bool {
+	return f.DiscoveryEndpoint == localDiscoveryEndpoint
+}
+
 // GetColonyEndpoint returns the colony gRPC endpoint.
 func (f *ComposeFixture) GetColonyEndpoint(ctx context.Context) (string, error) {
 	return f.ColonyEndpoint, nil

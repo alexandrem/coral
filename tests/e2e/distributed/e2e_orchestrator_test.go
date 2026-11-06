@@ -511,19 +511,19 @@ func (s *E2EOrchestratorSuite) Test9_DiscoveryService() {
 	defer discoverySuite.TearDownTest()
 
 	// Core RPC tests (work with both local and Workers).
-	s.Run("HealthEndpoint", discoverySuite.TestHealthEndpoint)
-	s.Run("JWKSEndpoint", discoverySuite.TestJWKSEndpoint)
-	s.Run("RegisterAndLookupColony", discoverySuite.TestRegisterAndLookupColony)
-	s.Run("RegisterAndLookupAgent", discoverySuite.TestRegisterAndLookupAgent)
-	s.Run("SplitBrainProtection", discoverySuite.TestSplitBrainProtection)
-	s.Run("ObservedEndpointCapture", discoverySuite.TestObservedEndpointCapture)
+	discoverySuite.Run("HealthEndpoint", discoverySuite.TestHealthEndpoint)
+	discoverySuite.Run("JWKSEndpoint", discoverySuite.TestJWKSEndpoint)
+	discoverySuite.Run("RegisterAndLookupColony", discoverySuite.TestRegisterAndLookupColony)
+	discoverySuite.Run("RegisterAndLookupAgent", discoverySuite.TestRegisterAndLookupAgent)
+	discoverySuite.Run("SplitBrainProtection", discoverySuite.TestSplitBrainProtection)
+	discoverySuite.Run("ObservedEndpointCapture", discoverySuite.TestObservedEndpointCapture)
 
 	// Auth flow test (requires docker-compose environment).
-	s.Run("AuthorizationFlow", discoverySuite.TestAuthorizationFlow)
+	discoverySuite.Run("AuthorizationFlow", discoverySuite.TestAuthorizationFlow)
 
 	// Environment-specific tests.
-	// s.Run("RelayNotImplemented", discoverySuite.TestRelayNotImplemented)
-	s.Run("TTLExpiration", discoverySuite.TestTTLExpiration)
+	// discoverySuite.Run("RelayNotImplemented", discoverySuite.TestRelayNotImplemented)
+	discoverySuite.Run("TTLExpiration", discoverySuite.TestTTLExpiration)
 
 	if !s.T().Failed() {
 		s.discoveryPassed = true
