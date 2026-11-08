@@ -429,6 +429,26 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryCPUProfile", cliDebugSuite.TestQueryCPUProfileCommand)
 	s.Run("CLI_QueryMemoryProfile", cliDebugSuite.TestQueryMemoryProfileCommand)
 
+	cliExecSuite := &CLIExecSuite{
+		E2EDistributedSuite: E2EDistributedSuite{ctx: s.ctx, fixture: s.fixture},
+	}
+	cliExecSuite.SetT(s.T())
+	cliExecSuite.SetupSuite()
+	defer cliExecSuite.TearDownSuite()
+
+	s.Run("CLI_ExecProcessName", func() {
+		cliExecSuite.SetT(s.T())
+		cliExecSuite.TestContainerExecProcessName()
+	})
+	s.Run("CLI_ExecPID", func() {
+		cliExecSuite.SetT(s.T())
+		cliExecSuite.TestContainerExecPID()
+	})
+	s.Run("CLI_ExecRejectsInvalidTargets", func() {
+		cliExecSuite.SetT(s.T())
+		cliExecSuite.TestContainerExecRejectsInvalidTargets()
+	})
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")

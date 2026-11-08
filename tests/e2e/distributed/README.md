@@ -28,8 +28,17 @@ Tests requiring docker-compose infrastructure:
 - Service management
 - Passive observability (Beyla, OTLP, system metrics)
 - On-demand probes (CPU profiling, debugging)
+- CLI container execution (exact process names, PID selectors, and invalid targets)
 
 See [TESTING.md](TESTING.md) for detailed documentation.
+
+To run only the CLI exec tests against a running E2E stack, from this directory:
+
+```bash
+go test -tags=standalone -run '^TestCLIExecSuite$' -v -timeout 5m
+```
+
+The orchestrator also runs them in `Test5_CLICommands/CLI_Exec*`.
 
 ## Quick Start
 
