@@ -188,8 +188,14 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	// discovery) with the same shared fixture.
 	containerNamespaceSuite := NewContainerNamespaceSuite(s.E2EDistributedSuite, s.T())
 
-	s.Run("NetnsAppAutoDiscovered", containerNamespaceSuite.TestNetnsAppAutoDiscovered)
-	s.Run("NetnsAppBeylaCapturesTraffic", containerNamespaceSuite.TestNetnsAppBeylaCapturesTraffic)
+	s.Run("NetnsAppAutoDiscovered", func() {
+		containerNamespaceSuite.SetT(s.T())
+		containerNamespaceSuite.TestNetnsAppAutoDiscovered()
+	})
+	s.Run("NetnsAppBeylaCapturesTraffic", func() {
+		containerNamespaceSuite.SetT(s.T())
+		containerNamespaceSuite.TestNetnsAppBeylaCapturesTraffic()
+	})
 
 	if !s.T().Failed() {
 		s.passiveObservability = true

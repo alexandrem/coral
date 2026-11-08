@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -101,6 +102,23 @@ func (s *ContainerNamespaceSuite) TestNetnsAppAutoDiscovered() {
 // correctly-named rule.
 func (s *ContainerNamespaceSuite) TestNetnsAppBeylaCapturesTraffic() {
 	s.T().Log("Testing Beyla eBPF instrumentation across a network namespace boundary (RFD 112)...")
+	defer func() {
+		if !s.T().Failed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+		defer cancel()
+		if cfg, err := s.fixture.GetBeylaConfig(ctx, "agent-0"); err == nil {
+			s.T().Logf("Beyla config on agent-0:\n%s", cfg)
+		}
+		if logs, err := s.fixture.GetContainerLogs(ctx, "agent-0"); err == nil {
+			lines := strings.Split(strings.TrimSpace(logs), "\n")
+			if len(lines) > 80 {
+				lines = lines[len(lines)-80:]
+			}
+			s.T().Logf("Last agent-0 log lines:\n%s", strings.Join(lines, "\n"))
+		}
+	}()
 
 	netnsAppEndpoint, err := s.fixture.GetNetnsAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get netns-app endpoint")
@@ -117,30 +135,46 @@ func (s *ContainerNamespaceSuite) TestNetnsAppBeylaCapturesTraffic() {
 	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	s.T().Log("Generating HTTP traffic to netns-app (its own network namespace)...")
+	// A generated rule does not mean Beyla has attached its probes yet.
+	// Keep traffic flowing while waiting for attachment, Beyla's default 60s
+	// OTLP metrics export interval, and the agent's 5s metrics consumer tick.
+	ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+	defer cancel()
+	s.T().Log("Generating HTTP traffic to netns-app until Beyla HTTP metrics arrive...")
 	client := &http.Client{Timeout: 5 * time.Second}
+	defer client.CloseIdleConnections()
 	requestCount := 0
-	for i := 0; i < 20; i++ {
-		resp, err := client.Get(fmt.Sprintf("http://%s/", netnsAppEndpoint))
+	var queryErr error
+	var httpMetricCount int
+	err = helpers.WaitForCondition(ctx, func() bool {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://%s/", netnsAppEndpoint), nil)
 		if err != nil {
-			s.T().Logf("Request %d failed: %v", i+1, err)
-			continue
+			s.T().Logf("Failed to create netns-app request: %v", err)
+			return false
 		}
-		_ = resp.Body.Close()
-		requestCount++
-		time.Sleep(100 * time.Millisecond)
-	}
+		resp, err := client.Do(req)
+		if err != nil {
+			s.T().Logf("Request to netns-app failed: %v", err)
+		} else {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				requestCount++
+			}
+		}
+
+		ebpfResp, err := helpers.QueryAgentEbpfMetrics(ctx, agentClient, []string{"netns-app"})
+		queryErr = err
+		if err != nil {
+			return false
+		}
+		httpMetricCount = len(ebpfResp.HttpMetrics)
+		return requestCount > 0 && httpMetricCount > 0
+	}, 2*time.Minute, time.Second)
+
+	s.T().Logf("Generated %d successful HTTP requests; agent returned %d HTTP metrics for netns-app (last query error: %v)",
+		requestCount, httpMetricCount, queryErr)
 	s.Require().Greater(requestCount, 0, "at least one HTTP request to netns-app must succeed")
-	s.T().Logf("Generated %d HTTP requests", requestCount)
-
-	s.T().Log("Waiting for Beyla to capture and process eBPF metrics...")
-	time.Sleep(3 * time.Second)
-
-	ebpfResp, err := helpers.QueryAgentEbpfMetrics(s.ctx, agentClient, []string{"netns-app"})
-	s.Require().NoError(err, "Failed to query eBPF metrics from agent")
-
-	s.T().Logf("Agent returned %d total eBPF metrics for netns-app", ebpfResp.TotalMetrics)
-	s.Require().Greater(len(ebpfResp.HttpMetrics), 0,
+	s.Require().NoError(err,
 		"expected Beyla to capture HTTP metrics via eBPF for a listener in a namespace "+
 			"other than agent-0's own (RFD 112 acceptance criteria)")
 
