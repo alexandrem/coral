@@ -2,10 +2,12 @@
 # Download Beyla binaries for embedding in Coral agent.
 # This script is invoked by go generate before builds.
 
-set -e
+set -euo pipefail
 
 # Beyla version to download.
-BEYLA_VERSION="${BEYLA_VERSION:-v2.7.8}"
+# v3.0.0 includes OBI #1004 and #1071, which fix PID namespace reads
+# rejected by newer kernel verifiers (including the Go ClientConn probe).
+BEYLA_VERSION="${BEYLA_VERSION:-v3.0.0}"
 
 # Get the directory where this script is located.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,19 +28,26 @@ PLATFORMS=(
 # Create binaries directory if it doesn't exist.
 mkdir -p "${BINARIES_DIR}"
 
+# Keep archives and extracted binaries private to this invocation.
+download_dir="$(mktemp -d)"
+trap 'rm -rf "${download_dir}"' EXIT
+
 echo "Downloading Beyla ${BEYLA_VERSION} binaries..."
 
 for platform in "${PLATFORMS[@]}"; do
     output_file="${BINARIES_DIR}/beyla-${platform}"
+    version_file="${output_file}.version"
 
-    # Skip if already downloaded.
-    if [ -f "${output_file}" ]; then
-        echo "✓ beyla-${platform} already exists, skipping"
+    # Old downloads without a version marker must also be refreshed. Otherwise
+    # changing the pin leaves local builds and Docker contexts on the old binary.
+    if [ -x "${output_file}" ] && [ -f "${version_file}" ] && \
+        [ "$(cat "${version_file}")" = "${BEYLA_VERSION}" ]; then
+        echo "✓ beyla-${platform} ${BEYLA_VERSION} already exists, skipping"
         continue
     fi
 
     # Construct download URL.
-    # Beyla releases use format: beyla-linux-amd64-v2.7.8.tar.gz
+    # Beyla releases use format: beyla-linux-amd64-v3.0.0.tar.gz
     archive_name="beyla-${platform}-${BEYLA_VERSION}.tar.gz"
     download_url="${GITHUB_RELEASES}/${BEYLA_VERSION}/${archive_name}"
 
@@ -46,16 +55,15 @@ for platform in "${PLATFORMS[@]}"; do
 
     # Download with curl (fallback to wget if curl not available).
     if command -v curl >/dev/null 2>&1; then
-        curl -L -f -o "/tmp/${archive_name}" "${download_url}" || {
+        curl -L -f --retry 3 --connect-timeout 10 --max-time 300 \
+            -o "${download_dir}/${archive_name}" "${download_url}" || {
             echo "✗ Failed to download beyla-${platform}"
-            rm -f "/tmp/${archive_name}"
-            continue
+            exit 1
         }
     elif command -v wget >/dev/null 2>&1; then
-        wget -O "/tmp/${archive_name}" "${download_url}" || {
+        wget -O "${download_dir}/${archive_name}" "${download_url}" || {
             echo "✗ Failed to download beyla-${platform}"
-            rm -f "/tmp/${archive_name}"
-            continue
+            exit 1
         }
     else
         echo "✗ Neither curl nor wget found. Cannot download binaries."
@@ -63,28 +71,22 @@ for platform in "${PLATFORMS[@]}"; do
     fi
 
     # Extract the binary from the tar.gz archive.
-    tar -xzf "/tmp/${archive_name}" -C "/tmp" || {
+    tar -xzf "${download_dir}/${archive_name}" -C "${download_dir}" beyla || {
         echo "✗ Failed to extract beyla-${platform}"
-        rm -f "/tmp/${archive_name}"
-        continue
+        exit 1
     }
 
-    # Move the binary to the binaries directory.
-    mv "/tmp/beyla" "${output_file}" || {
+    # Only replace a cached binary after the download and extraction succeed.
+    chmod +x "${download_dir}/beyla"
+    mv "${download_dir}/beyla" "${output_file}" || {
         echo "✗ Failed to move beyla-${platform}"
-        rm -f "/tmp/${archive_name}"
-        continue
+        exit 1
     }
-
-    # Clean up the archive.
-    rm -f "/tmp/${archive_name}"
-
-    # Make executable.
-    chmod +x "${output_file}"
+    printf '%s\n' "${BEYLA_VERSION}" > "${version_file}"
 
     echo "✓ Downloaded beyla-${platform}"
 done
 
 echo ""
 echo "Beyla binaries downloaded to ${BINARIES_DIR}/"
-echo "Total size: $(du -sh ${BINARIES_DIR} | cut -f1)"
+echo "Total size: $(du -sh "${BINARIES_DIR}" | cut -f1)"
