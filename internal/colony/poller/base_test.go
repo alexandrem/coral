@@ -2,12 +2,161 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
+
+func registerPollingAgent(t *testing.T, reg *registry.Registry, id string, lastSeen time.Time) {
+	t.Helper()
+	entry, err := reg.Register(id, "", "", "", nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.LastSeen = lastSeen
+}
+
+func TestForEachHealthyAgent_BoundedConcurrency(t *testing.T) {
+	reg := registry.New(nil)
+	const agentCount = 25
+	for i := range agentCount {
+		registerPollingAgent(t, reg, fmt.Sprint(i), time.Now())
+	}
+
+	started := make(chan struct{}, agentCount)
+	release := make(chan struct{})
+	releaseAll := sync.OnceFunc(func() { close(release) })
+	defer releaseAll()
+	var mu sync.Mutex
+	active, peak := 0, 0
+	visited := make(map[string]int)
+	done := make(chan struct{})
+	var success, failures int
+	go func() {
+		success, failures = ForEachHealthyAgent(context.Background(), reg, zerolog.Nop(), func(agent *registry.Entry) error {
+			mu.Lock()
+			active++
+			peak = max(peak, active)
+			visited[agent.AgentID]++
+			mu.Unlock()
+			started <- struct{}{}
+			<-release
+			mu.Lock()
+			active--
+			mu.Unlock()
+			return nil
+		})
+		close(done)
+	}()
+
+	// All workers must start even though earlier agents have not finished.
+	for range maxConcurrentAgentPolls {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("agents were not polled concurrently")
+		}
+	}
+	releaseAll()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("polling did not finish")
+	}
+	if success != agentCount || failures != 0 {
+		t.Fatalf("got (%d, %d), want (%d, 0)", success, failures, agentCount)
+	}
+	if peak != maxConcurrentAgentPolls {
+		t.Errorf("peak concurrency = %d, want %d", peak, maxConcurrentAgentPolls)
+	}
+	for id, count := range visited {
+		if count != 1 {
+			t.Errorf("agent %s visited %d times", id, count)
+		}
+	}
+	if len(visited) != agentCount {
+		t.Errorf("visited %d agents, want %d", len(visited), agentCount)
+	}
+}
+
+func TestForEachHealthyAgent_HealthAndFailures(t *testing.T) {
+	reg := registry.New(nil)
+	registerPollingAgent(t, reg, "healthy", time.Now())
+	registerPollingAgent(t, reg, "degraded", time.Now().Add(-constants.DefaultAgentHealthyThreshold-time.Second))
+	registerPollingAgent(t, reg, "failed", time.Now())
+	registerPollingAgent(t, reg, "panicked", time.Now())
+	registerPollingAgent(t, reg, "unhealthy", time.Now().Add(-constants.DefaultAgentDegradedThreshold-time.Second))
+	success, failures := ForEachHealthyAgent(context.Background(), reg, zerolog.Nop(), func(agent *registry.Entry) error {
+		switch agent.AgentID {
+		case "failed":
+			return fmt.Errorf("agent unavailable")
+		case "panicked":
+			panic("bad response")
+		case "unhealthy":
+			t.Error("unhealthy agent was polled")
+		}
+		return nil
+	})
+	if success != 2 || failures != 2 {
+		t.Errorf("got (%d, %d), want (2, 2)", success, failures)
+	}
+}
+
+func TestForEachHealthyAgent_Cancellation(t *testing.T) {
+	reg := registry.New(nil)
+	for i := range 25 {
+		registerPollingAgent(t, reg, fmt.Sprint(i), time.Now())
+	}
+	t.Run("before polling", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		success, failures := ForEachHealthyAgent(ctx, reg, zerolog.Nop(), func(*registry.Entry) error {
+			t.Error("visitor called after cancellation")
+			return nil
+		})
+		if success != 0 || failures != 0 {
+			t.Errorf("got (%d, %d), want (0, 0)", success, failures)
+		}
+	})
+	t.Run("during polling", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		started := make(chan struct{}, 25)
+		done := make(chan struct{})
+		var success, failures int
+		go func() {
+			success, failures = ForEachHealthyAgent(ctx, reg, zerolog.Nop(), func(*registry.Entry) error {
+				started <- struct{}{}
+				<-ctx.Done()
+				return ctx.Err()
+			})
+			close(done)
+		}()
+		for range maxConcurrentAgentPolls {
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("workers did not start")
+			}
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("polling did not stop after cancellation")
+		}
+		if success != 0 || failures != maxConcurrentAgentPolls || len(started) != 0 {
+			t.Errorf("got (%d, %d), %d extra visits; want (0, %d), no extra visits",
+				success, failures, len(started), maxConcurrentAgentPolls)
+		}
+	})
+}
 
 // mockPoller is a test implementation of the Poller interface.
 type mockPoller struct {
