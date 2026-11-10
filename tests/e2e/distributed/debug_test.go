@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -26,6 +27,18 @@ import (
 // - cpu-app to agent-0 (for multi-agent profiling test)
 type DebugSuite struct {
 	E2EDistributedSuite
+}
+
+// agentID returns the identity of the running fixture agent. Colony listings
+// can also contain persisted services from agents in previous container runs.
+func (s *DebugSuite) agentID(index int) string {
+	s.T().Helper()
+	endpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, index)
+	s.Require().NoError(err, "Failed to get agent-%d endpoint", index)
+	resp, err := helpers.NewAgentClient(endpoint).GetRuntimeContext(s.ctx, connect.NewRequest(&agentv1.GetRuntimeContextRequest{}))
+	s.Require().NoError(err, "Failed to get agent-%d identity", index)
+	s.Require().NotEmpty(resp.Msg.AgentId, "Agent-%d should report its identity", index)
+	return resp.Msg.AgentId
 }
 
 // SetupSuite runs once before all tests in the suite.
@@ -91,27 +104,8 @@ func (s *DebugSuite) TestUprobeTracing() {
 	s.T().Logf("Agent-1 endpoint: %s", agentEndpoint)
 	s.T().Logf("SDK app endpoint: %s", sdkAppEndpoint)
 
-	// Get agent IDs from colony.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	// Find the agent that has sdk-app in its services.
-	// We can't assume index [1] is agent-1 because registry iteration order is non-deterministic.
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	// Query the fixture agent directly; persisted registrations may be stale.
+	agentID := s.agentID(1)
 	s.T().Logf("Agent hosting sdk-app: %s", agentID)
 	s.T().Log("Note: SDK app already connected in SetupSuite()")
 
@@ -242,27 +236,8 @@ func (s *DebugSuite) TestUprobeCallTree() {
 	s.T().Logf("Agent-1 endpoint: %s", agentEndpoint)
 	s.T().Logf("SDK app endpoint: %s", sdkAppEndpoint)
 
-	// Get agent IDs from colony.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	// Find the agent that has sdk-app in its services.
-	// We can't assume index [1] is agent-1 because registry iteration order is non-deterministic.
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	// Query the fixture agent directly; persisted registrations may be stale.
+	agentID := s.agentID(1)
 	s.T().Logf("Agent hosting sdk-app: %s", agentID)
 
 	// Connect SDK app to agent-1.
@@ -384,13 +359,8 @@ func (s *DebugSuite) TestMultiAgentDebugSession() {
 	s.T().Logf("Colony endpoint: %s", colonyEndpoint)
 	s.T().Logf("CPU app endpoint: %s", cpuAppEndpoint)
 
-	// Get agent IDs from colony.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents for multi-agent test")
-
-	agent0ID := listAgentsResp.Agents[0].AgentId
+	// Query the fixture agent directly; persisted registrations may be stale.
+	agent0ID := s.agentID(0)
 
 	// Connect CPU app to agent-0.
 	agent0Endpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
@@ -505,24 +475,7 @@ func (s *DebugSuite) TestUprobeFilterAttach() {
 	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get SDK app endpoint")
 
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	agentID := s.agentID(1)
 
 	debugClient := helpers.NewDebugClient(colonyEndpoint)
 
@@ -591,24 +544,7 @@ func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
 	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get SDK app endpoint")
 
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	agentID := s.agentID(1)
 
 	debugClient := helpers.NewDebugClient(colonyEndpoint)
 
@@ -743,24 +679,7 @@ func (s *DebugSuite) TestUprobeReturnTracing() {
 	}
 
 	// Find the agent hosting sdk-app.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	agentID := s.agentID(1)
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 	err = helpers.WaitForServiceRegistration(s.ctx, agentClient, "sdk-app", 10*time.Second)
@@ -932,24 +851,7 @@ func (s *DebugSuite) TestUprobeRecursiveFunction() {
 	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get SDK app endpoint")
 
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	agentID := s.agentID(1)
 
 	debugClient := helpers.NewDebugClient(colonyEndpoint)
 
@@ -1037,24 +939,7 @@ func (s *DebugSuite) TestUprobeConcurrentGoroutines() {
 	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get SDK app endpoint")
 
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	agentID := s.agentID(1)
 
 	debugClient := helpers.NewDebugClient(colonyEndpoint)
 
@@ -1162,25 +1047,8 @@ func (s *DebugSuite) TestCorrelationDeployAndRemove() {
 	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get SDK app endpoint")
 
-	// Verify sdk-app agent is registered.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "sdk-app" {
-				agentID = agent.AgentId
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app")
+	// Query the fixture agent directly; persisted registrations may be stale.
+	agentID := s.agentID(1)
 	s.T().Logf("Agent hosting sdk-app: %s", agentID)
 
 	debugClient := helpers.NewDebugClient(colonyEndpoint)

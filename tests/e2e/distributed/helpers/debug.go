@@ -33,6 +33,9 @@ func AttachUprobe(
 	if err != nil {
 		return nil, fmt.Errorf("failed to attach uprobe: %w", err)
 	}
+	if !resp.Msg.Success {
+		return nil, fmt.Errorf("failed to attach uprobe: %s", resp.Msg.Error)
+	}
 
 	return resp.Msg, nil
 }
@@ -58,6 +61,9 @@ func AttachUprobeWithFilter(
 	resp, err := client.AttachUprobe(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to attach uprobe with filter: %w", err)
+	}
+	if !resp.Msg.Success {
+		return nil, fmt.Errorf("failed to attach uprobe with filter: %s", resp.Msg.Error)
 	}
 
 	return resp.Msg, nil
