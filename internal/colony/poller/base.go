@@ -162,13 +162,18 @@ func (b *BasePoller) safePollOnce(poller Poller) {
 	}
 }
 
-// AgentVisitor is called for each healthy agent.
-// Returning an error logs a warning but continues iteration.
+// AgentVisitor is called concurrently for healthy agents and must synchronize
+// access to shared state. Returning an error logs a warning but continues polling.
 type AgentVisitor func(agent *registry.Entry) error
 
-// ForEachHealthyAgent iterates registered agents, skipping unhealthy ones,
-// and calls visitor for each. Returns (successCount, errorCount).
+const maxConcurrentAgentPolls = 10
+
+// ForEachHealthyAgent calls visitor for registered agents, skipping unhealthy
+// ones, with at most 10 concurrent calls. Cancellation stops dispatching new
+// visits; in-flight visitors must observe ctx themselves. It waits for all
+// visitors to finish and returns (successCount, errorCount).
 func ForEachHealthyAgent(
+	ctx context.Context,
 	reg *registry.Registry,
 	logger zerolog.Logger,
 	visitor AgentVisitor,
@@ -178,23 +183,66 @@ func ForEachHealthyAgent(
 		logger.Debug().Msg("No agents registered, skipping poll")
 		return 0, 0
 	}
+	type counts struct {
+		success int
+		errors  int
+	}
+	results := make([]counts, min(maxConcurrentAgentPolls, len(agents)))
+	jobs := make(chan *registry.Entry)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for agent := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				if err := visitAgent(visitor, agent); err != nil {
+					logger.Warn().Err(err).
+						Str("agent_id", agent.AgentID).
+						Str("mesh_ip", agent.MeshIPv4).
+						Msg("Failed to poll agent")
+					results[i].errors++
+				} else {
+					results[i].success++
+				}
+			}
+		}()
+	}
+
 	now := time.Now()
+dispatch:
 	for _, agent := range agents {
-		status := registry.DetermineStatus(agent.LastSeen, now)
-		if status == registry.StatusUnhealthy {
+		if ctx.Err() != nil {
+			break
+		}
+		if registry.DetermineStatus(agent.LastSeen, now) == registry.StatusUnhealthy {
 			continue
 		}
-		if err := visitor(agent); err != nil {
-			logger.Warn().Err(err).
-				Str("agent_id", agent.AgentID).
-				Str("mesh_ip", agent.MeshIPv4).
-				Msg("Failed to poll agent")
-			errors++
-			continue
+		select {
+		case <-ctx.Done():
+			break dispatch
+		case jobs <- agent:
 		}
-		success++
+	}
+	close(jobs)
+	wg.Wait()
+	for _, result := range results {
+		success += result.success
+		errors += result.errors
 	}
 	return success, errors
+}
+
+// visitAgent keeps a visitor panic from escaping its worker goroutine.
+func visitAgent(visitor AgentVisitor, agent *registry.Entry) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic polling agent: %v", r)
+		}
+	}()
+	return visitor(agent)
 }
 
 // Gap represents a detected sequence gap between two seq_ids (RFD 089).

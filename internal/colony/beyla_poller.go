@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -103,12 +104,15 @@ func (p *BeylaPoller) PollOnce(ctx context.Context) error {
 	totalSQLMetrics := 0
 	totalTraces := 0
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		httpCount, grpcCount, sqlCount, traceCount, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
 
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		totalHTTPMetrics += httpCount
 		totalGRPCMetrics += grpcCount
 		totalSQLMetrics += sqlCount

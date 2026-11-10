@@ -105,10 +105,13 @@ both ordinary polling and recovery.
 ## Scheduling
 
 `BasePoller` runs a poll at startup and then on its configured interval. Its
-healthy-agent visitor is sequential and continues after individual query
-errors. Cleanup runs separately. These choices isolate an agent failure from
-later visits but do not guarantee a fixed fleet-wide freshness bound: query
-timeouts, backlog, batch limits, and cleanup all affect the data a reader sees.
+healthy-agent visitor runs up to 10 callbacks concurrently per cycle and
+continues after individual errors or panics. Pollers synchronize shared results
+and wait for every callback before storing combined summaries and committing
+their checkpoints. Cancellation stops new visits; in-flight callbacks observe
+the poll context. Cleanup runs separately. The worker limit bounds concurrent
+work, but query timeouts, fleet size, backlog, batch limits, and cleanup still
+affect freshness.
 
 ## Design history
 

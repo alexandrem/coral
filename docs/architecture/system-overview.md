@@ -93,11 +93,11 @@ telemetry polling. Their mechanisms are covered in
 ## Scheduling and failure isolation
 
 `BasePoller` runs an initial poll and then periodic cycles, with a separate
-cleanup loop. `ForEachHealthyAgent` visits eligible agents sequentially and
-continues after a visitor error. An unhealthy agent is skipped; a slow eligible
-agent can delay the remainder of that poller's cycle until its query finishes
-or times out. This is the implemented scheduling limit, rather than a guarantee
-of parallel fleet ingestion.
+cleanup loop. `ForEachHealthyAgent` visits up to 10 eligible agents concurrently
+per cycle and continues after visitor errors or panics. Unhealthy agents are
+skipped. Cancellation stops new visits and waits for in-flight callbacks, which
+use the poll context for their queries. A slow agent occupies one worker until
+its query finishes or times out; enough slow agents can still delay a cycle.
 
 Implementation: [poller infrastructure](../../internal/colony/poller/base.go).
 

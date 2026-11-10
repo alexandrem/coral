@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -98,7 +99,8 @@ func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
 	}
 	pendingCheckpoints := make(map[string]checkpointUpdate)
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		metrics, sessionID, maxSeqID, err := p.pollAgent(ctx, agent, cutoff)
 		if err != nil {
 			return err
@@ -106,6 +108,8 @@ func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
 
 		// Aggregate metrics into 1-minute buckets.
 		summaries := aggregateSystemMetrics(agent.AgentID, metrics)
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		allSummaries = append(allSummaries, summaries...)
 
 		if maxSeqID > 0 {

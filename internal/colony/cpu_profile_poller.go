@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -94,7 +95,8 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 	}
 	pendingCheckpoints := make(map[string]checkpointUpdate)
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		samples, sessionID, maxSeqID, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
@@ -102,6 +104,8 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 
 		// Aggregate samples into 1-minute buckets.
 		summaries := aggregateCPUProfileSamples(ctx, p.db, p.logger, agent.AgentID, samples)
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		allSummaries = append(allSummaries, summaries...)
 
 		// Track checkpoint for commit after storage.

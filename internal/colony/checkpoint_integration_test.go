@@ -259,6 +259,49 @@ func systemMetricsAt(ts time.Time, seqIDs ...uint64) []*agentv1.SystemMetric {
 	return metrics
 }
 
+// TestSystemMetricsPoller_FleetCheckpoints verifies that concurrent visits retain
+// every agent's summaries and advance each checkpoint after storage.
+func TestSystemMetricsPoller_FleetCheckpoints(t *testing.T) {
+	ctx := context.Background()
+	db := setupGapRecoveryTestDB(t)
+	reg := registry.New(nil)
+	old := time.Now().Add(-5 * time.Minute).Truncate(time.Minute)
+	stubs := make(map[string]*stubSystemMetricsAgent)
+	for i := range 25 {
+		id := fmt.Sprintf("agent-%d", i)
+		_, err := reg.Register(id, "", "", "", nil, nil, "")
+		require.NoError(t, err)
+		stubs[id] = &stubSystemMetricsAgent{
+			sessionID: "session-" + id,
+			metrics:   systemMetricsAt(old, 1, 2),
+		}
+	}
+	p := NewSystemMetricsPoller(ctx, reg, db, time.Minute, 0, zerolog.Nop())
+	p.clientFactory = func(agent *registry.Entry) agentv1connect.AgentServiceClient {
+		return stubs[agent.AgentID]
+	}
+
+	require.NoError(t, p.PollOnce(ctx))
+	for id, stub := range stubs {
+		cp, err := db.GetPollingCheckpoint(ctx, id, systemMetricsDataType)
+		require.NoError(t, err)
+		require.NotNil(t, cp, "checkpoint for %s", id)
+		assert.Equal(t, stub.sessionID, cp.SessionID)
+		assert.Equal(t, uint64(2), cp.LastSeqID)
+
+		summaries, err := db.QuerySystemMetricsSummaries(ctx, id, old, old.Add(time.Minute))
+		require.NoError(t, err)
+		require.Len(t, summaries, 1, "summary for %s", id)
+		assert.Equal(t, uint64(2), summaries[0].SampleCount)
+	}
+
+	// The next cycle resumes each agent independently from its saved checkpoint.
+	require.NoError(t, p.PollOnce(ctx))
+	for id, stub := range stubs {
+		assert.Equal(t, []uint64{0, 2}, stub.starts, "query cursors for %s", id)
+	}
+}
+
 // TestSystemMetricsPoller_SessionResetDetectsGaps verifies that after an agent
 // session change, gaps are detected relative to the re-query (seq_id 0), not
 // the stale checkpoint. With the stale checkpoint (500) every new seq_id is
