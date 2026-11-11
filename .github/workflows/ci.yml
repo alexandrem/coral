@@ -24,13 +24,14 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Single source of truth: caches modules + build cache + tools
+  # Shared modules and tools; compilation caches are saved by test and e2e.
   # ──────────────────────────────────────────────────────────────
   go-env:
     name: Cache Go modules & tools
     runs-on: ubuntu-latest
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
+      build-cache-prefix: ${{ steps.mod.outputs.build-cache-prefix }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
       generated-cache-key: ${{ steps.generated.outputs.cache-key }}
     steps:
@@ -43,35 +44,40 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      # ── Go modules cache key (100% reliable) ──
-      - name: Go mod cache key
+      - name: Go cache keys
         id: mod
         run: |
-          echo "cache-key=go-mod-v5-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}" >> $GITHUB_OUTPUT
+          echo "cache-key=go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}" >> "$GITHUB_OUTPUT"
+          echo "build-cache-prefix=go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Go modules & build cache
+      - name: Cache Go modules
         uses: actions/cache@v4
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
           key: ${{ steps.mod.outputs.cache-key }}
           restore-keys: |
-            go-mod-v5-${{ runner.os }}-
+            go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-
 
-      # ── Go tools cache key (100% reliable) ──
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.mod.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ steps.mod.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ steps.mod.outputs.build-cache-prefix }}-
+
       - name: Go tools cache key
         id: tools
         run: |
-          echo "cache-key=go-tools-v4-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}" >> $GITHUB_OUTPUT
+          echo "cache-key=go-tools-v5-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('Makefile') }}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Go tools
+        id: cache-tools
         uses: actions/cache@v4
         with:
           path: ~/go/bin
           key: ${{ steps.tools.outputs.cache-key }}
-          restore-keys: |
-            go-tools-v4-${{ runner.os }}-
 
       # ── Generated files cache (deno binaries + generated code) ──
       - name: Generated files cache key
@@ -106,10 +112,14 @@ jobs:
           cache: false
 
       - name: Install Go tools
+        if: steps.cache-tools.outputs.cache-hit != 'true'
         run: make install-tools || make install-tools  # retry once if needed
 
       - name: Download modules
-        run: go mod download
+        run: |
+          go mod download
+          (cd tests/integration && go mod download)
+          (cd tests/e2e/distributed && go mod download)
 
       - name: Generate files (if not cached)
         if: steps.cache-generated.outputs.cache-hit != 'true'
@@ -133,9 +143,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -160,6 +168,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      # Cache entries are immutable: refresh compiled packages for each commit.
+      # Prefer this commit's cache, then the most recent compatible commit.
+      - name: Cache Go build outputs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -210,9 +229,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -237,6 +254,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -261,9 +287,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -288,6 +312,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -328,9 +361,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -355,6 +386,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Cache Go build outputs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -514,9 +554,7 @@ jobs:
         if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         if: runner.os == 'Linux'
@@ -530,8 +568,34 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
+      - name: Cache macOS Go modules
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: |
+            go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-
+
+      - name: Cache macOS Go build outputs
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/go-build
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}-${{ matrix.artifact-arch }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}-${{ matrix.artifact-arch }}-
+
+      - name: Cache macOS Go tools
+        if: runner.os == 'macOS'
+        id: cache-tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-tools-v5-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('Makefile') }}
+
       - name: Install Go tools
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && steps.cache-tools.outputs.cache-hit != 'true'
         run: make install-tools || make install-tools  # retry once if needed
 
       - name: Download modules
