@@ -588,15 +588,14 @@ jobs:
   # Build
   # ──────────────────────────────────────────────────────────────
   build:
-    needs: [go-env, e2e]
+    # Match the E2E prerequisites so macOS builds run alongside it.
+    # Linux binaries are already built and uploaded by e2e.
+    needs: [go-env, test, static-analysis, integration-tests]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact-os: linux
-            artifact-arch: amd64
-          - os: macos-15  # Intel Mac for amd64
+          - os: macos-15-intel
             artifact-os: darwin
             artifact-arch: amd64
           - os: macos-latest  # Apple Silicon for arm64
@@ -606,28 +605,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install APT packages (Linux only)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
-
-      - name: Install Homebrew packages (macOS only)
-        if: runner.os == 'macOS'
+      - name: Install Homebrew packages
         run: |
           brew install llvm
-
-      - uses: actions/cache/restore@v4
-        if: runner.os == 'Linux'
-        with:
-          key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: ~/go/pkg/mod
-
-      - uses: actions/cache/restore@v4
-        if: runner.os == 'Linux'
-        with:
-          key: ${{ needs.go-env.outputs.tools-cache-key }}
-          path: ~/go/bin
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -636,7 +617,6 @@ jobs:
           cache: false
 
       - name: Cache macOS Go modules
-        if: runner.os == 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
@@ -645,7 +625,6 @@ jobs:
             go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-
 
       - name: Cache macOS Go build outputs
-        if: runner.os == 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/go-build
@@ -654,7 +633,6 @@ jobs:
             go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}-${{ matrix.artifact-arch }}-
 
       - name: Cache macOS Go tools
-        if: runner.os == 'macOS'
         id: cache-tools
         uses: actions/cache@v4
         with:
@@ -662,31 +640,19 @@ jobs:
           key: go-tools-v5-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('Makefile') }}
 
       - name: Install Go tools
-        if: runner.os != 'Linux' && steps.cache-tools.outputs.cache-hit != 'true'
+        if: steps.cache-tools.outputs.cache-hit != 'true'
         run: make install-tools || make install-tools  # retry once if needed
 
       - name: Download modules
-        if: runner.os != 'Linux'
         run: go mod download
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      # Reuse Linux binary from e2e job, build for other platforms
-      - name: Download Linux binary from e2e
-        if: runner.os == 'Linux'
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-amd64-binaries
-          path: bin/
-
       - name: Build
-        if: runner.os != 'Linux'
         run: make build
 
-      # Linux binaries were already uploaded by e2e; only upload for macOS.
       - name: Upload binaries
-        if: runner.os != 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-os }}-${{ matrix.artifact-arch }}-binaries
