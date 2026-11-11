@@ -23,11 +23,67 @@ env:
   GO_VERSION: "1.25.1"
 
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run-ci: ${{ steps.classify.outputs.run-ci }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the full pull request diff
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          # Always validate main: a docs push may supersede an untested code push.
+          run_ci = True
+          base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
+          if os.environ["EVENT_NAME"] == "pull_request" and all(
+              re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (base, head)
+          ):
+              try:
+                  changed = subprocess.check_output([
+                      "git", "diff", "--name-only", "--no-renames", "-z",
+                      f"{base}...{head}", "--",
+                  ]).split(b"\0")
+                  paths = [os.fsdecode(path) for path in changed if path]
+                  root_docs = {"README.md", "LICENSE", "CLAUDE.md", "CONTRIBUTING.md",
+                               "CODE_OF_CONDUCT.md", "SECURITY.md"}
+                  def documentation(path):
+                      return path in root_docs or (
+                          path.startswith(("docs/", "RFDs/", ".github/ISSUE_TEMPLATE/"))
+                          and path.endswith(".md")
+                      )
+                  # Unknown paths, empty diffs, and failed comparisons run full CI.
+                  # Markdown elsewhere can be embedded in the application.
+                  run_ci = not paths or not all(documentation(path) for path in paths)
+              except subprocess.CalledProcessError:
+                  print("Could not classify the diff; running full CI.")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"run-ci={str(run_ci).lower()}\n")
+          print("Running full CI." if run_ci else "Only documentation changed; skipping heavy checks.")
+          PY
+
   # ──────────────────────────────────────────────────────────────
   # Shared modules and tools; compilation caches are saved by test and e2e.
   # ──────────────────────────────────────────────────────────────
   go-env:
     name: Cache Go modules & tools
+    needs: changes
+    if: needs.changes.outputs.run-ci == 'true'
     runs-on: ubuntu-latest
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
@@ -631,6 +687,8 @@ jobs:
   # Security scanning
   # ------------------------------------------------------------
   security:
+    needs: changes
+    if: needs.changes.outputs.run-ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -652,6 +710,8 @@ jobs:
   # Dependency checks
   # ------------------------------------------------------------
   dependencies:
+    needs: changes
+    if: needs.changes.outputs.run-ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -667,3 +727,33 @@ jobs:
           # but we check if it *would* change anything.
           go mod tidy
           git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum need tidying"; exit 1)
+
+  # Require this check in branch protection; it also runs for docs-only PRs.
+  ci-result:
+    name: CI result
+    if: always()
+    needs: [changes, go-env, test, integration-tests, static-analysis, e2e, build, security, dependencies]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all expected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          results = json.loads(os.environ["RESULTS"])
+          changes = results.pop("changes")
+          run_ci = changes["outputs"].get("run-ci")
+          if changes["result"] != "success" or run_ci not in {"true", "false"}:
+              raise SystemExit("Change classification did not succeed.")
+          expected = "success" if run_ci == "true" else "skipped"
+          unexpected = {name: job["result"] for name, job in results.items()
+                        if job["result"] != expected}
+          if unexpected:
+              raise SystemExit(f"Expected {expected} checks, got: {unexpected}")
+          print("All required checks passed." if run_ci == "true"
+                else "Documentation-only PR; heavy checks were intentionally skipped.")
+          PY
