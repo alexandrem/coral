@@ -2,12 +2,16 @@ package colony
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -27,7 +31,9 @@ const (
 	gapMaxSize = 10000
 )
 
-// At the top of your file or inside your struct initializer
+var errGapDataUnavailable = errors.New("gap data unavailable at source")
+
+// recoveryRegistry dispatches recovery by data type.
 var recoveryRegistry = map[string]func(*GapRecoveryService, context.Context, *registry.Entry, *database.SequenceGap, int32) error{
 	telemetryDataType:     (*GapRecoveryService).recoverTelemetry,
 	systemMetricsDataType: (*GapRecoveryService).recoverSystemMetrics,
@@ -43,9 +49,10 @@ var recoveryRegistry = map[string]func(*GapRecoveryService, context.Context, *re
 // by re-querying agents for missing data (RFD 089).
 type GapRecoveryService struct {
 	*poller.BasePoller
-	registry *registry.Registry
-	db       *database.Database
-	logger   zerolog.Logger
+	registry   *registry.Registry
+	db         *database.Database
+	logger     zerolog.Logger
+	httpClient connect.HTTPClient
 }
 
 // NewGapRecoveryService creates a new gap recovery service.
@@ -68,6 +75,7 @@ func NewGapRecoveryService(
 		registry:   registry,
 		db:         db,
 		logger:     componentLogger,
+		httpClient: http.DefaultClient,
 	}
 }
 
@@ -134,6 +142,7 @@ func (s *GapRecoveryService) PollOnce(ctx context.Context) error {
 		if recoverErr == nil {
 			if err := s.db.MarkGapRecovered(ctx, gap.ID); err != nil {
 				s.logger.Error().Err(err).Int("gap_id", gap.ID).Msg("Failed to mark gap as recovered")
+				continue
 			}
 			s.logger.Info().
 				Str("agent_id", gap.AgentID).
@@ -144,18 +153,20 @@ func (s *GapRecoveryService) PollOnce(ctx context.Context) error {
 				Int("attempt", gap.RecoveryAttempts).
 				Msg("Gap recovery succeeded")
 			recovered++
-		} else if gap.RecoveryAttempts >= gapRecoveryMaxAttempts {
+		} else if errors.Is(recoverErr, errGapDataUnavailable) || gap.RecoveryAttempts >= gapRecoveryMaxAttempts {
 			if err := s.db.MarkGapPermanent(ctx, gap.ID); err != nil {
 				s.logger.Error().Err(err).Int("gap_id", gap.ID).Msg("Failed to mark gap as permanent")
+				continue
 			}
 			s.logger.Error().
+				Err(recoverErr).
 				Str("agent_id", gap.AgentID).
 				Str("data_type", gap.DataType).
 				Int("gap_id", gap.ID).
 				Uint64("start_seq", gap.StartSeqID).
 				Uint64("end_seq", gap.EndSeqID).
 				Uint64("records_lost", gap.EndSeqID-gap.StartSeqID+1).
-				Msg("PERMANENT DATA LOSS: gap recovery exhausted all attempts")
+				Msg("PERMANENT DATA LOSS: gap data unavailable or recovery attempts exhausted")
 			permanent++
 		} else {
 			s.logger.Warn().
@@ -187,47 +198,78 @@ func (s *GapRecoveryService) RunCleanup(ctx context.Context) error {
 
 // recoverGap attempts to recover data for a single sequence gap by re-querying the agent.
 func (s *GapRecoveryService) recoverGap(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap) error {
-	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
-	defer cancel()
-
-	gapSize := gap.EndSeqID - gap.StartSeqID + 1
-	maxRecords := int32(gapMaxSize)
-
-	if gapSize < gapMaxSize {
-		maxRecords = int32(gapSize) // #nosec G115 - gapSize fits in int32 safely
-	} else {
-		s.logger.Warn().
-			Uint64("actual_gap", gapSize).
-			Msgf("Gap size limited to %d", gapMaxSize)
+	if gap.StartSeqID == 0 || gap.EndSeqID < gap.StartSeqID {
+		return fmt.Errorf("invalid gap range %d-%d", gap.StartSeqID, gap.EndSeqID)
 	}
-
-	// Dispatch via Registry
 	if recoverFn, exists := recoveryRegistry[gap.DataType]; exists {
-		return recoverFn(s, queryCtx, agent, gap, maxRecords)
+		return recoverFn(s, ctx, agent, gap, gapMaxSize)
 	}
+	return fmt.Errorf("unsupported gap data type %q", gap.DataType)
+}
 
-	s.logger.Warn().Str("type", gap.DataType).Msg("Unsupported data type")
-	return nil
+// queryGapRecords retrieves the entire range before aggregation. Aggregating pages
+// separately would overwrite earlier pages in the same summary bucket on upsert.
+// Each request has its own timeout and advances only over contiguous sequence IDs.
+func queryGapRecords[T interface{ GetSeqId() uint64 }](ctx context.Context, gap *database.SequenceGap, maxRecords int32, query func(context.Context, uint64, int32) ([]T, error)) ([]T, error) {
+	if gap.StartSeqID == 0 || gap.EndSeqID < gap.StartSeqID || maxRecords <= 0 {
+		return nil, fmt.Errorf("invalid gap range or page size")
+	}
+	var records []T
+	next := gap.StartSeqID
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		limit := uint64(maxRecords)
+		if remaining := gap.EndSeqID - next + 1; remaining < limit {
+			limit = remaining
+		}
+		queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
+		page, err := query(queryCtx, next-1, int32(limit))
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return nil, fmt.Errorf("%w: sequence %d", errGapDataUnavailable, next)
+		}
+		for _, record := range page {
+			seq := record.GetSeqId()
+			if seq > next {
+				return nil, fmt.Errorf("%w: expected sequence %d, got %d", errGapDataUnavailable, next, seq)
+			}
+			if seq < next {
+				return nil, fmt.Errorf("invalid recovery response: expected sequence %d, got %d", next, seq)
+			}
+			records = append(records, record)
+			if seq == gap.EndSeqID {
+				return records, nil
+			}
+			next = seq + 1
+		}
+	}
 }
 
 // recoverTelemetry recovers missing telemetry spans.
 func (s *GapRecoveryService) recoverTelemetry(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetAgentClient(agent)
-	resp, err := client.QueryTelemetry(ctx, connect.NewRequest(&agentv1.QueryTelemetryRequest{
-		StartSeqId: gap.StartSeqID - 1,
-		MaxRecords: maxRecords,
-	}))
+	client := agentv1connect.NewAgentServiceClient(s.httpClient, buildAgentURL(agent))
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.TelemetrySpan, error) {
+		resp, err := client.QueryTelemetry(ctx, connect.NewRequest(&agentv1.QueryTelemetryRequest{
+			StartSeqId: start,
+			MaxRecords: limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Msg.Spans, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(resp.Msg.Spans) == 0 {
-		return nil // Data may have aged out, but no error.
-	}
-
 	// Aggregate through TelemetryAggregator and store summaries.
 	aggregator := NewTelemetryAggregator()
-	aggregator.AddSpans(agent.AgentID, resp.Msg.Spans)
+	aggregator.AddSpans(agent.AgentID, records)
 	summaries := aggregator.GetSummaries()
 
 	if len(summaries) > 0 {
@@ -238,21 +280,23 @@ func (s *GapRecoveryService) recoverTelemetry(ctx context.Context, agent *regist
 
 // recoverSystemMetrics recovers missing system metrics.
 func (s *GapRecoveryService) recoverSystemMetrics(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetAgentClient(agent)
-	resp, err := client.QuerySystemMetrics(ctx, connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
-		StartSeqId: gap.StartSeqID - 1,
-		MaxRecords: maxRecords,
-	}))
+	client := agentv1connect.NewAgentServiceClient(s.httpClient, buildAgentURL(agent))
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.SystemMetric, error) {
+		resp, err := client.QuerySystemMetrics(ctx, connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
+			StartSeqId: start,
+			MaxRecords: limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Msg.Metrics, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(resp.Msg.Metrics) == 0 {
-		return nil
-	}
-
 	// Bucket by each metric's own timestamp: a gap may span many minutes.
-	summaries := aggregateSystemMetrics(agent.AgentID, resp.Msg.Metrics)
+	summaries := aggregateSystemMetrics(agent.AgentID, records)
 	if len(summaries) > 0 {
 		return s.db.InsertSystemMetricsSummaries(ctx, summaries)
 	}
@@ -261,89 +305,106 @@ func (s *GapRecoveryService) recoverSystemMetrics(ctx context.Context, agent *re
 
 // recoverBeylaHTTP recovers missing Beyla HTTP metrics.
 func (s *GapRecoveryService) recoverBeylaHTTP(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetAgentClient(agent)
-	resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
-		HttpStartSeqId: gap.StartSeqID - 1,
-		MaxRecords:     maxRecords,
-	}))
+	client := agentv1connect.NewAgentServiceClient(s.httpClient, buildAgentURL(agent))
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.EbpfHttpMetric, error) {
+		resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
+			HttpStartSeqId: start,
+			MaxRecords:     limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Msg.HttpMetrics, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(resp.Msg.HttpMetrics) > 0 {
-		return s.db.InsertBeylaHTTPMetrics(ctx, agent.AgentID, resp.Msg.HttpMetrics)
-	}
-	return nil
+	return s.db.InsertBeylaHTTPMetrics(ctx, agent.AgentID, records)
 }
 
 // recoverBeylaGRPC recovers missing Beyla gRPC metrics.
 func (s *GapRecoveryService) recoverBeylaGRPC(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetAgentClient(agent)
-	resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
-		GrpcStartSeqId: gap.StartSeqID - 1,
-		MaxRecords:     maxRecords,
-	}))
+	client := agentv1connect.NewAgentServiceClient(s.httpClient, buildAgentURL(agent))
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.EbpfGrpcMetric, error) {
+		resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
+			GrpcStartSeqId: start,
+			MaxRecords:     limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Msg.GrpcMetrics, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(resp.Msg.GrpcMetrics) > 0 {
-		return s.db.InsertBeylaGRPCMetrics(ctx, agent.AgentID, resp.Msg.GrpcMetrics)
-	}
-	return nil
+	return s.db.InsertBeylaGRPCMetrics(ctx, agent.AgentID, records)
 }
 
 // recoverBeylaSQL recovers missing Beyla SQL metrics.
 func (s *GapRecoveryService) recoverBeylaSQL(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetAgentClient(agent)
-	resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
-		SqlStartSeqId: gap.StartSeqID - 1,
-		MaxRecords:    maxRecords,
-	}))
+	client := agentv1connect.NewAgentServiceClient(s.httpClient, buildAgentURL(agent))
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.EbpfSqlMetric, error) {
+		resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
+			SqlStartSeqId: start,
+			MaxRecords:    limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Msg.SqlMetrics, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(resp.Msg.SqlMetrics) > 0 {
-		return s.db.InsertBeylaSQLMetrics(ctx, agent.AgentID, resp.Msg.SqlMetrics)
-	}
-	return nil
+	return s.db.InsertBeylaSQLMetrics(ctx, agent.AgentID, records)
 }
 
 // recoverBeylaTraces recovers missing Beyla trace spans.
 func (s *GapRecoveryService) recoverBeylaTraces(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetAgentClient(agent)
-	resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
-		TracesStartSeqId: gap.StartSeqID - 1,
-		MaxRecords:       maxRecords,
-		IncludeTraces:    true,
-	}))
+	client := agentv1connect.NewAgentServiceClient(s.httpClient, buildAgentURL(agent))
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.EbpfTraceSpan, error) {
+		resp, err := client.QueryEbpfMetrics(ctx, connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
+			TracesStartSeqId: start,
+			MaxRecords:       limit,
+			IncludeTraces:    true,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Msg.TraceSpans, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(resp.Msg.TraceSpans) > 0 {
-		return s.db.InsertBeylaTraces(ctx, agent.AgentID, resp.Msg.TraceSpans)
-	}
-	return nil
+	return s.db.InsertBeylaTraces(ctx, agent.AgentID, records)
 }
 
 // recoverCPUProfile recovers missing CPU profile samples.
 func (s *GapRecoveryService) recoverCPUProfile(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetDebugClient(nil, buildAgentURL(agent), connect.WithGRPC())
-	resp, err := client.QueryCPUProfileSamples(ctx, connect.NewRequest(&agentv1.QueryCPUProfileSamplesRequest{
-		StartSeqId: gap.StartSeqID - 1,
-		MaxRecords: maxRecords,
-	}))
+	client := GetDebugClient(s.httpClient, buildAgentURL(agent), connect.WithGRPC())
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.CPUProfileSample, error) {
+		resp, err := client.QueryCPUProfileSamples(ctx, connect.NewRequest(&agentv1.QueryCPUProfileSamplesRequest{
+			StartSeqId: start,
+			MaxRecords: limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		if resp.Msg.Error != "" {
+			return nil, fmt.Errorf("agent profile query failed: %s", resp.Msg.Error)
+		}
+		return resp.Msg.Samples, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if resp.Msg.Error != "" || len(resp.Msg.Samples) == 0 {
-		return nil
-	}
-
-	summaries := aggregateCPUProfileSamples(ctx, s.db, s.logger, agent.AgentID, resp.Msg.Samples)
+	summaries := aggregateCPUProfileSamples(ctx, s.db, s.logger, agent.AgentID, records)
 	if len(summaries) > 0 {
 		return s.db.InsertCPUProfileSummaries(ctx, summaries)
 	}
@@ -352,20 +413,25 @@ func (s *GapRecoveryService) recoverCPUProfile(ctx context.Context, agent *regis
 
 // recoverMemoryProfile recovers missing memory profile samples.
 func (s *GapRecoveryService) recoverMemoryProfile(ctx context.Context, agent *registry.Entry, gap *database.SequenceGap, maxRecords int32) error {
-	client := GetDebugClient(nil, buildAgentURL(agent), connect.WithGRPC())
-	resp, err := client.QueryMemoryProfileSamples(ctx, connect.NewRequest(&agentv1.QueryMemoryProfileSamplesRequest{
-		StartSeqId: gap.StartSeqID - 1,
-		MaxRecords: maxRecords,
-	}))
+	client := GetDebugClient(s.httpClient, buildAgentURL(agent), connect.WithGRPC())
+	records, err := queryGapRecords(ctx, gap, maxRecords, func(ctx context.Context, start uint64, limit int32) ([]*agentv1.MemoryProfileSample, error) {
+		resp, err := client.QueryMemoryProfileSamples(ctx, connect.NewRequest(&agentv1.QueryMemoryProfileSamplesRequest{
+			StartSeqId: start,
+			MaxRecords: limit,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		if resp.Msg.Error != "" {
+			return nil, fmt.Errorf("agent profile query failed: %s", resp.Msg.Error)
+		}
+		return resp.Msg.Samples, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	if resp.Msg.Error != "" || len(resp.Msg.Samples) == 0 {
-		return nil
-	}
-
-	summaries := aggregateMemoryProfileSamples(ctx, s.db, s.logger, agent.AgentID, resp.Msg.Samples)
+	summaries := aggregateMemoryProfileSamples(ctx, s.db, s.logger, agent.AgentID, records)
 	if len(summaries) > 0 {
 		return s.db.InsertMemoryProfileSummaries(ctx, summaries)
 	}
