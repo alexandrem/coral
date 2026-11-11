@@ -5,6 +5,7 @@ name: coral-e2e
 services:
   # Colony overrides - fast polling for tests
   colony:
+    image: coral-colony:e2e
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_PUBLIC_ENDPOINT=colony:51820
@@ -29,6 +30,7 @@ services:
 
   # Agent 0 overrides - fast heartbeat + fast memory profiling
   agent-0:
+    image: coral-agent:e2e
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
@@ -57,6 +59,7 @@ services:
 
   # Agent 1 overrides - fast heartbeat + memory-app ports + fast memory profiling
   agent-1:
+    image: coral-agent:e2e
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true

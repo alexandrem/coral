@@ -66,13 +66,13 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build production images
-        run: docker compose build colony agent-0 agent-1
+        run: cd tests/e2e/distributed && make build-production
         timeout-minutes: 15
         env:
           DOCKER_BUILDKIT: 1
 
       - name: Build E2E test apps
-        run: cd tests/e2e/distributed && make build
+        run: cd tests/e2e/distributed && make build-apps
         timeout-minutes: 15
         env:
           DOCKER_BUILDKIT: 1
@@ -81,7 +81,7 @@ jobs:
         run: uname -r
 
       - name: Start E2E services
-        run: cd tests/e2e/distributed && make local-up
+        run: cd tests/e2e/distributed && make local-up COMPOSE_UP_FLAGS=--no-build
 
       - name: Run E2E tests
         # The filter is passed through env rather than interpolated into the

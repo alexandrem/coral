@@ -7,6 +7,8 @@ help:
 	@echo "  make up                        - Start all services with docker compose"
 	@echo "  make down                      - Stop all services"
 	@echo "  make build                     - Build all container images"
+	@echo "  make build-production          - Build colony and shared agent images"
+	@echo "  make build-apps                - Build only E2E test application images"
 	@echo "  make test                      - Run all E2E tests (services must be running)"
 	@echo "  make test-filter FILTER=<name> - Run specific test group"
 	@echo "  make test-all                  - Build, start services, run tests, then cleanup"
@@ -29,11 +31,23 @@ help:
 PROJECT_ROOT=../../..
 COMPOSE_E2E=--project-directory $(PROJECT_ROOT) -f $(PROJECT_ROOT)/docker-compose.yml -f docker-compose.e2e.yml
 COMPOSE_E2E_LOCAL_DISCOVERY=$(COMPOSE_E2E) -f docker-compose.e2e-local-discovery.yml
+# CI starts prebuilt images and must not silently rebuild them.
+COMPOSE_UP_FLAGS?=
 
 .PHONY: build
 build:
 	@echo "Building container images with BuildKit..."
 	DOCKER_BUILDKIT=1 docker compose $(COMPOSE_E2E) build
+
+.PHONY: build-production
+build-production:
+	@echo "Building production container images with BuildKit..."
+	DOCKER_BUILDKIT=1 docker compose $(COMPOSE_E2E) build colony agent-0
+
+.PHONY: build-apps
+build-apps:
+	@echo "Building E2E test application images with BuildKit..."
+	DOCKER_BUILDKIT=1 docker compose $(COMPOSE_E2E) build cpu-app otel-app sdk-app memory-app worker-app netns-app
 
 .PHONY: up
 up:
@@ -125,7 +139,7 @@ local-build:
 .PHONY: local-up
 local-up:
 	@echo "Starting docker compose services with local discovery..."
-	docker compose $(COMPOSE_E2E_LOCAL_DISCOVERY) up -d
+	docker compose $(COMPOSE_E2E_LOCAL_DISCOVERY) up -d $(COMPOSE_UP_FLAGS)
 	@echo "✓ Services started (local discovery at localhost:18080)"
 
 .PHONY: local-down
