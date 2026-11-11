@@ -135,15 +135,23 @@ jobs:
           path: ~/go/bin
           key: ${{ steps.tools.outputs.cache-key }}
 
-      # ── Generated files cache (deno binaries + generated code) ──
+      # Cache only exact generator inputs; stale embedded binaries are unsafe.
       - name: Generated files cache key
         id: generated
+        shell: bash
+        env:
+          GENERATOR_HASH: >-
+            ${{ hashFiles('proto/**/*.proto', 'buf.yaml', 'buf.gen.yaml', 'buf.lock',
+                'Makefile', 'go.mod', 'go.sum', '.github/apt-packages.txt',
+                'scripts/download-deno.sh', 'scripts/download-beyla.sh',
+                'internal/**/generate.go', 'internal/agent/debug/uprobe.go',
+                'internal/agent/debug/cpu_profiler.go',
+                'internal/agent/**/*.c', 'internal/agent/**/*.h') }}
         run: |
-          # Invalidate generated output when any generator input or tool version changes.
-          DENO_VERSION=$(grep "DENO_VERSION=" scripts/download-deno.sh | cut -d= -f2 | tr -d '"' || echo "2.0.6")
-          PROTO_HASH=${{ hashFiles('proto/**/*.proto', 'scripts/download-deno.sh') }}
-          GENERATOR_HASH=${{ hashFiles('buf.yaml', 'buf.gen.yaml', 'Makefile', 'go.mod', 'go.sum') }}
-          echo "cache-key=generated-v3-${{ runner.os }}-${DENO_VERSION}-${PROTO_HASH}-${GENERATOR_HASH}" >> $GITHUB_OUTPUT
+          clang_version=$(clang --version)
+          llvm_version=$(llvm-strip --version)
+          toolchain_hash=$(printf '%s\n%s\n' "$clang_version" "$llvm_version" | sha256sum | cut -d ' ' -f 1)
+          echo "cache-key=generated-v4-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${toolchain_hash}-${GENERATOR_HASH}" >> "$GITHUB_OUTPUT"
 
       - name: Cache generated files
         id: cache-generated
@@ -151,15 +159,14 @@ jobs:
         with:
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
             coral/**/*.connect.go
           key: ${{ steps.generated.outputs.cache-key }}
-          restore-keys: |
-            generated-v3-${{ runner.os }}-
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -211,8 +218,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -297,8 +305,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -355,8 +364,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -429,8 +439,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
