@@ -78,6 +78,8 @@ Examples:
 			switch format {
 			case "json":
 				return printMemoryProfileJSON(resp.Msg)
+			case "svg":
+				return printMemoryProfileSVG(resp.Msg)
 			default:
 				printMemoryProfileFolded(resp.Msg)
 				return nil
@@ -88,7 +90,7 @@ Examples:
 	cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Service name (required)")
 	cmd.Flags().Int32VarP(&duration, "duration", "d", 30, "Profiling duration in seconds")
 	cmd.Flags().Int32Var(&sampleRate, "sample-rate", 512, "Sampling rate in KB (default: 512KB)")
-	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded, json")
+	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded, json, svg")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 

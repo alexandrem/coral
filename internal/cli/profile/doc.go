@@ -23,7 +23,7 @@
 // flame graphs showing where CPU time is being spent:
 //
 //	coral profile cpu --service api --duration 30
-//	coral profile cpu --service api --duration 30 | flamegraph.pl > cpu.svg
+//	coral profile cpu --service api --duration 30 --format svg > cpu.svg
 //
 // Key features:
 //   - Configurable sampling frequency (1-1000 Hz)
@@ -45,6 +45,7 @@
 //
 //   - folded: Folded stack format compatible with flamegraph.pl (default)
 //   - json: JSON format for programmatic processing
+//   - svg: Interactive SVG flame graph (no external tools required)
 //
 // Progress messages and metadata are written to stderr, while profile data
 // is written to stdout, enabling easy piping to visualization tools.

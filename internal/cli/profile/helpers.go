@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 
+	agentpb "github.com/coral-mesh/coral/coral/agent/v1"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/flamegraph"
 )
 
 // getColonyDebugClient returns a colony debug client.
@@ -43,6 +45,65 @@ func printCPUProfileFolded(profile *debugpb.ProfileCPUResponse) error {
 	}
 
 	return nil
+}
+
+// printCPUProfileSVG renders the profile as an interactive SVG flame graph.
+func printCPUProfileSVG(profile *debugpb.ProfileCPUResponse) error {
+	stacks := cpuSamplesToFolded(profile.Samples)
+	return flamegraph.Render(os.Stdout, stacks, flamegraph.Options{
+		Title:     "CPU Flame Graph",
+		CountName: "samples",
+		Colors:    flamegraph.PaletteHot,
+	})
+}
+
+// printMemoryProfileSVG renders the memory profile as an interactive SVG flame graph.
+func printMemoryProfileSVG(profile *debugpb.ProfileMemoryResponse) error {
+	stacks := memorySamplesToFolded(profile.Samples)
+	return flamegraph.Render(os.Stdout, stacks, flamegraph.Options{
+		Title:     "Memory Flame Graph",
+		CountName: "bytes",
+		Colors:    flamegraph.PaletteMem,
+	})
+}
+
+// cpuSamplesToFolded converts CPU stack samples to flamegraph FoldedStack format.
+func cpuSamplesToFolded(samples []*agentpb.StackSample) []flamegraph.FoldedStack {
+	stacks := make([]flamegraph.FoldedStack, 0, len(samples))
+	for _, s := range samples {
+		if len(s.FrameNames) == 0 {
+			continue
+		}
+		// Reverse frames: BPF captures innermost first, flamegraph expects root first.
+		frames := make([]string, len(s.FrameNames))
+		for i, f := range s.FrameNames {
+			frames[len(s.FrameNames)-1-i] = f
+		}
+		stacks = append(stacks, flamegraph.FoldedStack{
+			Frames: frames,
+			Value:  int64(s.Count),
+		})
+	}
+	return stacks
+}
+
+// memorySamplesToFolded converts memory stack samples to flamegraph FoldedStack format.
+func memorySamplesToFolded(samples []*agentpb.MemoryStackSample) []flamegraph.FoldedStack {
+	stacks := make([]flamegraph.FoldedStack, 0, len(samples))
+	for _, s := range samples {
+		if len(s.FrameNames) == 0 {
+			continue
+		}
+		frames := make([]string, len(s.FrameNames))
+		for i, f := range s.FrameNames {
+			frames[len(s.FrameNames)-1-i] = f
+		}
+		stacks = append(stacks, flamegraph.FoldedStack{
+			Frames: frames,
+			Value:  s.AllocBytes,
+		})
+	}
+	return stacks
 }
 
 // printCPUProfileJSON prints the profile in JSON format.
