@@ -313,7 +313,21 @@ func (m *ServiceMonitor) performLivenessCheck() {
 
 // checkHTTPHealth performs an HTTP health check.
 func (m *ServiceMonitor) checkHTTPHealth(ctx context.Context) error {
-	url := fmt.Sprintf("http://localhost:%d%s", m.service.Port, m.service.HealthEndpoint)
+	err := m.doHTTPCheck(ctx, "127.0.0.1")
+	if err == nil {
+		return nil
+	}
+
+	// Fall back to localhost in case the service binds only to IPv6 ([::1]) or requires Host: localhost.
+	if fbErr := m.doHTTPCheck(ctx, "localhost"); fbErr == nil {
+		return nil
+	}
+
+	return err
+}
+
+func (m *ServiceMonitor) doHTTPCheck(ctx context.Context, host string) error {
+	url := fmt.Sprintf("http://%s:%d%s", host, m.service.Port, m.service.HealthEndpoint)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -339,16 +353,23 @@ func (m *ServiceMonitor) checkHTTPHealth(ctx context.Context) error {
 
 // checkTCPHealth performs a TCP connectivity check.
 func (m *ServiceMonitor) checkTCPHealth(ctx context.Context) error {
-	address := fmt.Sprintf("localhost:%d", m.service.Port)
-
 	var d net.Dialer
+	address := fmt.Sprintf("127.0.0.1:%d", m.service.Port)
 	conn, err := d.DialContext(ctx, "tcp", address)
-	if err != nil {
-		return fmt.Errorf("tcp connection failed: %w", err)
+	if err == nil {
+		_ = conn.Close()
+		return nil
 	}
-	defer func() { _ = conn.Close() }() // TODO: errcheck
 
-	return nil
+	// Fallback to localhost if 127.0.0.1 fails (e.g. IPv6-only listener).
+	fallbackAddr := fmt.Sprintf("localhost:%d", m.service.Port)
+	fbConn, fbErr := d.DialContext(ctx, "tcp", fallbackAddr)
+	if fbErr == nil {
+		_ = fbConn.Close()
+		return nil
+	}
+
+	return fmt.Errorf("tcp connection failed: %w", err)
 }
 
 // SetSdkCapabilities updates the SDK capabilities for the service.
