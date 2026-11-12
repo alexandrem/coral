@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,4 +148,30 @@ func TestExportUnknownColonyDoesNotCreateCA(t *testing.T) {
 	require.NoError(t, err)
 	_, err = os.Stat(loader.ColonyDir("env"))
 	require.True(t, os.IsNotExist(err))
+}
+
+type failingExportWriter struct {
+	err error
+}
+
+func (w failingExportWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+func TestExportPropagatesOutputError(t *testing.T) {
+	colonyID, _, _ := setupExportColony(t)
+	writeErr := errors.New("output unavailable")
+
+	for _, format := range []string{"env", "yaml", "json", "k8s"} {
+		t.Run(format, func(t *testing.T) {
+			cmd := newExportCmd()
+			cmd.SetOut(failingExportWriter{err: writeErr})
+			cmd.SetArgs([]string{colonyID, "--format", format})
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
+			err := cmd.Execute()
+			require.ErrorIs(t, err, writeErr)
+			require.ErrorContains(t, err, "failed to write agent enrollment credentials")
+		})
+	}
 }

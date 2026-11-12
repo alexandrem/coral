@@ -77,27 +77,29 @@ Keep these credentials secure and do not commit to version control.`,
 			status := manager.GetStatus()
 			caFingerprint := "sha256:" + status.RootCA.Fingerprint
 
-			out := cmd.OutOrStdout()
+			var output string
 			switch format {
 			case "env":
-				fmt.Fprintln(out, "# Coral Agent Enrollment Credentials")
-				fmt.Fprintf(out, "# Generated: %s\n", time.Now().Format("2006-01-02 15:04:05"))
-				fmt.Fprintln(out, "# SECURITY: Keep these credentials secure. Do not commit to version control.")
-				fmt.Fprintln(out)
-				fmt.Fprintf(out, "export CORAL_COLONY_ID=\"%s\"\n", cfg.ColonyID)
-				fmt.Fprintf(out, "export CORAL_CA_FINGERPRINT=\"%s\"\n", caFingerprint)
-				fmt.Fprintf(out, "export CORAL_DISCOVERY_ENDPOINT=\"%s\"\n", cfg.DiscoveryURL)
-				fmt.Fprintf(out, "export CORAL_BOOTSTRAP_PSK=\"%s\"\n", bootstrapPSK)
-				fmt.Fprintln(out)
-				fmt.Fprintln(out, "# To deploy agents:")
-				fmt.Fprintf(out, "#   eval \"$(coral colony export %s)\"\n", colonyID)
+				output = fmt.Sprintf(`# Coral Agent Enrollment Credentials
+# Generated: %s
+# SECURITY: Keep these credentials secure. Do not commit to version control.
+
+export CORAL_COLONY_ID="%s"
+export CORAL_CA_FINGERPRINT="%s"
+export CORAL_DISCOVERY_ENDPOINT="%s"
+export CORAL_BOOTSTRAP_PSK="%s"
+
+# To deploy agents:
+#   eval "$(coral colony export %s)"
+`, time.Now().Format("2006-01-02 15:04:05"), cfg.ColonyID, caFingerprint, cfg.DiscoveryURL, bootstrapPSK, colonyID)
 
 			case "yaml":
-				fmt.Fprintln(out, "# Coral Agent Enrollment Credentials (YAML)")
-				fmt.Fprintf(out, "colony_id: %s\n", cfg.ColonyID)
-				fmt.Fprintf(out, "ca_fingerprint: %s\n", caFingerprint)
-				fmt.Fprintf(out, "discovery_endpoint: %s\n", cfg.DiscoveryURL)
-				fmt.Fprintf(out, "bootstrap_psk: %s\n", bootstrapPSK)
+				output = fmt.Sprintf(`# Coral Agent Enrollment Credentials (YAML)
+colony_id: %s
+ca_fingerprint: %s
+discovery_endpoint: %s
+bootstrap_psk: %s
+`, cfg.ColonyID, caFingerprint, cfg.DiscoveryURL, bootstrapPSK)
 
 			case "json":
 				data := map[string]string{
@@ -106,26 +108,31 @@ Keep these credentials secure and do not commit to version control.`,
 					"discovery_endpoint": cfg.DiscoveryURL,
 					"bootstrap_psk":      bootstrapPSK,
 				}
-				output, err := json.MarshalIndent(data, "", "  ")
+				encoded, err := json.MarshalIndent(data, "", "  ")
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(out, string(output))
+				output = string(encoded) + "\n"
 
 			case "k8s":
-				fmt.Fprintln(out, "apiVersion: v1")
-				fmt.Fprintln(out, "kind: Secret")
-				fmt.Fprintln(out, "metadata:")
-				fmt.Fprintf(out, "  name: coral-secrets\n")
-				fmt.Fprintln(out, "type: Opaque")
-				fmt.Fprintln(out, "stringData:")
-				fmt.Fprintf(out, "  colony-id: %s\n", cfg.ColonyID)
-				fmt.Fprintf(out, "  ca-fingerprint: %s\n", caFingerprint)
-				fmt.Fprintf(out, "  discovery-endpoint: %s\n", cfg.DiscoveryURL)
-				fmt.Fprintf(out, "  bootstrap-psk: %s\n", bootstrapPSK)
+				output = fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: coral-secrets
+type: Opaque
+stringData:
+  colony-id: %s
+  ca-fingerprint: %s
+  discovery-endpoint: %s
+  bootstrap-psk: %s
+`, cfg.ColonyID, caFingerprint, cfg.DiscoveryURL, bootstrapPSK)
 
 			default:
 				return fmt.Errorf("unknown format: %s (supported: env, yaml, json, k8s)", format)
+			}
+
+			if _, err := fmt.Fprint(cmd.OutOrStdout(), output); err != nil {
+				return fmt.Errorf("failed to write agent enrollment credentials: %w", err)
 			}
 
 			return nil
