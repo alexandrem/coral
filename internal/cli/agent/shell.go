@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -178,6 +179,15 @@ func openShellStream(
 			},
 		},
 	}); err != nil {
+		// Connect reports a closed send side as EOF. Read the response to
+		// recover the underlying transport or server error before closing.
+		if errors.Is(err, io.EOF) {
+			if _, recvErr := stream.Receive(); recvErr != nil && !errors.Is(recvErr, io.EOF) {
+				err = recvErr
+			}
+		}
+		_ = stream.CloseRequest()
+		_ = stream.CloseResponse()
 		return nil, fmt.Errorf("failed to start shell: %w", err)
 	}
 	return stream, nil
