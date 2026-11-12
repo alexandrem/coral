@@ -16,9 +16,13 @@ func newExportCmd() *cobra.Command {
 	var format string
 
 	cmd := &cobra.Command{
-		Use:   "export <colony-id>",
-		Short: "Export colony credentials",
-		Long: `Export colony credentials for deployment to remote systems.
+		Use:   "export [colony-id]",
+		Short: "Export agent enrollment credentials",
+		Long: `Export the colony ID, CA fingerprint, discovery endpoint, and active bootstrap
+PSK needed to provision agents on remote systems.
+
+Defaults to the current colony when no colony ID is supplied.
+Select the output format with --format (for example, coral colony export --format env).
 
 Supported formats:
   env  - Shell environment variables (default)
@@ -26,11 +30,33 @@ Supported formats:
   json - JSON format
   k8s  - Kubernetes Secret manifest
 
-Security Warning: These credentials provide full access to the colony.
-Keep them secure and do not commit to version control.`,
-		Args: cobra.ExactArgs(1),
+Security Warning: The bootstrap PSK authorizes new agents to join the colony.
+Keep these credentials secure and do not commit to version control.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			colonyID := args[0]
+			if err := helpers.ValidateFormat(format, []helpers.OutputFormat{"env", "yaml", "json", "k8s"}); err != nil {
+				return err
+			}
+
+			resolver, err := config.NewResolver()
+			if err != nil {
+				return fmt.Errorf("failed to create config resolver: %w", err)
+			}
+			var colonyID string
+			if len(args) == 1 {
+				colonyID = args[0]
+			} else {
+				colonyID, err = resolver.ResolveColonyID()
+				if err != nil {
+					return err
+				}
+			}
+
+			// Export requires a configured colony; do not let the config-less
+			// fallback create a CA for an unknown ID against the project database.
+			if _, err := resolver.GetLoader().LoadColonyConfig(colonyID); err != nil {
+				return fmt.Errorf("failed to load colony %q: %w", colonyID, err)
+			}
 
 			// Get CA manager and configuration (RFD 048).
 			manager, db, cfg, err := helpers.GetCAManager(colonyID)
@@ -39,59 +65,74 @@ Keep them secure and do not commit to version control.`,
 			}
 			defer db.Close() // nolint:errcheck
 
+			ctx := cmd.Context()
+			if err := manager.ImportPSKFromFile(ctx); err != nil {
+				return fmt.Errorf("failed to import bootstrap PSK: %w", err)
+			}
+			bootstrapPSK, err := manager.GetActivePSK(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get active bootstrap PSK for colony %q: %w", colonyID, err)
+			}
+
 			status := manager.GetStatus()
 			caFingerprint := "sha256:" + status.RootCA.Fingerprint
 
+			var output string
 			switch format {
 			case "env":
-				fmt.Println("# Coral Colony Credentials")
-				fmt.Printf("# Generated: %s\n", time.Now().Format("2006-01-02 15:04:05"))
-				fmt.Println("# SECURITY: Keep these credentials secure. Do not commit to version control.")
-				fmt.Println()
-				fmt.Printf("export CORAL_COLONY_ID=\"%s\"\n", cfg.ColonyID)
-				fmt.Printf("export CORAL_CA_FINGERPRINT=\"%s\"\n", caFingerprint)
-				fmt.Printf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"\n", cfg.DiscoveryURL)
-				fmt.Println()
-				fmt.Println("# To deploy agents:")
-				fmt.Printf("#   eval $(coral colony export %s)\n", colonyID)
-				fmt.Println()
-				fmt.Println("# To connect CLI users (share colony ID + CA fingerprint):")
-				fmt.Printf("#   coral colony add-remote <name> \\\n")
-				fmt.Println("#       --from-discovery \\")
-				fmt.Printf("#       --colony-id %s \\\n", cfg.ColonyID)
-				fmt.Printf("#       --ca-fingerprint %s\n", caFingerprint)
+				output = fmt.Sprintf(`# Coral Agent Enrollment Credentials
+# Generated: %s
+# SECURITY: Keep these credentials secure. Do not commit to version control.
+
+export CORAL_COLONY_ID="%s"
+export CORAL_CA_FINGERPRINT="%s"
+export CORAL_DISCOVERY_ENDPOINT="%s"
+export CORAL_BOOTSTRAP_PSK="%s"
+
+# To deploy agents:
+#   eval "$(coral colony export %s)"
+`, time.Now().Format("2006-01-02 15:04:05"), cfg.ColonyID, caFingerprint, cfg.DiscoveryURL, bootstrapPSK, colonyID)
 
 			case "yaml":
-				fmt.Println("# Coral Colony Credentials (YAML)")
-				fmt.Printf("colony_id: %s\n", cfg.ColonyID)
-				fmt.Printf("ca_fingerprint: %s\n", caFingerprint)
-				fmt.Printf("discovery_endpoint: %s\n", cfg.DiscoveryURL)
+				output = fmt.Sprintf(`# Coral Agent Enrollment Credentials (YAML)
+colony_id: %s
+ca_fingerprint: %s
+discovery_endpoint: %s
+bootstrap_psk: %s
+`, cfg.ColonyID, caFingerprint, cfg.DiscoveryURL, bootstrapPSK)
 
 			case "json":
 				data := map[string]string{
 					"colony_id":          cfg.ColonyID,
 					"ca_fingerprint":     caFingerprint,
 					"discovery_endpoint": cfg.DiscoveryURL,
+					"bootstrap_psk":      bootstrapPSK,
 				}
-				output, err := json.MarshalIndent(data, "", "  ")
+				encoded, err := json.MarshalIndent(data, "", "  ")
 				if err != nil {
 					return err
 				}
-				fmt.Println(string(output))
+				output = string(encoded) + "\n"
 
 			case "k8s":
-				fmt.Println("apiVersion: v1")
-				fmt.Println("kind: Secret")
-				fmt.Println("metadata:")
-				fmt.Printf("  name: coral-secrets\n")
-				fmt.Println("type: Opaque")
-				fmt.Println("stringData:")
-				fmt.Printf("  colony-id: %s\n", cfg.ColonyID)
-				fmt.Printf("  ca-fingerprint: %s\n", caFingerprint)
-				fmt.Printf("  discovery-endpoint: %s\n", cfg.DiscoveryURL)
+				output = fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: coral-secrets
+type: Opaque
+stringData:
+  colony-id: %s
+  ca-fingerprint: %s
+  discovery-endpoint: %s
+  bootstrap-psk: %s
+`, cfg.ColonyID, caFingerprint, cfg.DiscoveryURL, bootstrapPSK)
 
 			default:
 				return fmt.Errorf("unknown format: %s (supported: env, yaml, json, k8s)", format)
+			}
+
+			if _, err := fmt.Fprint(cmd.OutOrStdout(), output); err != nil {
+				return fmt.Errorf("failed to write agent enrollment credentials: %w", err)
 			}
 
 			return nil

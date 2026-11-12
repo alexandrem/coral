@@ -78,6 +78,14 @@ identity and a valid certificate signed by the Colony's Root CA.
 
 ### Bootstrapping an Agent
 
+Run `coral colony export [colony-id]` on the colony host to export a complete
+agent enrollment bundle: colony ID, CA fingerprint, discovery endpoint, and the
+current active bootstrap PSK. The default format is shell environment variables;
+`--format yaml`, `--format json`, and `--format k8s` are also supported. Omit the
+colony ID to use the current colony; use `--format env` to explicitly select
+shell output.
+Keep the exported bundle secret: its PSK authorizes new agents to join the colony.
+
 The bootstrap process uses a "trust-on-first-use" model validated by the Colony's
 Root CA fingerprint.
 
@@ -392,7 +400,9 @@ coral colony status
 **Option 3: Discovery Mode (Recommended for Teams)**
 
 Use Discovery Service to automatically fetch endpoint and CA certificate. Get
-credentials from colony owner (`coral colony export`):
+the colony ID and CA fingerprint from the colony owner. The owner can retrieve
+the fingerprint with `coral colony ca status`; CLI users authenticate with an
+API token:
 
 ```bash
 # Connect using Discovery (TOFU security via fingerprint verification)
