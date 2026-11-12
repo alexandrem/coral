@@ -1627,7 +1627,7 @@ Colony administrators can provide connection details that users import:
 
 ```bash
 # Using Discovery Mode (Recommended - RFD 085)
-# Get colony-id and ca-fingerprint from colony owner (coral colony export)
+# Get colony-id and ca-fingerprint from the colony owner (coral colony ca status)
 coral colony add-remote prod-remote \
     --from-discovery \
     --colony-id my-app-prod-a3f2e1 \
