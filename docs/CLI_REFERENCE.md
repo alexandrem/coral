@@ -158,6 +158,21 @@ coral services watch api:8080 --agent agent-1 --colony production
 # --colony selects the registry used to resolve --agent (also on coral connect).
 # watch requires --agent with --colony; otherwise it targets the local agent.
 # --format, --source, and --local apply only to service listing.
+
+# Fleet selection (values within a filter are ORed; different filters are ANDed)
+coral colony agents --status degraded,unhealthy --sort last-seen
+coral colony agents --service payments --runtime docker --version v1.2.3
+coral colony agents --wide                      # Full IDs, addresses, service names
+coral colony agents --status unhealthy -o json  # Same selection in structured output
+coral services --name payments,api --sort=-instances
+coral services --sort last-seen --wide           # Oldest first, all agent IDs
+coral services --local --name api --sort port
+
+# Agent sorts: id (default), status (problems first), last-seen (oldest first),
+# runtime, version. Prefix a sort with - to reverse. Versions match exactly
+# and sort lexically. Runtime values: native,docker,k8s-sidecar,k8s-daemonset,unknown.
+# Services default to name order; colony sorts also include instances,last-seen;
+# agent sorts also include port,pid. Compact colony output shows two agent IDs.
 coral services watch frontend:3000
 coral services watch api:8080:/health:http
 coral services watch frontend:3000 api:8080:/health redis:6379
