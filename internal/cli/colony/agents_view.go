@@ -12,34 +12,25 @@ import (
 	"github.com/spf13/cobra"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/cli/fleet"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 type agentListOptions struct {
-	statuses, services, runtimes, versions []string
-	sortBy                                 string
-	wide                                   bool
+	selector fleet.Selector
+	sortBy   string
+	wide     bool
 }
 
 func (o *agentListOptions) addFlags(cmd *cobra.Command) {
-	cmd.Flags().StringSliceVar(&o.statuses, "status", nil, "Filter heartbeat status: healthy,degraded,unhealthy (comma-separated)")
-	cmd.Flags().StringSliceVar(&o.services, "service", nil, "Filter by exact service name (comma-separated)")
-	cmd.Flags().StringSliceVar(&o.runtimes, "runtime", nil, "Filter runtime: native,docker,k8s-sidecar,k8s-daemonset,unknown (comma-separated)")
-	cmd.Flags().StringSliceVar(&o.versions, "version", nil, "Filter by exact agent version (comma-separated)")
+	o.selector.AddFlags(cmd)
 	cmd.Flags().StringVar(&o.sortBy, "sort", "id", "Sort by id,status,last-seen,runtime,version; prefix with - to reverse")
 	cmd.Flags().BoolVar(&o.wide, "wide", false, "Show mesh addresses and full service lists")
 }
 
 func (o *agentListOptions) validate() error {
-	for _, status := range o.statuses {
-		if !matches([]string{"healthy", "degraded", "unhealthy"}, status) {
-			return fmt.Errorf("invalid status %q (must be healthy, degraded, or unhealthy)", status)
-		}
-	}
-	for _, runtime := range o.runtimes {
-		if !matches([]string{"native", "docker", "k8s-sidecar", "k8s-daemonset", "unknown"}, runtime) {
-			return fmt.Errorf("invalid runtime %q", runtime)
-		}
+	if err := o.selector.Validate(); err != nil {
+		return err
 	}
 	if !matches([]string{"id", "status", "last-seen", "runtime", "version"}, strings.TrimPrefix(o.sortBy, "-")) {
 		return fmt.Errorf("invalid sort %q (must be id, status, last-seen, runtime, or version)", o.sortBy)
@@ -59,26 +50,10 @@ func matches(values []string, value string) bool {
 	return false
 }
 
-func agentRuntime(agent *colonyv1.Agent) string {
-	name := agent.GetRuntimeContext().GetRuntimeType().String()
-	return strings.ReplaceAll(strings.ToLower(strings.TrimPrefix(name, "RUNTIME_CONTEXT_")), "_", "-")
-}
+func agentRuntime(agent *colonyv1.Agent) string { return fleet.Runtime(agent) }
 
 func (o *agentListOptions) selectAgents(agents []*colonyv1.Agent) []*colonyv1.Agent {
-	selected := make([]*colonyv1.Agent, 0, len(agents))
-	for _, agent := range agents {
-		if !matches(o.statuses, agent.Status) || !matches(o.runtimes, agentRuntime(agent)) || !matches(o.versions, agent.GetRuntimeContext().GetVersion()) {
-			continue
-		}
-		serviceMatch := len(o.services) == 0
-		for _, service := range agent.Services {
-			serviceMatch = serviceMatch || matches(o.services, service.Name)
-		}
-		if !serviceMatch {
-			continue
-		}
-		selected = append(selected, agent)
-	}
+	selected := o.selector.Select(agents)
 	sort.Slice(selected, func(i, j int) bool {
 		a, b := selected[i], selected[j]
 		comparison := 0

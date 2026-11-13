@@ -11,6 +11,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/cli/fleet"
 )
 
 func TestSelectAgents(t *testing.T) {
@@ -26,12 +27,12 @@ func TestSelectAgents(t *testing.T) {
 		ids     []string
 	}{
 		{"default stable order", agentListOptions{sortBy: "id"}, []string{"api-new", "api-old", "legacy"}},
-		{"OR statuses, AND other filters", agentListOptions{statuses: []string{"healthy", "degraded"}, services: []string{"api"}, runtimes: []string{"docker"}, versions: []string{"v1"}, sortBy: "id"}, []string{"api-old"}},
+		{"OR statuses, AND other filters", agentListOptions{selector: fleet.Selector{Statuses: []string{"healthy", "degraded"}, Services: []string{"api"}, Runtimes: []string{"docker"}, Versions: []string{"v1"}}, sortBy: "id"}, []string{"api-old"}},
 		{"oldest heartbeat first", agentListOptions{sortBy: "last-seen"}, []string{"legacy", "api-old", "api-new"}},
 		{"reverse heartbeat", agentListOptions{sortBy: "-last-seen"}, []string{"api-new", "api-old", "legacy"}},
 		{"problems first", agentListOptions{sortBy: "status"}, []string{"legacy", "api-old", "api-new"}},
-		{"unknown runtime", agentListOptions{runtimes: []string{"unknown"}, sortBy: "id"}, []string{"legacy"}},
-		{"no matches", agentListOptions{services: []string{"missing"}, sortBy: "id"}, []string{}},
+		{"unknown runtime", agentListOptions{selector: fleet.Selector{Runtimes: []string{"unknown"}}, sortBy: "id"}, []string{"legacy"}},
+		{"no matches", agentListOptions{selector: fleet.Selector{Services: []string{"missing"}}, sortBy: "id"}, []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

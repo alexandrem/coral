@@ -488,6 +488,14 @@ coral services --since 24h                       # Telemetry discovery window (d
 coral status --verbose                          # Includes failure reasons and endpoints
 coral status --format json                      # Separate unreachable/unknown counts
 
+# Bulk operations share agent selectors and versioned JSON result reports.
+coral mesh ping --service payments --dry-run
+coral mesh audit --status degraded,unhealthy --concurrency 4 --report audit.json
+coral services watch api:8080:/health --service payments --dry-run
+coral services watch api:8080:/health --service payments --report watch.json -o json
+coral services watch --retry-failed watch.json -o json
+# See FLEET.md for retries, partial failures, and the result schema.
+
 # Service telemetry summary
 coral query summary [service] [--since <duration>]
 

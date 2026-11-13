@@ -11,6 +11,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
+	"github.com/coral-mesh/coral/internal/cli/fleet"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
@@ -29,10 +30,11 @@ func NewConnectCmd() *cobra.Command {
 		agent      string
 		colony     string
 		wait       bool
+		bulk       fleet.Options
 	)
 
 	cmd := &cobra.Command{
-		Use:   "connect <service-spec>...",
+		Use:   "connect [service-spec...]",
 		Short: "Connect one or more services",
 		Long: `Connect a running Coral agent to observe services or application components.
 
@@ -75,15 +77,26 @@ Note:
   - Services are added to the agent dynamically without restart
   - Use --wait in interactive sessions to see immediate health status
   - Omit --wait in init containers where services start after connection`,
-		Args: cobra.MinimumNArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 && bulk.RetryFailed != "" {
+				return nil
+			}
+			return cobra.MinimumNArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			if colony != "" && agent == "" {
-				return fmt.Errorf("--colony requires --agent; omit --colony to target a local agent or an explicit --agent-url")
-			}
 
 			// Parse service specifications
-			serviceSpecs, err := parseServiceSpecsWithLegacySupport(args, port, healthURL, exePattern)
+			var serviceSpecs []*types.ServiceSpec
+			var err error
+			if len(args) == 0 && bulk.RetryFailed != "" {
+				if port != 0 || healthURL != "" || exePattern != "" {
+					return fmt.Errorf("service overrides require explicit service specifications")
+				}
+				serviceSpecs, err = watchSpecsFromReport(bulk.RetryFailed)
+			} else {
+				serviceSpecs, err = parseServiceSpecsWithLegacySupport(args, port, healthURL, exePattern)
+			}
 			if err != nil {
 				return err
 			}
@@ -91,6 +104,28 @@ Note:
 			// Validate service specs
 			if err := types.ValidateServiceSpecs(serviceSpecs); err != nil {
 				return fmt.Errorf("invalid service configuration: %w", err)
+			}
+
+			if bulkWatchRequested(cmd, bulk) {
+				if agentAddr != "" {
+					return fmt.Errorf("fleet observation cannot be combined with --agent-url")
+				}
+				if wait {
+					return fmt.Errorf("--wait is not supported with fleet observation; inspect service check results separately")
+				}
+				if agent != "" {
+					if bulk.Selector.HasFilters() || bulk.All || bulk.RetryFailed != "" {
+						return fmt.Errorf("--agent cannot be combined with fleet selectors, --all, or --retry-failed")
+					}
+					bulk.Selector.IDs = []string{agent}
+				}
+				if !bulk.Selector.HasFilters() && !bulk.All && bulk.RetryFailed == "" {
+					return fmt.Errorf("fleet observation requires --agent, --agents, a target filter, --all, or --retry-failed")
+				}
+				return runBulkWatch(cmd, &bulk, colony, serviceSpecs)
+			}
+			if colony != "" && agent == "" {
+				return fmt.Errorf("--colony requires --agent or fleet selectors; omit it for local observation")
 			}
 
 			// RFD 044: Agent ID resolution via colony registry.
@@ -273,6 +308,7 @@ Note:
 	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
 	helpers.AddColonyFlag(cmd, &colony)
+	bulk.AddFlags(cmd)
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for initial health checks and display status (recommended for interactive use)")
 
 	return cmd

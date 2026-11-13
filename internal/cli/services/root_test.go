@@ -24,7 +24,7 @@ func execute(cmd *cobra.Command, args ...string) error {
 	return cmd.Execute()
 }
 
-func TestServiceCommandRejectsUnusedOptions(t *testing.T) {
+func TestServiceCommandRejectsInvalidOptions(t *testing.T) {
 	for _, args := range [][]string{
 		{"watch", "api:8080", "--format", "json"},
 		{"watch", "api:8080", "--local"},
