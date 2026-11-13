@@ -153,26 +153,6 @@ Since RFD 103, the agent observes every process on the host by default — no
 ```bash
 # Connect agent to services dynamically after startup (triggers eBPF restart)
 coral services watch <service-spec>...
-coral services watch api:8080 --agent agent-1 --colony production
-
-# --colony selects the registry used to resolve --agent (also on coral connect).
-# watch requires --agent with --colony; otherwise it targets the local agent.
-# --format, --source, and --local apply only to service listing.
-
-# Fleet selection (values within a filter are ORed; different filters are ANDed)
-coral colony agents --status degraded,unhealthy --sort last-seen
-coral colony agents --service payments --runtime docker --version v1.2.3
-coral colony agents --wide                      # Full IDs, addresses, service names
-coral colony agents --status unhealthy -o json  # Same selection in structured output
-coral services --name payments,api --sort=-instances
-coral services --sort last-seen --wide           # Oldest first, all agent IDs
-coral services --local --name api --sort port
-
-# Agent sorts: id (default), status (problems first), last-seen (oldest first),
-# runtime, version. Prefix a sort with - to reverse. Versions match exactly
-# and sort lexically. Runtime values: native,docker,k8s-sidecar,k8s-daemonset,unknown.
-# Services default to name order; colony sorts also include instances,last-seen;
-# agent sorts also include port,pid. Compact colony output shows two agent IDs.
 coral services watch frontend:3000
 coral services watch api:8080:/health:http
 coral services watch frontend:3000 api:8080:/health redis:6379
@@ -467,6 +447,46 @@ interface. They're designed for:
 # Service management and discovery
 coral services [--agent <id> | --local] [--source auto|watched]
 coral services watch <service-spec>...
+coral services watch api:8080 --agent agent-1 --colony production
+
+# --colony selects the registry used to resolve --agent (also on coral connect).
+# watch requires --agent with --colony; otherwise it targets the local agent.
+# --format, --source, and --local apply only to service listing.
+
+# Fleet selection (values within a filter are ORed; different filters are ANDed)
+coral colony agents --status degraded,unhealthy --sort last-seen
+coral colony agents --service payments --runtime docker --version v1.2.3
+coral colony agents --wide                      # Full IDs, addresses, service names
+coral colony agents --status unhealthy -o json  # Same selection in structured output
+coral services --name payments,api --sort=-instances
+coral services --sort last-seen --wide           # Oldest first, all agent IDs
+coral services --local --name api --sort port
+coral services --since 24h                       # Telemetry discovery window (default 1h)
+
+# Agent sorts: id (default), status (problems first), last-seen (oldest first),
+# runtime, version. Prefix a sort with - to reverse. Versions match exactly
+# and sort lexically. Runtime values: native,docker,k8s-sidecar,k8s-daemonset,unknown.
+# Services default to name order; colony sorts also include instances,last-seen;
+# agent sorts also include port,pid. Compact colony output shows two agent IDs.
+# --since affects telemetry discovery only; registered services remain listed.
+# It is rejected for --local and --agent scopes.
+
+# Reading fleet health:
+# HEARTBEAT / LAST HEARTBEAT: agent liveness, independent of service checks.
+# HEALTH CHECK / CHECKS: explicit check results; not-configured means no monitor.
+# LAST CHECK: age of the oldest result contributing to the check summary.
+# LAST SEEN: registry heartbeat (registered services), or telemetry activity.
+# SERVICE DATA / DATA: live, cached, mixed, telemetry, or unknown.
+# Live service snapshots retain their original check timestamps. Cached data
+# and older Colonies without check metadata produce unknown health, never healthy.
+# JSON includes service check counts, snapshot provenance, and fallback warnings.
+# Registration status in service JSON is separate from the health field.
+
+# Global status uses each Colony's configured endpoint, TLS trust, and API token.
+# Failed requests are unreachable; invalid config or wrong-Colony responses are
+# unknown. Connection failures never imply that a Colony has stopped.
+coral status --verbose                          # Includes failure reasons and endpoints
+coral status --format json                      # Separate unreachable/unknown counts
 
 # Service telemetry summary
 coral query summary [service] [--since <duration>]

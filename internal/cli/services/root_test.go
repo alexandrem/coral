@@ -35,6 +35,10 @@ func TestServiceCommandRejectsUnusedOptions(t *testing.T) {
 		{"list", "--local", "--colony", "prod"},
 		{"status"},
 		{"list", "unexpected"},
+		{"--since", "0s"},
+		{"--since", "invalid"},
+		{"--local", "--since", "24h"},
+		{"--agent", "remote", "--since", "24h"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			require.Error(t, execute(NewCmd(), args...))

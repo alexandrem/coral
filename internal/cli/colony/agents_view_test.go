@@ -50,7 +50,7 @@ func TestSelectAgents(t *testing.T) {
 func TestAgentTableKeepsCopyableIDs(t *testing.T) {
 	agents := []*colonyv1.Agent{{AgentId: "production-us-east-api-instance-123456789", Status: "healthy", MeshIpv4: "10.42.0.15", Services: []*meshv1.ServiceInfo{{Name: "payments"}}}}
 	var output bytes.Buffer
-	outputAgentSummary(&output, agents, 1)
+	require.NoError(t, outputAgentSummary(&output, agents, 1))
 	require.NoError(t, outputAgentsTable(&output, agents, false))
 	require.Contains(t, output.String(), agents[0].AgentId)
 	require.Contains(t, output.String(), "1 healthy")

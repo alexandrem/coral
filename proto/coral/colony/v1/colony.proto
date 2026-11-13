@@ -173,6 +173,18 @@ message Agent {
 
   // NEW: Runtime context (RFD 018).
   coral.agent.v1.RuntimeContextResponse runtime_context = 8;
+
+  // Live service check results. Empty when only cached registration is available.
+  repeated coral.agent.v1.ServiceStatus service_statuses = 9;
+
+  // When the live service snapshot was fetched; unset for cached registration.
+  google.protobuf.Timestamp services_observed_at = 10;
+
+  // "live" or "cached". An empty value from older Colonies means unknown.
+  string services_source = 11;
+
+  // Why live service data is unavailable. Does not change heartbeat status.
+  string services_error = 12;
 }
 
 message GetTopologyRequest {}

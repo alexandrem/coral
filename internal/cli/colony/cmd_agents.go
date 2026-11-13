@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -27,12 +28,13 @@ func newAgentsCmd() *cobra.Command {
 		Use:   "agents",
 		Short: "List registered agents",
 		Args:  cobra.NoArgs,
-		Long: `Display all agents currently connected to the colony.
+		Long: `Display registered agents, including agents with stale or missing heartbeats.
 
 This command queries the running colony to retrieve real-time agent information including:
 - Agent ID and component name
 - Mesh IP addresses (IPv4 and IPv6)
-- Connection status (healthy, degraded, unhealthy)
+- Heartbeat status (healthy, degraded, unhealthy), independent of service health
+- Service check results and live/cached data source
 - Last seen timestamp
 - Runtime context (with --verbose)
 
@@ -64,7 +66,9 @@ Note: The colony must be running for this command to work.`,
 				return err
 			}
 			if verbose && format == string(helpers.FormatTable) {
-				fmt.Fprintf(cmd.OutOrStdout(), "Connected to colony at: %s\n\n", endpoint)
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Connected to colony at: %s\n\n", endpoint); err != nil {
+					return err
+				}
 			}
 
 			// Call ListAgents RPC
@@ -90,7 +94,14 @@ Note: The colony must be running for this command to work.`,
 				return formatter.Format(agents, cmd.OutOrStdout())
 			}
 
-			outputAgentSummary(cmd.OutOrStdout(), resp.Msg.Agents, len(agents))
+			for _, agent := range agents {
+				if agent.ServicesError != "" {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s uses cached service registration: %s\n", agent.AgentId, agent.ServicesError)
+				}
+			}
+			if err := outputAgentSummary(cmd.OutOrStdout(), resp.Msg.Agents, len(agents)); err != nil {
+				return err
+			}
 			if len(agents) == 0 {
 				return nil
 			}
@@ -116,42 +127,52 @@ Note: The colony must be running for this command to work.`,
 
 // outputAgentsVerbose outputs agents in verbose format with full runtime context.
 func outputAgentsVerbose(out io.Writer, agents []*colonyv1.Agent) error {
-	fmt.Fprintf(out, "Connected Agents (%d):\n\n", len(agents))
+	var output strings.Builder
+	_, _ = fmt.Fprintf(&output, "Connected Agents (%d):\n\n", len(agents))
 
 	for i, agent := range agents {
 		if i > 0 {
-			fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(&output)
 		}
 
-		fmt.Fprintf(out, "┌─ %s ", agent.AgentId)
+		_, _ = fmt.Fprintf(&output, "┌─ %s ", agent.AgentId)
 		for j := 0; j < 50-len(agent.AgentId); j++ {
-			fmt.Fprint(out, "─")
+			_, _ = fmt.Fprint(&output, "─")
 		}
-		fmt.Fprintln(out, "┐")
+		_, _ = fmt.Fprintln(&output, "┐")
 
 		//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
-		fmt.Fprintf(out, "│ Component:  %-45s│\n", agent.ComponentName)
-		fmt.Fprintf(out, "│ Status:     %-45s│\n", formatAgentStatus(agent))
-		fmt.Fprintf(out, "│ Mesh IP:    %-45s│\n", agent.MeshIpv4)
-		fmt.Fprintln(out, "│                                                                │")
+		_, _ = fmt.Fprintf(&output, "│ Component:  %-45s│\n", agent.ComponentName)
+		_, _ = fmt.Fprintf(&output, "│ Heartbeat:  %-45s│\n", formatAgentStatus(agent))
+		_, _ = fmt.Fprintf(&output, "│ Mesh IP:    %-45s│\n", agent.MeshIpv4)
+		source := agent.ServicesSource
+		if source == "" {
+			source = "unknown"
+		}
+		checks := helpers.AgentChecks(agent.ServiceStatuses, len(agent.Services), source)
+		_, _ = fmt.Fprintf(&output, "│ Checks:     %-45s│\n", checks.Status())
+		_, _ = fmt.Fprintf(&output, "│ Last check: %-45s│\n", helpers.FormatAge(checks.LastCheck, time.Now()))
+		_, _ = fmt.Fprintf(&output, "│ Data:       %-45s│\n", source)
+		_, _ = fmt.Fprintf(&output, "│ Observed:   %-45s│\n", helpers.FormatAge(agent.ServicesObservedAt, time.Now()))
+		_, _ = fmt.Fprintln(&output, "│                                                                │")
 
 		if agent.RuntimeContext != nil {
 			rc := agent.RuntimeContext
-			fmt.Fprintf(out, "│ Runtime:    %-45s│\n", formatRuntimeTypeShort(rc.RuntimeType))
+			_, _ = fmt.Fprintf(&output, "│ Runtime:    %-45s│\n", formatRuntimeTypeShort(rc.RuntimeType))
 			if rc.SidecarMode != agentv1.SidecarMode_SIDECAR_MODE_UNKNOWN {
-				fmt.Fprintf(out, "│ Mode:       %-45s│\n", formatSidecarModeShort(rc.SidecarMode))
+				_, _ = fmt.Fprintf(&output, "│ Mode:       %-45s│\n", formatSidecarModeShort(rc.SidecarMode))
 			}
 			if rc.Platform != nil {
-				fmt.Fprintf(out, "│ Platform:   %s (%s) %-27s│\n", rc.Platform.Os, rc.Platform.Arch, "")
+				_, _ = fmt.Fprintf(&output, "│ Platform:   %s (%s) %-27s│\n", rc.Platform.Os, rc.Platform.Arch, "")
 			}
 			if rc.CriSocket != nil {
-				fmt.Fprintf(out, "│ CRI:        %-45s│\n", rc.CriSocket.Type)
+				_, _ = fmt.Fprintf(&output, "│ CRI:        %-45s│\n", rc.CriSocket.Type)
 			}
-			fmt.Fprintln(out, "│                                                                │")
+			_, _ = fmt.Fprintln(&output, "│                                                                │")
 
 			// Capabilities
-			fmt.Fprintln(out, "│ Capabilities:                                                  │")
-			fmt.Fprintf(out, "│   %s connect  %s exec  %s shell  %s run                    │\n",
+			_, _ = fmt.Fprintln(&output, "│ Capabilities:                                                  │")
+			_, _ = fmt.Fprintf(&output, "│   %s connect  %s exec  %s shell  %s run                    │\n",
 				formatCapabilitySymbol(rc.GetCapabilities().GetCanConnect()),
 				formatCapabilitySymbol(rc.GetCapabilities().GetCanExec()),
 				formatCapabilitySymbol(rc.GetCapabilities().GetCanShell()),
@@ -159,39 +180,40 @@ func outputAgentsVerbose(out io.Writer, agents []*colonyv1.Agent) error {
 
 			// Linux Capabilities (if available)
 			if rc.Capabilities != nil && rc.Capabilities.LinuxCapabilities != nil {
-				fmt.Fprintln(out, "│                                                                │")
-				fmt.Fprintln(out, "│ Linux Capabilities:                                            │")
+				_, _ = fmt.Fprintln(&output, "│                                                                │")
+				_, _ = fmt.Fprintln(&output, "│ Linux Capabilities:                                            │")
 				linuxCaps := rc.Capabilities.LinuxCapabilities
 
 				// Show BPF/eBPF capabilities (most important for eBPF operations)
-				fmt.Fprintf(out, "│   %s CAP_BPF        %s CAP_PERFMON      %s CAP_SYSLOG      │\n",
+				_, _ = fmt.Fprintf(&output, "│   %s CAP_BPF        %s CAP_PERFMON      %s CAP_SYSLOG      │\n",
 					formatCapabilitySymbol(linuxCaps.CapBpf),
 					formatCapabilitySymbol(linuxCaps.CapPerfmon),
 					formatCapabilitySymbol(linuxCaps.CapSyslog))
 
 				// Show core required capabilities
-				fmt.Fprintf(out, "│   %s CAP_NET_ADMIN  %s CAP_SYS_PTRACE  %s CAP_SYS_RESOURCE │\n",
+				_, _ = fmt.Fprintf(&output, "│   %s CAP_NET_ADMIN  %s CAP_SYS_PTRACE  %s CAP_SYS_RESOURCE │\n",
 					formatCapabilitySymbol(linuxCaps.CapNetAdmin),
 					formatCapabilitySymbol(linuxCaps.CapSysPtrace),
 					formatCapabilitySymbol(linuxCaps.CapSysResource))
 
 				// Show CAP_SYS_ADMIN separately (optional - needed for nsenter)
-				fmt.Fprintf(out, "│   %s CAP_SYS_ADMIN (nsenter exec + older kernel fallback)   │\n",
+				_, _ = fmt.Fprintf(&output, "│   %s CAP_SYS_ADMIN (nsenter exec + older kernel fallback)   │\n",
 					formatCapabilitySymbol(linuxCaps.CapSysAdmin))
 			}
-			fmt.Fprintln(out, "│                                                                │")
+			_, _ = fmt.Fprintln(&output, "│                                                                │")
 
 			// Visibility
 			if rc.Visibility != nil {
-				fmt.Fprintf(out, "│ Visibility: %-45s│\n", formatVisibilityShort(rc.Visibility))
+				_, _ = fmt.Fprintf(&output, "│ Visibility: %-45s│\n", formatVisibilityShort(rc.Visibility))
 			}
 		} else {
-			fmt.Fprintln(out, "│ Runtime:    Unknown (legacy agent)                            │")
+			_, _ = fmt.Fprintln(&output, "│ Runtime:    Unknown (legacy agent)                            │")
 		}
 
-		fmt.Fprintln(out, "└────────────────────────────────────────────────────────────────┘")
+		_, _ = fmt.Fprintln(&output, "└────────────────────────────────────────────────────────────────┘")
 	}
 
-	fmt.Fprintln(out)
-	return nil
+	_, _ = fmt.Fprintln(&output)
+	_, err := io.WriteString(out, output.String())
+	return err
 }

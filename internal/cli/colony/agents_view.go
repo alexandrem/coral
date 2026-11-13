@@ -116,31 +116,46 @@ func statusPriority(status string) int {
 	}
 }
 
-func outputAgentSummary(out io.Writer, agents []*colonyv1.Agent, selected int) {
+func outputAgentSummary(out io.Writer, agents []*colonyv1.Agent, selected int) error {
 	counts := map[string]int{}
 	for _, agent := range agents {
 		counts[agent.Status]++
 	}
-	fmt.Fprintf(out, "Agents: %d registered (%d healthy, %d degraded, %d unhealthy); %d shown\n\n", len(agents), counts["healthy"], counts["degraded"], counts["unhealthy"], selected)
+	_, err := fmt.Fprintf(out, "Agents: %d registered (heartbeat: %d healthy, %d degraded, %d unhealthy); %d shown\n\n", len(agents), counts["healthy"], counts["degraded"], counts["unhealthy"], selected)
+	return err
 }
 
 func outputAgentsTable(out io.Writer, agents []*colonyv1.Agent, wide bool) error {
 	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-	header := "AGENT ID\tSERVICES\tRUNTIME\tVERSION\tSTATUS\tLAST SEEN"
+	header := "AGENT ID\tSERVICES\tRUNTIME\tVERSION\tHEARTBEAT\tLAST HEARTBEAT\tCHECKS\tLAST CHECK\tSERVICE DATA"
 	if wide {
 		header += "\tMESH IP\tSERVICE NAMES"
 	}
-	fmt.Fprintln(w, header)
+	if _, err := fmt.Fprintln(w, header); err != nil {
+		return err
+	}
 	for _, agent := range agents {
 		version := agent.GetRuntimeContext().GetVersion()
 		if version == "" {
 			version = "-"
 		}
 		row := []string{agent.AgentId, strconv.Itoa(len(agent.Services)), agentRuntime(agent), version, agent.Status, helpers.FormatAge(agent.LastSeen, time.Now())}
+		source := agent.ServicesSource
+		if source == "" {
+			source = "unknown"
+		}
+		checks := helpers.AgentChecks(agent.ServiceStatuses, len(agent.Services), source)
+		data := source
+		if source == "live" {
+			data += " (" + helpers.FormatAge(agent.ServicesObservedAt, time.Now()) + ")"
+		}
+		row = append(row, checks.Status(), helpers.FormatAge(checks.LastCheck, time.Now()), data)
 		if wide {
 			row = append(row, agent.MeshIpv4, formatServicesList(agent.Services))
 		}
-		fmt.Fprintln(w, strings.Join(row, "\t"))
+		if _, err := fmt.Fprintln(w, strings.Join(row, "\t")); err != nil {
+			return err
+		}
 	}
 	return w.Flush()
 }
