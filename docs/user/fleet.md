@@ -1,136 +1,217 @@
 # Fleet Operations
 
-Agent inspection, mesh diagnostics, and bulk observation use the same selectors:
-`--agents`, `--status`, `--service`, `--runtime`, and `--version`. Values within a
-selector are ORed; different selectors are ANDed. Names and versions match exactly.
-`--status` refers to agent heartbeats, independently of service health checks.
+Use fleet operations to check mesh connectivity or add the same service watches
+across several agents. Select the agents, preview the operation, then save a
+report so you can inspect failures and retry the affected targets. Each agent
+receives its own result; a failure on one agent does not stop the others.
+
+## Prepare access to the Colony and agents
+
+Run these commands from an operator workstation or operations host with the
+Coral CLI and a configured connection to a running Colony. Complete
+[your first Colony](getting-started.md) if you have not enrolled agents, or
+[configure remote access](configuration.md#connect-a-remote-workstation) for an
+existing deployment. Remote HTTPS access requires the Colony's API token and
+trusted CA information.
+
+Mesh ping and audit run through the Colony. Fleet service watches contact the
+agents directly, so the CLI host must also have a route to their mesh addresses
+and access to the agent API on TCP port 9001. HTTPS access to the Colony alone
+does not provide that route.
+
+Replace `<colony-id>` with your Colony ID throughout this guide. The examples
+select agents already associated with a service named `payments` and running
+in Docker; adapt those filters to your inventory.
+
+## Select and preview the agents
+
+1. Inspect the agents you intend to operate on:
+
+   ```sh
+   coral colony agents --colony '<colony-id>' --service payments --runtime docker
+   ```
+
+   Both filters must match: each selected agent has a service named `payments`
+   and the `docker` runtime. To include several service names, use a
+   comma-separated value such as `--service payments,api`; an agent matching
+   either name qualifies. Names and versions match exactly. The same selectors
+   work for agent inventory, mesh diagnostics, and fleet watches.
+
+   Use `--status degraded,unhealthy` when investigating missed agent heartbeats.
+   Heartbeat status describes agent liveness independently of service health
+   checks. See [services and health](services.md#read-health-and-freshness-separately)
+   to interpret the inventory.
+
+2. Preview the operation with the same filters:
+
+   ```sh
+   coral mesh ping --colony '<colony-id>' \
+     --service payments --runtime docker --dry-run
+   ```
+
+   Check the Colony ID, target IDs, and parameters in the output. Registered
+   targets appear as `planned`, with zero attempts. A dry run reads inventory
+   without sending pings, auditing endpoints, or registering services. An empty
+   filtered inventory means you should check the names and filters; a filtered
+   bulk operation fails when nothing matches.
+
+Each invocation fixes its target IDs before execution. A later command,
+including the command after a preview, resolves the filters again. Use
+`--agents '<agent-id-1>,<agent-id-2>'` when you need to select exact identities.
+An explicitly selected ID missing from the registry is reported as a failed
+target.
+
+For a whole-Colony operation, replace the filters with `--all`. It cannot be
+combined with filters. Mesh ping and audit also target all registered agents
+when you omit selectors; fleet watches require an explicit selection or
+`--all`.
+
+## Check mesh connectivity
+
+After reviewing the preview, run ping and save its results:
 
 ```sh
-coral colony agents --service payments --runtime docker
-coral mesh ping --service payments --runtime docker --dry-run
-coral mesh audit --service payments --runtime docker --format json
+coral mesh ping --colony '<colony-id>' \
+  --service payments --runtime docker --report ping.json
 ```
 
-`mesh ping` and `mesh audit` target all registered agents when no selector is
-provided. A positional agent ID still selects one agent. `--all` explicitly selects
-the entire colony and cannot be combined with filters. Filtered operations fail
-when nothing matches. An explicitly named agent that has disappeared is reported
-as a failed target; it is never replaced by another agent.
+Read each target's status, packet loss, average round-trip time, and error. Ping
+tests encrypted UDP echo through the mesh. A target fails if it receives no
+reply, packet loss exceeds 50%, or the request fails. A successful ping confirms
+mesh reachability for that test; inspect service health separately.
 
-## Watch services across selected agents
-
-Use the existing service specification syntax to register the same observations on
-selected agents. Start with a preview:
+If connectivity fails or behaves inconsistently, audit the same selection:
 
 ```sh
-coral services watch api:8080:/health redis:6379 \
-  --colony production --service payments --dry-run
-
-coral services watch api:8080:/health redis:6379 \
-  --colony production --service payments \
-  --concurrency 4 --retries 2 --report watch.json --format json
-
-# Explicitly target every registered agent.
-coral services watch api:8080:/health --colony production --all --dry-run
-
-# A single agent can use the same reports and previews.
-coral services watch api:8080:/health --agent agent-1 --dry-run --format json
+coral mesh audit --colony '<colony-id>' \
+  --service payments --runtime docker --report audit.json
 ```
 
-Fleet observation requires an explicit target selection or `--all`. Local watch
-and the existing single-agent command retain their usual behavior. Adding a bulk
-option such as `--dry-run`, `--report`, or `--format` selects the fleet workflow.
-`coral connect` supports the same flags as a permanent alias. `--agent-url` and
-`--wait` belong to the existing direct/single-agent workflow.
+Compare handshake freshness and the endpoints reported by the agent and
+observed by the Colony. NAT classifications such as `symmetric` are findings;
+an audit can succeed while reporting them. Request failures and an inability
+to assess an agent fail that target. Use the
+[mesh troubleshooting procedure](troubleshooting.md#mesh-traffic-fails-after-enrollment)
+to interpret classifications and check keys, routes, and UDP reachability.
 
-A matching authoritative registration returns `unchanged`. A conflicting name,
-port, process pattern, or health configuration is reported as a per-service failure.
-Bulk watch does not infer that ConnectService's existing AlreadyExists response
-means the requested configuration was updated. Successful registrations are kept
-when another service on the same agent fails.
+To allow retries for transient failures, add `--retries 2`. Successful targets
+are not repeated. If you increase ping count or per-ping `--timeout`, increase
+`--request-timeout` enough to cover the whole attempt for one agent. Reduce
+`--concurrency` when you need fewer simultaneous target operations. Defaults
+and limits are in the [CLI reference](../CLI_REFERENCE.md#fleet-selection-and-reports).
 
-Mesh diagnostics run through the Colony. Observation uses the current direct
-agent API, so the CLI must be able to reach the selected agents' mesh addresses.
+## Register and verify service watches
 
-## Execution and partial failures
+A watch adds an explicit service name and optional health check on each selected
+agent. In this example, the agents running `payments` also host an API listening
+on port 8080 with a `/health` endpoint. Confirm the service specification is
+appropriate for every target before registering it. For other specification
+forms, see [adding a watch](services.md#add-an-explicit-watch).
 
-All bulk commands resolve and pin agent IDs before beginning their operation.
-`--dry-run` performs inventory reads and prints the target set and operation
-parameters; it performs no ping, audit, or service registration.
+1. Preview the registrations:
 
-`--concurrency` limits concurrent target operations (default 8, range 1–128).
-`--request-timeout` bounds each target attempt (default 10s, maximum 5m).
-For ping, `--timeout` bounds each individual ping; set the request timeout high
-enough for the chosen count and per-ping timeout.
+   ```sh
+   coral services watch api:8080:/health --colony '<colony-id>' \
+     --service payments --runtime docker --dry-run
+   ```
 
-`--retries` enables up to 10 retries per failed target (default 0) for transient
-errors such as unavailability, request timeouts, and resource exhaustion.
-Successful targets are not repeated. Bulk observation retains successful service
-steps within a failed target. Permission errors and configuration conflicts do
-not trigger automatic retries. If the first registration response is lost, a
-matching live registration is recognized on retry.
+   Check the target IDs and service parameters. Fleet watch uses the same
+   selectors as mesh diagnostics. You can supply several service specifications
+   when every selected agent needs the same watches.
 
-Every target receives a result, including queued targets canceled by Ctrl+C.
-Results are printed and saved before the command returns a nonzero exit status
-for any failed or canceled target. Other targets continue after an individual
-failure. Ping targets fail when no response arrives or packet loss exceeds 50%.
-Audit NAT classifications remain findings in the data; RPC and assessment errors
-fail the target.
+2. Register the watches and save a report:
 
-## Save results and retry failed targets
+   ```sh
+   coral services watch api:8080:/health --colony '<colony-id>' \
+     --service payments --runtime docker \
+     --concurrency 4 --retries 2 --report watch.json
+   ```
 
-`--report` writes a JSON report atomically, with owner-only permissions. An
-unusable report destination is rejected before operations begin. The same report
-is printed to stdout with `--format json`; progress and the CLI error message use
-stderr, keeping stdout valid JSON on partial failure.
+   This changes the agents' service registrations and can trigger a managed
+   Beyla restart. A matching existing watch returns `unchanged`; a new watch
+   returns `connected`. Conflicting names, ports, process patterns, or health
+   settings fail instead of updating the existing configuration. Successful
+   watches remain registered even when another watch on the same agent fails.
+
+3. Inspect each selected agent's current watched inventory. Replace `<agent-id>`
+   with an ID from the report:
+
+   ```sh
+   coral services list --colony '<colony-id>' \
+     --agent '<agent-id>' --source watched
+   ```
+
+   Confirm the service name and port, then inspect `HEALTH CHECK` and
+   `LAST CHECK`. Registration success alone does not establish service health.
+   Fleet watch does not support `--wait`; inspect the inventory again after
+   the agent has performed its checks. Use `--format json` on this inventory
+   command to inspect the health endpoint and other registration details.
+
+To use previews and reports for one agent, select it explicitly:
 
 ```sh
-coral mesh ping --service payments --report ping.json
-coral mesh ping --retry-failed ping.json --report ping-retry.json --format json
-
-coral services watch --retry-failed watch.json --report watch-retry.json --format json
+coral services watch api:8080:/health --colony '<colony-id>' \
+  --agent '<agent-id>' --dry-run
 ```
 
-`--retry-failed` takes only failed/canceled agent IDs from the saved report. It
-uses that report's colony and resolves those same identities in the current
-registry, without re-evaluating the original filters. It cannot be combined with
-new selectors or `--all`. Omitted operation parameters are restored from the
-report. Explicit service specifications or ping settings must match the original
-parameters; an explicitly different colony is rejected. Dry-run reports cannot be retried.
-Each retry report describes the targets of that retry, rather than duplicating
-successful results from the previous run.
+Adding `--dry-run`, `--report`, or `--format` selects the fleet workflow even
+for one agent, so it requires an explicit target. For local watches or direct
+agent URLs, follow [services and health](services.md); `--agent-url` cannot be
+combined with fleet operations.
 
-## JSON contract
+## Inspect failures and retry affected targets
 
-Ping, audit, and fleet watch share a versioned envelope:
+The commands above save JSON reports while printing a table. Add `--format json`
+to print the report to stdout instead. Progress and command errors use stderr,
+so operation results remain valid JSON even when some targets fail.
 
-```json
-{
-  "version": 1,
-  "operation": "mesh ping",
-  "colony_id": "production",
-  "parameters": {"count": 4, "timeout": "2s"},
-  "dry_run": false,
-  "started_at": "2026-11-12T18:00:00Z",
-  "finished_at": "2026-11-12T18:00:01Z",
-  "summary": {"total": 2, "succeeded": 1, "failed": 1, "canceled": 0, "planned": 0},
-  "results": [
-    {"agent_id": "agent-1", "status": "succeeded", "attempts": 1, "data": {}},
-    {"agent_id": "agent-2", "status": "failed", "attempts": 1,
-     "error_code": "unavailable", "error": "unavailable: no replies"}
-  ]
-}
-```
+If any target fails or is canceled, the command prints its results and attempts
+to save the report before returning a nonzero exit status. Ctrl+C also records
+queued targets as canceled. Successful operations remain in place.
 
-Result status is `planned`, `succeeded`, `failed`, or `canceled`. `attempts` counts
-attempts in the current invocation. `data` contains the native ping/audit result,
-or a `services` array containing each registration's name, status, and error.
-Registered services use `connected` or `unchanged`; failed services retain their
-error and whether it is transient. Target results are ordered by full agent ID.
+1. Open `ping.json`, `audit.json`, or `watch.json` and inspect `summary` and
+   `results`. If you have `jq`, list failed or canceled targets with:
 
-Agent inventory keeps its existing JSON array. Mesh audit JSON now uses the shared
-envelope: scripts that previously read the result array directly should use
-`.results[].data`.
+   ```sh
+   jq '.results[] | select(.status == "failed" or .status == "canceled") |
+     {agent_id, status, error_code, error, data}' ping.json
+   ```
 
-See [services and health](services.md) for inventory interpretation and the
-[CLI reference](../CLI_REFERENCE.md) for all command options.
+   For watch reports, `data.services` records each service's registration status
+   and error. This lets you distinguish a failed target with some completed
+   watches from one where no watch succeeded.
+
+2. Resolve the reported cause before retrying. For mesh failures, follow
+   [mesh troubleshooting](troubleshooting.md#mesh-traffic-fails-after-enrollment).
+   If ping works but watch cannot reach an agent, check the CLI host's route to
+   the agent mesh address and access to TCP port 9001. For a registration
+   conflict, inspect that agent's watched inventory and correct its service
+   configuration. Permission errors and configuration conflicts do not trigger
+   automatic retries.
+
+3. Retry the failed or canceled targets, saving a separate report:
+
+   ```sh
+   coral mesh ping --retry-failed ping.json --report ping-retry.json
+   coral services watch --retry-failed watch.json --report watch-retry.json
+   ```
+
+   Run the command corresponding to the report you saved; audit reports use
+   `coral mesh audit --retry-failed audit.json`. The report restores the Colony
+   and operation parameters. Retry selects the original failed or canceled IDs
+   without reapplying the filters. It retains successful service steps within
+   failed agents. If a registration reply was lost, a matching live watch is
+   recognized on retry.
+
+   You cannot combine retry with new selectors or `--all`, change the original
+   service specifications or ping settings, or select a different Colony.
+   Dry-run reports cannot be retried.
+
+4. Check the retry summary and remaining errors. Each retry report contains
+   only that invocation's targets. For watches, verify the affected agents'
+   inventory and health checks again as described above.
+
+The [CLI reference](../CLI_REFERENCE.md#fleet-selection-and-reports) describes
+report fields and storage behavior. Mesh diagnostic details are under
+`.results[].data`; agent inventory JSON remains an array. Scripts that consumed
+the older mesh audit array must use the report envelope.

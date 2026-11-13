@@ -1561,7 +1561,50 @@ timestamps, `summary`, and ordered `results`. Target status is `planned`,
 canceled IDs from a saved report; it cannot combine with new selectors or
 `--all`. Omitted operation parameters are restored from the report; conflicting
 parameters or a different Colony are rejected. Dry-run reports cannot be retried.
-See [fleet operations](user/fleet.md) for the complete report example and workflow.
+
+`--report` saves JSON atomically with owner-only permissions. An unusable report
+destination is rejected before operations begin. `--format json` prints the
+same report to stdout; progress and command errors use stderr. Failed or canceled
+targets cause a nonzero exit status after results are printed and the report
+save is attempted. Successful targets are not rolled back.
+
+### Fleet report format
+
+Ping, audit, and fleet watch share a version 1 envelope. This structural example
+shows a partial failure; operation-specific `data` fields are omitted:
+
+```json
+{
+  "version": 1,
+  "operation": "mesh ping",
+  "colony_id": "production",
+  "parameters": {"count": 4, "timeout": "2s"},
+  "dry_run": false,
+  "started_at": "2026-11-12T18:00:00Z",
+  "finished_at": "2026-11-12T18:00:01Z",
+  "summary": {"total": 2, "succeeded": 1, "failed": 1, "canceled": 0, "planned": 0},
+  "results": [
+    {"agent_id": "agent-1", "status": "succeeded", "attempts": 1},
+    {"agent_id": "agent-2", "status": "failed", "attempts": 1,
+     "error_code": "unavailable", "error": "unavailable: no replies"}
+  ]
+}
+```
+
+Results are ordered by full agent ID. `attempts` counts attempts in the current
+invocation. Optional fields include `error_code`, `error`, a human-readable
+`message`, and operation-specific `data`:
+
+- Ping and audit store their native diagnostic result in `data`.
+- Fleet watch stores a `data.services` array with each registration's `name`
+  and `status` (`connected`, `unchanged`, or `failed`). Failed services retain
+  their `error` and a `retryable` flag when the error is transient.
+
+Agent inventory JSON remains an array. Scripts that read the former mesh audit
+result array must instead read `.results[].data` from the shared envelope.
+
+See [fleet operations](user/fleet.md) for selection, verification, and recovery
+procedures.
 
 ## Compatibility names
 
