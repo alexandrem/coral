@@ -74,7 +74,7 @@ standard OTLP metric receipt alone does not establish that same storage path.
 [Data ownership](data-ownership.md) distinguishes the retained streams from
 memory buffers. [Telemetry polling](telemetry-polling.md) explains how stored
 span sequences are consumed by the Colony. User-facing setup lives in
-[OTLP ingestion](../OTLP_INGESTION.md).
+[OTLP ingestion](../user/instrumentation.md).
 
 ## Design history
 

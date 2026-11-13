@@ -1,885 +1,1660 @@
-# Coral CLI Quick Reference
+# coral(1) — Command-Line Reference
 
-**See also:**
+## Name
 
-- [CLI.md](./CLI.md) - Detailed examples, concepts, and troubleshooting
-- [CLI_MCP_MAPPING.md](./CLI_MCP_MAPPING.md) - CLI to MCP tool mapping for
-  AI/LLM integration
+`coral` — inspect and debug applications through a Coral Colony and its agents.
 
----
+## Synopsis
 
-## Global Flags & Options
-
-### Output Format
-
-All commands that produce output support the `--format` / `-o` flag:
-
-```bash
---format <format>    # Output format: table (default), json, csv, yaml
--o <format>          # Short form
+```text
+coral [--verbose] COMMAND [SUBCOMMAND] [ARGUMENTS] [OPTIONS]
+coral COMMAND --help
 ```
 
-**Supported formats:**
+This is the single command manual for the full CLI. For installation and
+end-to-end workflows, start with the [user guide](user/README.md).
+Command and option entries below follow the registered Cobra command tree in
+this checkout. Descriptions are qualified where a handler is incomplete.
+Use the help supplied with your installed version when it differs from this
+checkout.
 
-- `table` - Human-readable tabular output (default)
-- `json` - JSON format for programmatic consumption
-- `csv` - CSV format for spreadsheet import (where applicable)
-- `yaml` - YAML format (where applicable)
+Angle brackets indicate required values; square brackets indicate optional
+arguments. Duration values such as `30s` differ from integer seconds accepted
+by some profiling options. Options apply to their listed command, except for
+inherited global options. Required flags are marked in the option table.
+Defaults shown as `empty` are unset; environment-backed options can obtain a
+value at startup. Slice options accept comma-separated values; array options
+such as `exec --env` can be repeated.
 
-**Examples:**
+## Global options
 
-```bash
-coral colony list --format json
-coral colony status -o yaml
-coral config get-contexts --format table
+| Option | Meaning |
+| --- | --- |
+| `--help`, `-h` | Show help for the selected command |
+| `--verbose`, `-v` | Verbose output; individual commands may define their own verbose behavior |
+
+`--colony` and `--format` are **command-specific**, not global flags. Their
+availability, shorthand, accepted values, and defaults differ. In particular,
+`duckdb --colony` selects the Colony database with a boolean; it does not take
+an ID. Commands without `--format` cannot be forced to emit JSON by adding it.
+
+## Command index
+
+- [`coral agent`](#coral-agent) — Manage Coral agents
+- [`coral ask`](#coral-ask) — Ask questions about your application using AI
+- [`coral colony`](#coral-colony) — Manage the Coral colony (central brain)
+- [`coral completion`](#coral-completion) — Generate the autocompletion script for the specified shell
+- [`coral config`](#coral-config) — Manage Coral configuration
+- [`coral debug`](#coral-debug) — Debug running services
+- [`coral duckdb`](#coral-duckdb) — Query agent DuckDB databases remotely
+- [`coral exec`](#coral-exec) — Execute command in a service's container
+- [`coral help`](#coral-help) — Help about any command
+- [`coral init`](#coral-init) — Initialize a new Coral colony
+- [`coral mcp`](#coral-mcp) — Integrate Coral with MCP clients
+- [`coral mesh`](#coral-mesh) — Manage and troubleshoot the Coral control mesh
+- [`coral profile`](#coral-profile) — Collect performance profiles on-demand
+- [`coral proxy`](#coral-proxy) — Manage local proxy for colony access
+- [`coral query`](#coral-query) — Query observability data (metrics, traces, logs, profiles)
+- [`coral run`](#coral-run) — Execute TypeScript script with Deno
+- [`coral script`](#coral-script) — Manage investigation scripts
+- [`coral services`](#coral-services) — List and manage services
+- [`coral shell`](#coral-shell) — Open interactive shell or execute command in agent environment
+- [`coral status`](#coral-status) — Show global Coral environment status
+- [`coral terminal`](#coral-terminal) — Launch the mission-control TUI
+- [`coral version`](#coral-version) — Show version information
+
+## Commands
+
+### coral agent
+
+Manage Coral agents.
+
+```text
+coral agent [flags]
 ```
 
-### Verbose Output
+Server-only `coral-agent` exposes the agent children directly, for example `coral-agent start`. It does not expose the operator query, shell, or scripting groups.
 
-Global verbose flag available to all commands:
+#### coral agent bootstrap
 
-```bash
---verbose    # Show additional details
--v           # Short form
+Bootstrap agent certificate for mTLS authentication.
+
+```text
+coral agent bootstrap [flags]
 ```
 
-### Colony Selection
+Requires a Colony ID, trusted CA fingerprint, and valid Bootstrap PSK for initial enrollment. These can also come from the corresponding environment variables. Standalone bootstrap does not perform startup network discovery; supply a reverse-dial endpoint explicitly when needed. Certificate issuance alone does not establish a matching mesh enrollment checkpoint.
 
-Standard colony ID parameter across all commands:
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (default: auto-generated) |
+| `--bootstrap-listen-port` | int | `0` | Local port for the rendezvous listener (default: 8444) |
+| `--bootstrap-public-endpoint` | string | empty | This agent's dialable ip:port, used for PSK-encrypted rendezvous bootstrap when the colony has no inbound connectivity |
+| `--certs-dir` | string | empty | Directory for storing certificates |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--discovery` | string | `https://discovery.coralmesh.dev` | Discovery service URL |
+| `--fingerprint` | string | empty | Expected Root CA fingerprint (sha256:hex) |
+| `--force` | bool | `false` | Force re-bootstrap even if certificate exists |
+| `--psk` | string | empty | Bootstrap pre-shared key (coral-psk:hex) |
+| `--verify-bootstrap-reachability` | bool | `false` | Ask Discovery to TCP-probe --bootstrap-public-endpoint before accepting the rendezvous publish (opt-in, quota-limited diagnostic, not a guarantee) |
 
-```bash
---colony <id>    # Specify colony ID (overrides auto-detection)
--c <id>          # Short form
+#### coral agent cert
+
+Manage agent certificates.
+
+```text
+coral agent cert [flags]
 ```
 
----
+##### coral agent cert renew
 
-## Setup & Configuration
+Renew agent certificate.
 
-```bash
-# Initialize
-coral init <colony-name>
-
-# Configuration management
-coral config get-contexts [--format <format>]
-coral config current-context [--verbose]
-coral config use-context <colony-id>
-coral config view [--colony <id>] [--raw]
-coral config validate [--format <format>]
-coral config delete-context <colony-id>
-
-# Version
-coral version
+```text
+coral agent cert renew [flags]
 ```
 
----
+Direct `--colony-endpoint` renewal uses the existing mTLS identity. Without it, the command can use Discovery/bootstrap configuration. Use the same certificate directory and account as the service.
 
-## Colony & Agent Management
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--certs-dir` | string | empty | Directory containing certificates |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--colony-endpoint` | string | empty | Colony HTTPS endpoint for direct mTLS renewal |
+| `--discovery` | string | empty | Discovery service URL (fallback) |
+| `--fingerprint` | string | empty | Expected Root CA fingerprint |
+| `--force` | bool | `false` | Force renewal even if not near expiry |
+| `--psk` | string | empty | Bootstrap pre-shared key (fallback to bootstrap) |
 
-```bash
-# Colony (central coordinator)
-coral colony start [--daemon] [--port <port>] [--config <file>]
-coral colony status [--format <format>]
-coral colony stop
+##### coral agent cert status
 
-# Agent (local observer)
-coral agent start [--config <file>] [--colony <id>] [--no-monitor-all]
-coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...> [--agent <id>] [--discovery <url>] [--force] [--bootstrap-public-endpoint <host:port>] [--bootstrap-listen-port <port>] [--verify-bootstrap-reachability]
-coral agent cert status [--certs-dir <path>]
-coral agent cert renew --colony-endpoint <url> [--fingerprint <sha256:hex>] [--force]
-coral agent status [--format <format>]
-coral agent stop
+Display certificate status.
 
-# Agent identity commands:
-#   Bootstrap identity:   coral agent bootstrap --colony my-colony --fingerprint sha256:a3b2c1... --psk coral-psk:f1e2...
-#   Show cert status:     coral agent cert status
-#   Manual renewal:       coral agent cert renew --colony-endpoint https://colony:9000
-
-# Agent startup modes (RFD 103 - default-on observation, no flags required):
-#   Default:              coral agent start
-#   Opt out (low-resource): coral agent start --no-monitor-all
-#   --monitor-all is accepted but is now a no-op (deprecated)
+```text
+coral agent cert status [flags]
 ```
 
----
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--certs-dir` | string | empty | Directory containing certificates |
 
-## Mesh Diagnostics
+#### coral agent start
 
-```bash
-# Verify end-to-end mesh connectivity (encrypted UDP ping via Colony)
-coral mesh ping [agent-id] [--count <n>] [--timeout <duration>] [--colony <id>]
+Start a Coral agent as a daemon.
 
-# Audit NAT topology: compare Colony's live observations vs agent STUN endpoints
-coral mesh audit [agent-id] [--format <format>] [--colony <id>]
+```text
+coral agent start [flags]
 ```
 
-**`coral mesh ping`** sends encrypted UDP pings from the Colony to one or all
-agents through the WireGuard mesh and reports round-trip latency and packet
-loss. No ICMP or OS-level tools required.
+Runs in the foreground. Automatic process observation is enabled by default. `--no-monitor-all` opts out; `--monitor-all` is a deprecated no-op. `--daemon` is registered but is not a complete background service implementation. Use a process supervisor or Ctrl+C/SIGTERM. There is no `agent stop` command.
 
-**`coral mesh audit`** cross-references two data sources to classify each
-agent's NAT situation without any external tooling:
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--config` | string | empty | Path to agent configuration file (default: /etc/coral/agent.yaml) |
+| `--daemon` | bool | `false` | Run in background (requires PID file support) |
+| `--monitor-all` | bool | `false` | Deprecated: monitoring all processes is now the default; this flag is a no-op |
+| `--no-monitor-all` | bool | `false` | Disable automatic eBPF instrumentation of all processes (for resource-constrained hosts) |
 
-| NAT Type | Meaning |
-|---|---|
-| `direct` | Cone NAT or public IP — port preserved, stable |
-| `symmetric` | Port differs per destination — WireGuard roaming handles it, no action usually needed |
-| `roaming` | No STUN at registration — Colony learns endpoint from incoming packets only |
-| `no_handshake` | Agent never successfully sent a packet through the mesh |
-| `unexpected` | Different observed IP — possible double NAT or carrier-grade NAT |
+#### coral agent status
 
-```bash
-# Examples
-coral mesh ping                          # Ping all agents
-coral mesh ping prod-agent-01 -n 10      # 10 pings to one agent
-coral mesh audit                         # Audit all agents
-coral mesh audit prod-agent-01           # Audit one agent
-coral mesh audit -o json                 # JSON output for scripting
-coral mesh audit -o json | jq '.[] | select(.nat_type == "symmetric")'
+Show agent status and runtime context.
+
+```text
+coral agent status [flags]
 ```
 
-See **[WIREGUARD_TROUBLESHOOTING.md](WIREGUARD_TROUBLESHOOTING.md)** for
-detailed interpretation of results and remediation steps.
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (resolves via colony registry) |
+| `--agent-url` | string | empty | Agent URL (default: http://localhost:9001) |
+| `--cert` | bool | `false` | Show certificate status |
+| `--certs-dir` | string | empty | Directory containing certificates |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--format` / `-o` | string | `table` | Output format (table, json, yaml) |
 
----
+### coral ask
 
-## Service Connections
+Ask questions about your application using AI.
 
-Since RFD 103, the agent observes every process on the host by default — no
-`coral services watch` call is required to start collecting eBPF RED metrics.
-`coral services watch` remains useful for explicitly naming/pinning a service
-(taking priority over auto-discovered names) or adding a health check.
-
-```bash
-# Connect agent to services dynamically after startup (triggers eBPF restart)
-coral services watch <service-spec>...
-coral services watch frontend:3000
-coral services watch api:8080:/health:http
-coral services watch frontend:3000 api:8080:/health redis:6379
-
-# Format: name:port[:health][:type]
-# Examples:
-coral services watch frontend:3000                    # HTTP service on port 3000
-coral services watch api:8080:/health:http           # With health check endpoint
-coral services watch frontend:3000 api:8080:/health  # Multiple services
-
-# Legacy syntax (single service)
-coral services watch <name> --port <port> [--health <path>]
-
-# coral connect is a permanent hidden alias for coral services watch.
+```text
+coral ask [question] [flags]
 ```
 
-### Portless Processes (`--exe-pattern`)
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--continue` | bool | `false` | Continue previous conversation |
+| `--debug` | bool | `false` | Enable debug logging to stderr |
+| `--dry-run` | bool | `false` | Show LLM payload and prompt before sending (saves tokens) |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+| `--interactive` | bool | `false` | Force interactive mode (auto-detected when no question provided) |
+| `--model` | string | empty | Override model for this query (e.g., openai:gpt-4o-mini) |
+| `--resume` | string | empty | Resume a previous conversation by ID or datetime prefix |
+| `--stream` | bool | `true` | Stream output progressively (default: true) |
 
-A process that never binds a listening port — a Kafka consumer, a cron job,
-a batch worker — can't be named `name:port`. `--exe-pattern` connects it by
-matching its executable instead (RFD 111). `--port` and `--exe-pattern` are
-mutually exclusive on a spec, and `--exe-pattern` only works with the
-single-service legacy form (`coral connect <name> --exe-pattern <regex>`),
-the same restriction as the existing `--port`/`--health` legacy flags.
+#### coral ask config
 
-```bash
-# A Python consumer script, matched by its invocation.
-coral connect order-consumer --exe-pattern "python.*consumer\.py"
+Configure LLM provider for coral ask.
 
-# A Go binary, matched by its plain process name.
-coral connect billing-worker --exe-pattern "billing-worker"
-
-# A cron job's Java process, matched by a distinctive JVM arg.
-coral connect nightly-report --exe-pattern "java.*ReportGenerator"
-
-# Rejected: neither port nor pattern given.
-$ coral connect worker
-Error: service "worker" needs either a port or --exe-pattern
-
-# Rejected: both given — a service is identified by port XOR pattern, never both.
-$ coral connect worker:8080 --exe-pattern "python.*consumer.py"
-Error: service "worker" cannot specify both a port and --exe-pattern
+```text
+coral ask config [flags]
 ```
 
-The pattern is a regex, matched first against `/proc/<pid>/comm` (the
-kernel-truncated 15-byte process name) and, if that doesn't match, against
-the full `/proc/<pid>/cmdline` — so a short pattern like `"billing-worker"`
-matches the bare executable name, while a longer pattern needs to match
-arguments visible only in `cmdline` (e.g. a Python script name, since every
-Python process's `comm` is just `python` or `python3`). If a pattern is
-loose enough to match more than one running process (e.g. `".*"`), the
-first PID found wins — this is a usability footgun, not a security
-boundary, so write patterns as specific as the actual invocation.
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--api-key-env` | string | empty | Environment variable containing the API key |
+| `--colony` | string | empty | Configure specific colony instead of global defaults |
+| `--dry-run` | bool | `false` | Show what would be changed without saving |
+| `--model` | string | empty | Model ID (e.g., gemini-2.0-flash) |
+| `--provider` | string | empty | Provider name (e.g., google, openai, coral) |
+| `--yes` / `-y` | bool | `false` | Skip confirmation prompts |
 
-Instead of a TCP/HTTP check, the service is health-checked by process
-liveness: the agent re-resolves the pattern to a PID on every check
-interval, reporting healthy while a match exists and unhealthy after two
-consecutive misses (debounced so a brief PID-table race during a process
-restart doesn't flap the status). `coral services status` / `coral agent
-status` show the resolved PID and pattern the same way they show port and
-health endpoint for a port-based service.
+##### coral ask config show
 
-At agent startup, the equivalent is `agent.yaml`'s `services:` list (`coral
-agent start` has no `--connect` flag):
+Show the current LLM configuration.
 
-```yaml
-services:
-  - name: api
-    port: 8080
-    health_endpoint: /health
-  - name: order-consumer
-    exe_pattern: "python.*consumer\\.py"
+```text
+coral ask config show [flags]
 ```
 
----
+##### coral ask config validate
 
-## Terminal (Mission-Control TUI)
+Validate the current LLM configuration.
 
-`coral terminal` is a rich multi-pane TUI for Coral sessions (RFD 094). It
-embeds the conversation UI alongside a live sidebar and opens a browser
-dashboard for rich skill visualisations.
-
-```bash
-# Launch the terminal TUI
-coral terminal [--colony <id>] [--model <provider:model>] [--auto-browser]
-
-# Flags:
-#   --colony <id>       Colony to connect to (default: from config)
-#   --model <name>      Override LLM model
-#   --auto-browser      Open browser dashboard automatically at launch
-#   --debug             Enable debug logging to stderr
-
-# Examples:
-coral terminal
-coral terminal --auto-browser
-coral terminal --colony my-colony --model anthropic:claude-sonnet-4-6
+```text
+coral ask config validate [flags]
 ```
 
-**Layout:**
+#### coral ask list-providers
 
-```
-┌─ ● prod-us-east  ·  12 agents (11✓  1✗)  ·  8 services  ·  sonnet-4-6 ─────┐
-│ Services (8)     │ Conversation pane (coral ask)                           │
-│ ──────────────── │                                                         │
-│ ● frontend  3/3  │                                                         │
-│ ● payment   5/5  │                                                         │
-│ ✗ notif-svc 0/1  │                                                         │
-│ Agents (12)      │                                                         │
-│ ✓ 11  ✗ 1        │                                                         │
-│ Sessions (3)     │                                                         │
-│ ▶ (current)      │                                                         │
-│   09:15 yesterday│                                                         │
-├──────────────────┴──────────────────────────────────────────────────────── │
-│ [Tab] switch pane  [/browser] http://localhost:PORT  [Ctrl+D] quit [main]  │
-└────────────────────────────────────────────────────────────────────────────┘
+List available LLM providers and their status.
+
+```text
+coral ask list-providers [flags]
 ```
 
-**Keybindings:**
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json, yaml) |
+| `--models` | bool | `false` | Show supported models for each provider |
 
-| Key                 | Action                             |
-|---------------------|------------------------------------|
-| `Tab`               | Cycle focus: main pane ↔ sidebar   |
-| `↑` / `↓` (sidebar) | Navigate session list              |
-| `Enter` (sidebar)   | Load selected session in main pane |
-| `Ctrl+D`            | Exit terminal                      |
-| `Ctrl+C`            | Cancel current LLM query           |
+### coral colony
 
-**Inline commands** (type in the conversation input):
+Manage the Coral colony (central brain).
 
-| Command    | Action                     |
-|------------|----------------------------|
-| `/browser` | Open browser dashboard     |
-| `/clear`   | Clear conversation display |
-| `/help`    | Show help                  |
-| `/exit`    | Exit terminal              |
-
-**Browser dashboard:**
-
-The dashboard is served at `http://localhost:<ephemeral-port>` and receives
-`RenderEvent`s over WebSocket when skills emit a `render` field in their
-`SkillResult`. Supported panel types: `table`, `bar`, `timeseries`.
-
----
-
-## AI Queries
-
-Both `coral ask` and `coral terminal` use **CLI dispatch mode** (RFD 100):
-the agent issues standard coral CLI commands via `coral_cli` rather than MCP
-tool calls. Every agent action is a reproducible `coral <cmd> --format json`
-subprocess visible in the session log.
-
-```bash
-# Configuration (first time)
-coral ask config
-
-# Ask questions
-coral ask "<question>" [--format <format>] [--model <provider:model>] [--debug] [--dry-run]
-
-# Flags:
-#   --format <format>  Output format (table, json)
-#   --model <name>     Use specific model (e.g., anthropic:claude-sonnet-4-6)
-#   --debug            Show debug information (prompts, tool calls, CLI commands)
-#   --dry-run          Show what would be queried without executing
-
-# Examples:
-coral ask "Why is the API slow?"
-coral ask "What changed in the last hour?"
-coral ask "Show me error trends"
-coral ask "System status?" --debug
-coral ask "Check errors" --dry-run
+```text
+coral colony [flags]
 ```
 
----
+Server-only `coral-colony` exposes server management children directly. Client context commands (`list`, `use`, `current`, `add-remote`) belong to the full CLI. Initialize with `coral init` or the initialization command in the server binary before starting.
 
-## Unified Query Commands
+#### coral colony add-remote
 
-**Unified interface combining eBPF and OTLP data sources.**
+Add a remote colony connection (similar to kubectl config set-cluster).
 
-```bash
-# Service health summary
-coral query summary [service] [--since <duration>]
-
-# Distributed traces
-coral query traces [service] [--since <duration>] [--trace-id <id>] [--source ebpf|telemetry|all] [--min-duration-ms <ms>] [--max-traces <n>]
-
-# Service metrics (HTTP/gRPC/SQL)
-coral query metrics [service] [--since <duration>] [--source ebpf|telemetry|all] [--protocol http|grpc|sql|auto] [--http-route <pattern>] [--http-method <method>] [--status-code-range <range>]
-
-# Application logs
-coral query logs [service] [--since <duration>] [--level debug|info|warn|error] [--search <text>] [--max-logs <n>]
-
-# Service topology (dependency graph — L7 traces + L4 TCP connections)
-coral query topology [--since <duration>] [--format table|json] [--include-l4]
-
-# Historical CPU profiles
-coral query cpu-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--format folded|json]
-
-# Historical memory profiles
-coral query memory-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--show-growth] [--show-types] [--format summary|folded]
-
-# Trace-driven CPU/memory profiling (RFD 078)
-coral query trace-profile <trace-id> [--service <name>] [--type cpu|memory] [--top <n>]
-
-# Time range options (all commands):
-#   --since <duration>     # Relative (5m, 1h, 30m, 24h, 1d, 1w)
-
-# Examples - Service health summary:
-coral query summary                          # All services
-coral query summary api                      # Specific service
-coral query summary api --since 10m          # Custom time range
-
-# Examples - Metrics:
-coral query metrics api                              # All metrics for api service
-coral query metrics api --protocol http              # Only HTTP metrics
-coral query metrics api --source ebpf                # Only eBPF data
-coral query metrics api --http-route /api/v1/*       # Filter by route
-coral query metrics api --status-code-range 5xx      # Only 5xx errors
-coral query metrics payments-api --since 1h          # Last hour
-
-# Examples - Traces:
-coral query traces api                               # All traces for api service
-coral query traces --trace-id abc123def456789        # Specific trace by ID
-coral query traces api --source ebpf                 # Only eBPF traces
-coral query traces api --min-duration-ms 500         # Only slow traces (>500ms)
-coral query traces payments-api --since 30m          # Last 30 minutes
-coral query traces api --max-traces 5                # Limit results
-
-# Examples - Trace-Driven Profiling:
-coral query trace-profile abc123def456789            # Correlate CPU profile samples with a specific trace
-coral query trace-profile abc123def456789 --service payment-svc # Filter trace profile to payment service
-coral query trace-profile abc123def456789 --top 5    # Top 5 CPU hotspots per service
-
-# Examples - Logs:
-coral query logs api                                 # All logs for api service
-coral query logs api --level error                   # Only error logs
-coral query logs --search "timeout"                  # Search for specific text
-coral query logs api --since 30m --max-logs 50       # Last 30 minutes, limit 50
-
-# Examples - Topology:
-coral query topology                         # Dependency graph for the last hour (default)
-coral query topology --since 30m             # Last 30 minutes
-coral query topology --format json           # Machine-readable JSON output (includes layer field)
-coral query topology --include-l4=false      # Suppress L4-only edges, show trace-derived only
-
-# Examples - CPU Profiles:
-coral query cpu-profile --service api --since 1h                    # Last hour of CPU profiles
-coral query cpu-profile --service api --since 2h --until 1h         # Specific time range
-coral query cpu-profile --service api --build-id abc123 --since 24h # Filter by build ID
-coral query cpu-profile --service api --since 1h | flamegraph.pl > cpu.svg  # Generate flame graph
-
-# Examples - Memory Profiles:
-coral query memory-profile --service api --since 1h                          # Summary format (default, human/LLM readable)
-coral query memory-profile --service api --since 1h --show-types             # Include allocation type breakdown
-coral query memory-profile --service api --since 1h --format folded | flamegraph.pl > memory.svg  # Flamegraph format
+```text
+coral colony add-remote <colony-name> [flags]
 ```
 
-**What you get:**
+Requires either `--from-discovery` with `--colony-id` and `--ca-fingerprint`, or `--endpoint` with CA material (or testing-only `--insecure`). This saves a local connection; it does not issue an API token. Supply `CORAL_API_TOKEN` separately.
 
-- **Summary**: Health status (healthy/degraded/critical), error rates, latency,
-  request counts
-- **Metrics**: HTTP/gRPC/SQL RED metrics with P50/P95/P99 latency percentiles
-  from eBPF + OTLP
-- **Traces**: Distributed trace spans with parent-child relationships, source
-  annotations (eBPF/OTLP)
-- **Trace Profiles**: Request-level CPU flame graphs correlated with specific trace IDs via `(process_pid, time_window)` join (RFD 078)
-- **Logs**: Application logs from OTLP with filtering and search
-- **Topology**: Live service dependency graph from two layers — L7 trace-derived edges (HTTP/gRPC spans via Beyla) merged with L4 network-observed edges (raw TCP connections); each connection carries a `LAYER` column (`L7`, `L4`, or `BOTH`)
-- **CPU Profiles**: Historical CPU profile data from continuous profiling
-- **Memory Profiles**: Historical memory allocation data with top allocators and type breakdown
-- **Automatic merging**: eBPF and OTLP data combined by default with source
-  annotations
-- **No SQL needed**: High-level commands for common observability patterns
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--ca-data` | string | empty | Base64-encoded CA certificate for TLS verification (manual mode) |
+| `--ca-file` | string | empty | Path to CA certificate file for TLS verification (manual mode) |
+| `--ca-fingerprint` | string | empty | CA fingerprint for verification (required with --from-discovery, format: sha256:hex) |
+| `--colony-id` | string | empty | Colony ID (required with --from-discovery) |
+| `--discovery-endpoint` | string | empty | Override Discovery Service URL |
+| `--endpoint` | string | empty | Colony's public HTTPS endpoint URL (manual mode) |
+| `--from-discovery` | bool | `false` | Fetch endpoint and CA from Discovery Service |
+| `--insecure` | bool | `false` | Skip TLS verification (testing only, manual mode only) |
+| `--set-default` | bool | `false` | Set this colony as the default |
 
-> **Note**: Old `coral query ebpf` commands are deprecated. Use the unified
-> `coral query` commands above.
+#### coral colony agents
 
----
+List registered agents.
 
-## Focused Query Commands
-
-**Scriptable queries optimized for CLI and TypeScript SDK use.**
-
-These commands provide focused, specific queries compared to the unified query
-interface. They're designed for:
-
-- TypeScript SDK usage (`@coral/sdk`)
-- CLI scripting and automation
-- Quick percentile calculations
-- Service discovery
-
-```bash
-# Service management and discovery
-coral services [--agent <id> | --local] [--source auto|watched]
-coral services watch <service-spec>...
-coral services watch api:8080 --agent agent-1 --colony production
-
-# --colony selects the registry used to resolve --agent (also on coral connect).
-# watch requires --agent with --colony; otherwise it targets the local agent.
-# --format, --source, and --local apply only to service listing.
-
-# Fleet selection (values within a filter are ORed; different filters are ANDed)
-coral colony agents --status degraded,unhealthy --sort last-seen
-coral colony agents --service payments --runtime docker --version v1.2.3
-coral colony agents --wide                      # Full IDs, addresses, service names
-coral colony agents --status unhealthy -o json  # Same selection in structured output
-coral services --name payments,api --sort=-instances
-coral services --sort last-seen --wide           # Oldest first, all agent IDs
-coral services --local --name api --sort port
-coral services --since 24h                       # Telemetry discovery window (default 1h)
-
-# Agent sorts: id (default), status (problems first), last-seen (oldest first),
-# runtime, version. Prefix a sort with - to reverse. Versions match exactly
-# and sort lexically. Runtime values: native,docker,k8s-sidecar,k8s-daemonset,unknown.
-# Services default to name order; colony sorts also include instances,last-seen;
-# agent sorts also include port,pid. Compact colony output shows two agent IDs.
-# --since affects telemetry discovery only; registered services remain listed.
-# It is rejected for --local and --agent scopes.
-
-# Reading fleet health:
-# HEARTBEAT / LAST HEARTBEAT: agent liveness, independent of service checks.
-# HEALTH CHECK / CHECKS: explicit check results; not-configured means no monitor.
-# LAST CHECK: age of the oldest result contributing to the check summary.
-# LAST SEEN: registry heartbeat (registered services), or telemetry activity.
-# SERVICE DATA / DATA: live, cached, mixed, telemetry, or unknown.
-# Live service snapshots retain their original check timestamps. Cached data
-# and older Colonies without check metadata produce unknown health, never healthy.
-# JSON includes service check counts, snapshot provenance, and fallback warnings.
-# Registration status in service JSON is separate from the health field.
-
-# Global status uses each Colony's configured endpoint, TLS trust, and API token.
-# Failed requests are unreachable; invalid config or wrong-Colony responses are
-# unknown. Connection failures never imply that a Colony has stopped.
-coral status --verbose                          # Includes failure reasons and endpoints
-coral status --format json                      # Separate unreachable/unknown counts
-
-# Bulk operations share agent selectors and versioned JSON result reports.
-coral mesh ping --service payments --dry-run
-coral mesh audit --status degraded,unhealthy --concurrency 4 --report audit.json
-coral services watch api:8080:/health --service payments --dry-run
-coral services watch api:8080:/health --service payments --report watch.json -o json
-coral services watch --retry-failed watch.json -o json
-# See FLEET.md for retries, partial failures, and the result schema.
-
-# Service telemetry summary
-coral query summary [service] [--since <duration>]
-
-# Percentile queries (precise DuckDB quantile calculations)
-coral query metrics <service> --metric <name> --percentile <0-100>
-
-# Service topology (dependency graph — L7 traces + L4 TCP connections)
-coral query topology [--since <duration>] [--format json] [--include-l4]
-
-# Raw SQL queries with safety guardrails
-coral query sql "<sql-query>" [--max-rows <n>]
-
-# Examples - Service discovery:
-coral services                                  # List colony services
-coral services --agent agent-1                 # List one agent's services
-coral services --local --source auto            # List local auto-observed services
-coral query summary                            # Telemetry summary for all services
-coral query summary api --since 10m            # Detailed metrics for specific service
-
-# See: docs/SERVICE_DISCOVERY.md for architecture details
-
-# Examples - Percentile queries:
-coral query metrics payments --metric http.server.duration --percentile 99
-coral query metrics api --metric http.server.duration --percentile 50
-coral query metrics orders --metric http.server.duration --percentile 95
-
-# Examples - Raw SQL:
-coral query sql "SELECT service_name, COUNT(*) FROM beyla_http_metrics GROUP BY service_name"
-coral query sql "SELECT * FROM beyla_http_metrics WHERE http_status_code >= 500 LIMIT 10"
-coral query sql "SELECT service_name, AVG(duration_ns) FROM beyla_http_metrics GROUP BY service_name" --max-rows 100
+```text
+coral colony agents [flags]
 ```
 
-**What you get:**
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agents` | stringSlice | `[]` | Target exact agent IDs (comma-separated) |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--format` / `-o` | string | `table` | Output format (table, json, yaml) |
+| `--runtime` | stringSlice | `[]` | Filter runtime: native,docker,k8s-sidecar,k8s-daemonset,unknown (comma-separated) |
+| `--service` | stringSlice | `[]` | Filter exact service names (comma-separated) |
+| `--sort` | string | `id` | Sort by id,status,last-seen,runtime,version; prefix with - to reverse |
+| `--status` | stringSlice | `[]` | Filter heartbeat status: healthy,degraded,unhealthy (comma-separated) |
+| `--version` | stringSlice | `[]` | Filter exact agent versions (comma-separated) |
+| `--wide` | bool | `false` | Show mesh addresses and full service lists |
 
-- **services**: Service names, instance counts, last seen timestamps
-- **metrics --percentile**: Precise percentile values (P50, P95, P99, etc.)
-  using DuckDB's `quantile_cont` function
-- **sql**: Direct DuckDB queries with automatic row limits and safety validation
+#### coral colony ca
 
-**Use cases:**
+Manage colony certificate authority.
 
-- Quick percentile checks without full metric analysis
-- Service discovery for scripting
-- Custom SQL queries for advanced analysis
-- TypeScript SDK backend (same API used by `@coral/sdk`)
+```text
+coral colony ca [flags]
+```
 
----
+##### coral colony ca rotate-intermediate
 
-## TypeScript Scripting
+Rotate an intermediate CA certificate.
 
-**Execute custom analysis scripts locally with sandboxed Deno runtime.**
+```text
+coral colony ca rotate-intermediate [flags]
+```
 
-Write TypeScript scripts that query colony data for custom dashboards, alerts,
-and correlation analysis.
+Requires `--type server` or `--type agent` and `--confirm`. This changes local CA state; preserve a consistent backup before rotation.
 
-```bash
-# Execute TypeScript script
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+| `--confirm` | bool | `false` | Confirm rotation operation |
+| `--type` | string | empty | **Required.** Type of intermediate to rotate (server, agent) |
+
+##### coral colony ca status
+
+Show CA status and fingerprint.
+
+```text
+coral colony ca status [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+
+#### coral colony current
+
+Show the current default colony.
+
+```text
+coral colony current [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json, yaml) |
+
+#### coral colony export
+
+Export agent enrollment credentials.
+
+```text
+coral colony export [colony-id] [flags]
+```
+
+Exports enrollment credentials including the active Bootstrap PSK. Output is secret provisioning material, not a backup of Colony private keys or data. Requires access to local Colony configuration and state.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `env` | Output format (env, yaml, json, k8s) |
+
+#### coral colony import
+
+Import colony credentials.
+
+```text
+coral colony import [flags]
+```
+
+Legacy colony-secret import. `--stdin` is currently rejected as unimplemented. This is not the inverse of the current PSK enrollment export; provision agents with the exported enrollment settings and agent startup instead.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--secret` | string | empty | Colony secret |
+| `--stdin` | bool | `false` | Read from stdin |
+
+#### coral colony list
+
+List all configured colonies.
+
+```text
+coral colony list [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json, csv, yaml) |
+
+#### coral colony psk
+
+Manage bootstrap pre-shared key.
+
+```text
+coral colony psk [flags]
+```
+
+##### coral colony psk rotate
+
+Rotate the bootstrap PSK.
+
+```text
+coral colony psk rotate [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--grace-period` | duration | `24h0m0s` | Grace period during which both old and new PSKs are accepted |
+
+##### coral colony psk show
+
+Display the current bootstrap PSK.
+
+```text
+coral colony psk show [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+
+#### coral colony start
+
+Start the colony.
+
+```text
+coral colony start [flags]
+```
+
+Runs the selected Colony in the foreground. `--port` changes the configured dashboard port, not the WireGuard UDP or Connect API port; the dashboard startup remains incomplete. `--daemon` does not implement full process supervision.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (overrides auto-detection) |
+| `--daemon` | bool | `false` | Run as background daemon |
+| `--port` | int | `0` | Dashboard port (overrides config) |
+
+#### coral colony status
+
+Show colony status and WireGuard configuration.
+
+```text
+coral colony status [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--detail` | bool | `false` | Show detailed mesh configuration including peer endpoints |
+| `--format` / `-o` | string | `table` | Output format (table, json, yaml) |
+
+#### coral colony stop
+
+Stop the colony daemon.
+
+```text
+coral colony stop [flags]
+```
+
+Placeholder: currently prints a stop message without terminating the running Colony. Stop the foreground process or use its supervisor.
+
+#### coral colony token
+
+Manage API tokens for public endpoint access.
+
+```text
+coral colony token [flags]
+```
+
+Local token-file administration for the public HTTPS API. Permissions are `status`, `query`, `analyze`, `debug`, and `admin`. Send SIGHUP to the running Colony or restart it after changing tokens to reload the in-memory store.
+
+##### coral colony token create
+
+Create a new API token.
+
+```text
+coral colony token create <token-id> [flags]
+```
+
+The raw token is displayed only on creation. `--recreate` replaces the named token, invalidating the old value after the running server reloads it.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+| `--permissions` | string | `status,query` | Comma-separated permissions (status,query,analyze,debug,admin) |
+| `--rate-limit` | string | empty | Rate limit (e.g., 100/hour, 50/minute) |
+| `--recreate` | bool | `false` | Recreate token if it already exists (invalidates old token) |
+
+##### coral colony token delete
+
+Permanently delete an API token.
+
+```text
+coral colony token delete <token-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+| `--force` | bool | `false` | Skip confirmation prompt |
+
+##### coral colony token list
+
+List all API tokens.
+
+```text
+coral colony token list [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+
+##### coral colony token revoke
+
+Revoke an API token.
+
+```text
+coral colony token revoke <token-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+| `--force` | bool | `false` | Skip confirmation prompt |
+
+##### coral colony token show
+
+Show API token metadata.
+
+```text
+coral colony token show <token-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current colony) |
+
+#### coral colony use
+
+Set the default colony.
+
+```text
+coral colony use <colony-id> [flags]
+```
+
+### coral completion
+
+Generate the autocompletion script for the specified shell.
+
+```text
+coral completion [flags]
+```
+
+#### coral completion bash
+
+Generate the autocompletion script for bash.
+
+```text
+coral completion bash
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--no-descriptions` | bool | `false` | disable completion descriptions |
+
+#### coral completion fish
+
+Generate the autocompletion script for fish.
+
+```text
+coral completion fish [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--no-descriptions` | bool | `false` | disable completion descriptions |
+
+#### coral completion powershell
+
+Generate the autocompletion script for powershell.
+
+```text
+coral completion powershell [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--no-descriptions` | bool | `false` | disable completion descriptions |
+
+#### coral completion zsh
+
+Generate the autocompletion script for zsh.
+
+```text
+coral completion zsh [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--no-descriptions` | bool | `false` | disable completion descriptions |
+
+### coral config
+
+Manage Coral configuration.
+
+```text
+coral config [flags]
+```
+
+#### coral config current-context
+
+Show the current active colony.
+
+```text
+coral config current-context [flags]
+```
+
+#### coral config delete-context
+
+Delete a colony configuration.
+
+```text
+coral config delete-context <colony-id> [flags]
+```
+
+Removes the local context configuration. Review its confirmation prompt and affected state before proceeding.
+
+#### coral config get-contexts
+
+List all colonies with current context marked.
+
+```text
+coral config get-contexts [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json, yaml) |
+
+#### coral config use-context
+
+Set the default colony.
+
+```text
+coral config use-context <colony-id> [flags]
+```
+
+Changes the global default. An environment override or current-directory project configuration can still select another Colony.
+
+#### coral config validate
+
+Validate all colony configurations.
+
+```text
+coral config validate [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+
+#### coral config view
+
+Show merged configuration.
+
+```text
+coral config view [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (defaults to current) |
+| `--raw` | bool | `false` | Output raw YAML without annotations |
+
+### coral debug
+
+Debug running services.
+
+```text
+coral debug [flags]
+```
+
+#### coral debug attach
+
+Attach uprobe to function.
+
+```text
+coral debug attach <service> [flags]
+```
+
+Requires `--function`. Duration and filter thresholds use duration strings. `--filter-rate N` emits one in N events in the kernel (0 or 1 means all). Capture fields depend on runtime and binary metadata; a registered option is not a guarantee of complete argument or return values.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent-id` | string | empty | Agent ID (manual override) |
+| `--capture-args` | bool | `false` | Capture function arguments |
+| `--capture-return` | bool | `false` | Capture return values |
+| `--duration` / `-d` | duration | `1m0s` | Duration of the debug session |
+| `--filter-rate` | uint32 | `0` | Emit 1 in every N events at kernel level (0 or 1 = all) |
+| `--format` | string | `text` | Output format (text, json, csv) |
+| `--function` / `-f` | string | empty | **Required.** Function name to trace (required) |
+| `--max-duration` | duration | `0s` | Only emit events faster than this threshold (e.g. 500ms) |
+| `--min-duration` | duration | `0s` | Only emit events slower than this threshold (e.g. 50ms) |
+| `--sample-rate` | uint32 | `0` | Sample rate (0 = all calls) |
+
+#### coral debug correlations
+
+Manage active correlation descriptors.
+
+```text
+coral debug correlations [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `table` | Output format: table or json |
+| `--service` / `-s` | string | empty | Filter by service name |
+
+##### coral debug correlations list
+
+List active correlation descriptors.
+
+```text
+coral debug correlations list [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `table` | Output format: table or json |
+| `--service` / `-s` | string | empty | Filter by service name |
+
+##### coral debug correlations remove
+
+Remove an active correlation descriptor.
+
+```text
+coral debug correlations remove <correlation-id> [flags]
+```
+
+#### coral debug filter
+
+Update kernel-level filter for an active debug session.
+
+```text
+coral debug filter <session-id> [flags]
+```
+
+Adjusts active-session kernel filters. A zero duration clears that threshold; filter rate 0 or 1 captures all events.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--filter-rate` | uint32 | `0` | Emit 1 in every N events at kernel level (0 or 1 = all) |
+| `--format` | string | `text` | Output format (text, json) |
+| `--max-duration` | duration | `0s` | Only emit events faster than this threshold (e.g. 500ms) |
+| `--min-duration` | duration | `0s` | Only emit events slower than this threshold (e.g. 50ms) |
+
+#### coral debug info
+
+Get function details.
+
+```text
+coral debug info [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--function` / `-f` | string | empty | **Required.** Function name (required) |
+| `--service` / `-s` | string | empty | **Required.** Service name (required) |
+
+#### coral debug profile
+
+Auto-profile functions.
+
+```text
+coral debug profile [flags]
+```
+
+Requires `--service` and `--query`. This probes selected functions; statistical CPU sampling is the separate `profile cpu` command.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--async` | bool | `false` | Return immediately without waiting |
+| `--duration` / `-d` | string | `60s` | Duration of profiling session |
+| `--format` | string | `text` | Output format (text, json) |
+| `--max-functions` / `-n` | int32 | `20` | Maximum functions to profile (max: 50) |
+| `--query` / `-q` | string | empty | **Required.** Search query (required) |
+| `--sample-rate` | float64 | `1` | Event sampling rate (0.1-1.0) |
+| `--service` / `-s` | string | empty | **Required.** Service name (required) |
+| `--strategy` | string | `critical-path` | Selection strategy (critical-path, all, entry-points, leaf-functions) |
+
+#### coral debug search
+
+Search for functions.
+
+```text
+coral debug search <query> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--max-results` / `-n` | int32 | `20` | Maximum number of results (max: 50) |
+| `--service` / `-s` | string | empty | Filter by service name |
+
+#### coral debug session
+
+Manage debug sessions.
+
+```text
+coral debug session [flags]
+```
+
+##### coral debug session events
+
+Query events from a debug session.
+
+```text
+coral debug session events <session-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--follow` / `-f` | bool | `false` | Follow new events |
+| `--format` | string | `json` | Output format (text, json) |
+| `--max` | int32 | `100` | Max events to retrieve |
+| `--since` | duration | `0s` | Show events since duration (e.g. 5m) |
+
+##### coral debug session get
+
+Get session metadata.
+
+```text
+coral debug session get <session-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json, csv) |
+
+##### coral debug session list
+
+List active debug sessions.
+
+```text
+coral debug session list [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json, csv) |
+| `--service` / `-s` | string | empty | Filter by service name |
+| `--status` | string | empty | Filter by status |
+
+##### coral debug session query
+
+Query debug session results.
+
+```text
+coral debug session query <service> [flags]
+```
+
+Select retained results with a function name or session ID. Inspect session metadata and time range when results are empty.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json, csv) |
+| `--function` / `-f` | string | empty | Function name to query |
+| `--session-id` | string | empty | Session ID to query |
+| `--since` | duration | `1h0m0s` | Time range to query |
+
+##### coral debug session stop
+
+Stop a debug session.
+
+```text
+coral debug session stop <session-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+
+#### coral debug trace
+
+Trace request path.
+
+```text
+coral debug trace <service> [flags]
+```
+
+Requires `--path`. Guesses a function name from the path and attaches one bounded probe session, for example `/checkout` to `main.ProcessCheckout`. It does not discover arbitrary router handlers or establish a complete distributed request trace. Use explicit search and attachment when the guessed symbol does not match the application.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--duration` / `-d` | duration | `1m0s` | Duration of the trace session |
+| `--format` | string | `text` | Output format (text, json, csv) |
+| `--path` / `-p` | string | empty | **Required.** HTTP path to trace (required) |
+| `--wait` | bool | `false` | Wait for trace to complete and display results |
+
+### coral duckdb
+
+Query agent DuckDB databases remotely.
+
+```text
+coral duckdb [flags]
+```
+
+Use the configured context to select the environment. `--colony` on child commands is a boolean selecting Colony storage; its absence selects agent storage. Discover available databases with `duckdb list`.
+
+#### coral duckdb list
+
+List available databases (colony and agents).
+
+```text
+coral duckdb list [flags]
+```
+
+Aliases: `list-agents`.
+
+#### coral duckdb query
+
+Execute a one-shot SQL query against a database.
+
+```text
+coral duckdb query [agent-id] <sql> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | bool | `false` | Query colony database instead of agent |
+| `--database` / `-d` | string | empty | Database name (e.g., metrics.duckdb) |
+| `--format` / `-f` | string | `table` | Output format (table, csv, json) |
+
+#### coral duckdb shell
+
+Open an interactive DuckDB shell attached to an agent database.
+
+```text
+coral duckdb shell <agent-id> [flags]
+```
+
+Uses embedded DuckDB with the `httpfs` extension, which may need an initial download. Use `--colony` without an agent ID for Colony storage, or provide an agent ID for agent storage. Multiple-agent selections use `--agents`. Meta-commands include `.tables`, `.databases`, `.refresh`, `.help`, `.exit`, and `.quit`.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agents` | stringSlice | `[]` | Comma-separated list of agent IDs for multi-agent queries |
+| `--colony` | bool | `false` | Connect to colony database instead of agent |
+| `--database` / `-d` | string | empty | Database name (e.g., metrics.duckdb) |
+
+### coral exec
+
+Execute command in a service's container.
+
+```text
+coral exec SERVICE [command...] [flags]
+```
+
+Requires a service and command. Selectors: bare exact process name, `id:<container-id-prefix>`, or `pid:<agent-visible-pid>`. Host PID mode requires a selector and refuses host-mount-namespace targets. Ambiguous matches fail. Default namespace is `mnt`; the selected container must contain the requested executable. See [host and container commands](user/remote-execution.md).
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (resolves via colony registry) |
+| `--agent-addr` | string | empty | Agent address (default: auto-discover) |
+| `--colony` | string | empty | Colony ID (default: auto-detect) |
+| `--container` | string | empty | Target container: process name, id:<container ID prefix>, or pid:<n>; required with hostPID |
+| `--env` | stringArray | `[]` | Environment variables (KEY=VALUE) |
+| `--namespaces` | stringSlice | `[mnt]` | Namespaces to enter (mnt,pid,net,ipc,uts,cgroup) |
+| `--timeout` | uint32 | `30` | Timeout in seconds (max 300) |
+| `--user-id` | string | empty | User ID for audit (default: $USER) |
+| `--working-dir` | string | empty | Working directory in container |
+
+### coral help
+
+Help about any command.
+
+```text
+coral help [command] [flags]
+```
+
+### coral init
+
+Initialize a new Coral colony.
+
+```text
+coral init <app-name> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--discovery` | string | `https://discovery.coralmesh.dev` | Discovery service URL |
+| `--env` | string | `dev` | Environment name (dev, staging, production, etc.) |
+| `--storage` | string | `.coral` | Storage directory path |
+
+### coral mcp
+
+Integrate Coral with MCP clients.
+
+```text
+coral mcp [flags]
+```
+
+#### coral mcp configure
+
+Generate MCP client configuration (Claude Desktop format).
+
+```text
+coral mcp configure [flags]
+```
+
+Prints a client configuration snippet; install it in your MCP client settings. A single-Colony snippet can rely on default context selection, so add explicit selection when the client needs a pinned environment.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--all-colonies` | bool | `false` | Generate config for all colonies |
+| `--colony` | string | empty | Colony ID (overrides default) |
+
+#### coral mcp list-tools
+
+List available MCP tools.
+
+```text
+coral mcp list-tools [flags]
+```
+
+Queries the running Colony tool registry. This is distinct from the local stdio proxy exposing the single `coral_cli` tool.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+
+#### coral mcp proxy
+
+Serve the local MCP stdio proxy.
+
+```text
+coral mcp proxy [flags]
+```
+
+Runs the local stdio MCP server and dispatches `coral_cli` calls as local Coral subprocesses. It verifies Colony connectivity at startup. The proxy appends `--format json`; commands without that flag can fail. Supply the client environment and API token to the launched proxy process.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--colony` | string | empty | Colony ID (overrides auto-detection) |
+
+### coral mesh
+
+Manage and troubleshoot the Coral control mesh.
+
+```text
+coral mesh [flags]
+```
+
+Diagnostics run through the Colony. Unfiltered ping/audit target registered agents; a positional agent ID selects one. `--all` cannot be combined with selectors. Filtered selections that match nothing fail.
+
+#### coral mesh audit
+
+Audit selected agents for NAT and mesh issues.
+
+```text
+coral mesh audit [agent-id] [flags]
+```
+
+Reports use the shared fleet envelope; NAT details live under `.results[].data`. NAT classifications are findings, while RPC/assessment failures fail the target.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agents` | stringSlice | `[]` | Target exact agent IDs (comma-separated) |
+| `--all` | bool | `false` | Target all registered agents explicitly |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--concurrency` | int | `8` | Maximum concurrent target operations (1-128) |
+| `--dry-run` | bool | `false` | Preview the pinned target set without performing the operation |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+| `--report` | string | empty | Save a JSON result report for inspection or --retry-failed |
+| `--request-timeout` | duration | `10s` | Timeout per target attempt (maximum 5m) |
+| `--retries` | int | `0` | Retries per failed target for transient errors (0-10) |
+| `--retry-failed` | string | empty | Retry only failed/canceled targets from a saved JSON report |
+| `--runtime` | stringSlice | `[]` | Filter runtime: native,docker,k8s-sidecar,k8s-daemonset,unknown (comma-separated) |
+| `--service` | stringSlice | `[]` | Filter exact service names (comma-separated) |
+| `--status` | stringSlice | `[]` | Filter heartbeat status: healthy,degraded,unhealthy (comma-separated) |
+| `--version` | stringSlice | `[]` | Filter exact agent versions (comma-separated) |
+
+#### coral mesh ping
+
+Ping selected agents through the Colony mesh.
+
+```text
+coral mesh ping [agent-id] [flags]
+```
+
+Encrypted UDP echo through the mesh, not ICMP or application health. A target fails when no response arrives or packet loss exceeds 50%. `--timeout` bounds an individual ping; `--request-timeout` must allow the complete target attempt.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agents` | stringSlice | `[]` | Target exact agent IDs (comma-separated) |
+| `--all` | bool | `false` | Target all registered agents explicitly |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--concurrency` | int | `8` | Maximum concurrent target operations (1-128) |
+| `--count` / `-n` | int | `4` | Number of pings per agent (1-100) |
+| `--dry-run` | bool | `false` | Preview the pinned target set without performing the operation |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+| `--report` | string | empty | Save a JSON result report for inspection or --retry-failed |
+| `--request-timeout` | duration | `10s` | Timeout per target attempt (maximum 5m) |
+| `--retries` | int | `0` | Retries per failed target for transient errors (0-10) |
+| `--retry-failed` | string | empty | Retry only failed/canceled targets from a saved JSON report |
+| `--runtime` | stringSlice | `[]` | Filter runtime: native,docker,k8s-sidecar,k8s-daemonset,unknown (comma-separated) |
+| `--service` | stringSlice | `[]` | Filter exact service names (comma-separated) |
+| `--status` | stringSlice | `[]` | Filter heartbeat status: healthy,degraded,unhealthy (comma-separated) |
+| `--timeout` / `-W` | duration | `2s` | Timeout for each ping (1ms-1m); --request-timeout bounds the whole attempt |
+| `--version` | stringSlice | `[]` | Filter exact agent versions (comma-separated) |
+
+### coral profile
+
+Collect performance profiles on-demand.
+
+```text
+coral profile [flags]
+```
+
+#### coral profile cpu
+
+Collect CPU profile on-demand.
+
+```text
+coral profile cpu [flags]
+```
+
+Requires `--service`. Duration is integer seconds (maximum 300); frequency is Hz (maximum 1000). Default output is folded stacks. Needs a Linux observation agent with working perf/BPF collection.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--duration` / `-d` | int32 | `30` | Profiling duration in seconds (default: 30s, max: 300s) |
+| `--format` | string | `folded` | Output format: folded (default), json |
+| `--frequency` | int32 | `99` | Sampling frequency in Hz (default: 99Hz, max: 1000Hz) |
+| `--pod` | string | empty | Pod name (optional, specific instance) |
+| `--service` / `-s` | string | empty | **Required.** Service name (required) |
+
+#### coral profile memory
+
+Collect memory profile on-demand.
+
+```text
+coral profile memory [flags]
+```
+
+Requires `--service` and a compatible heap-profile runtime endpoint. CPU eBPF support alone does not provide heap profiles for every language.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--duration` / `-d` | int32 | `30` | Profiling duration in seconds |
+| `--format` | string | `folded` | Output format: folded, json |
+| `--sample-rate` | int32 | `512` | Sampling rate in KB (default: 512KB) |
+| `--service` / `-s` | string | empty | **Required.** Service name (required) |
+
+### coral proxy
+
+Manage local proxy for colony access.
+
+```text
+coral proxy [flags]
+```
+
+Legacy HTTP forwarding proxy, distinct from `mcp proxy`. Do not make it a prerequisite for normal local CLI or configured public HTTPS access.
+
+#### coral proxy start
+
+Start a proxy for a colony.
+
+```text
+coral proxy start <colony-mesh-id> [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--discovery` | string | `https://discovery.coralmesh.dev` | Discovery service endpoint |
+| `--listen` | string | `localhost:8000` | Local address to bind to |
+
+#### coral proxy status
+
+Show status of running proxies.
+
+```text
+coral proxy status [flags]
+```
+
+Placeholder: does not inspect a real managed proxy process.
+
+#### coral proxy stop
+
+Stop a running proxy.
+
+```text
+coral proxy stop [colony-mesh-id] [flags]
+```
+
+Placeholder: does not terminate a managed proxy process. Stop the foreground proxy or its supervisor.
+
+### coral query
+
+Query observability data (metrics, traces, logs, profiles).
+
+```text
+coral query [flags]
+```
+
+Commands use positional service names where shown. `--since` support, defaults, and formats vary by child command.
+
+#### coral query cpu-profile
+
+Query historical CPU profiles.
+
+```text
+coral query cpu-profile [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--build-id` | string | empty | Filter by specific build ID |
+| `--format` | string | `folded` | Output format: folded, json |
+| `--service` / `-s` | string | empty | **Required.** Service name (required) |
+| `--since` | string | `1h` | Query from this time ago (e.g., '1h', '30m', '24h') |
+| `--until` | string | empty | Query until this time ago (default: now) |
+
+#### coral query logs
+
+Query logs.
+
+```text
+coral query logs [service] [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--level` | string | empty | Log level filter: debug, info, warn, error |
+| `--max-logs` | int | `100` | Maximum number of logs to return |
+| `--search` | string | empty | Full-text search query |
+| `--since` | string | `1h` | Time range (e.g., 1h, 30m, 24h) |
+
+#### coral query memory-profile
+
+Query historical memory profiles.
+
+```text
+coral query memory-profile [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--build-id` | string | empty | Filter by specific build ID |
+| `--format` / `-f` | string | `summary` | Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible) |
+| `--service` / `-s` | string | empty | **Required.** Service name (required) |
+| `--show-growth` | bool | `false` | Show heap growth trends |
+| `--show-types` | bool | `false` | Show allocation breakdown by type |
+| `--since` | string | `1h` | Query from this time ago (e.g., '1h', '30m', '24h') |
+| `--until` | string | empty | Query until this time ago (default: now) |
+
+#### coral query metrics
+
+Query metrics.
+
+```text
+coral query metrics [service] [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--http-method` | string | empty | HTTP method filter (GET, POST, etc.) |
+| `--http-route` | string | empty | HTTP route pattern filter |
+| `--metric` | string | empty | Metric name for focused query (e.g., http.server.duration) |
+| `--percentile` | float64 | `0` | Percentile to query (0-100, e.g., 99 for P99) |
+| `--protocol` | string | `auto` | Protocol: http, grpc, sql, or auto |
+| `--since` | string | `1h` | Time range (e.g., 1h, 30m, 24h) |
+| `--source` | string | `all` | Data source: ebpf, telemetry, or all |
+| `--status-code-range` | string | empty | Status code range (2xx, 3xx, 4xx, 5xx) |
+
+#### coral query sql
+
+Execute raw SQL query.
+
+```text
+coral query sql <query> [flags]
+```
+
+Executes a guarded, bounded SQL query and prints a text table. It has no `--format` option. Inspect schemas before relying on table names from older examples.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--max-rows` | int32 | `1000` | Maximum rows to return (default: 1000) |
+
+#### coral query summary
+
+Get a high-level health summary.
+
+```text
+coral query summary [service] [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--since` | string | `5m` | Time range (e.g., 5m, 1h, 24h) |
+
+#### coral query topology
+
+Show the service dependency graph.
+
+```text
+coral query topology [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--include-l4` | bool | `true` | Include L4 network edges |
+
+#### coral query trace-profile
+
+Correlate a distributed trace with CPU profiles.
+
+```text
+coral query trace-profile <trace-id> [flags]
+```
+
+Current correlation supplies CPU evidence matched by service, process, and padded time window, not exact request/goroutine attribution. The accepted `--type memory` does not establish implemented memory correlation. This command has no JSON format option.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--service` / `-s` | string | empty | Filter to specific service name |
+| `--top` | int | `10` | Number of top hotspots to display per service |
+| `--type` | string | `cpu` | Profile type: cpu, memory |
+
+#### coral query traces
+
+Query distributed traces.
+
+```text
+coral query traces [service] [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` | string | `text` | Output format (text, json) |
+| `--max-traces` | int | `10` | Maximum number of traces to return |
+| `--min-duration-ms` | int | `0` | Minimum trace duration in milliseconds |
+| `--since` | string | `1h` | Time range (e.g., 1h, 30m, 24h) |
+| `--source` | string | `all` | Data source: ebpf, telemetry, or all |
+| `--trace-id` | string | empty | Specific trace ID |
+
+### coral run
+
+Execute TypeScript script with Deno.
+
+```text
 coral run <script.ts> [flags]
-
-# Flags:
-#   --timeout <seconds>    Script timeout (default: 60)
-#   --watch                Re-run on file changes
-
-# Examples:
-coral run latency-report.ts                    # Run once
-coral run dashboard.ts --timeout 120           # Custom timeout
-coral run monitor.ts --watch                   # Watch mode for development
 ```
 
-### TypeScript SDK (@coral/sdk)
+Takes a positional script filename; there is no `--file` option. File-based execution needs a readable import map/SDK and restricts filesystem reads to the working tree. The current TypeScript client uses internal HTTP without the CLI public-API token/TLS support. See [TypeScript investigations](user/scripting.md).
 
-Scripts have access to the Coral SDK for querying observability data:
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--timeout` | int | `60` | Script timeout in seconds (default: 60) |
+| `--watch` | bool | `false` | Re-run script on file changes |
 
-```typescript
-#!/usr/bin/env -S coral run
+### coral script
 
-import * as coral from "@coral/sdk";
+Manage investigation scripts.
 
-// Service discovery
-const services = await coral.services.list();
-
-// Metrics queries
-const p99 = await coral.metrics.getP99("payments", "http.server.duration");
-const p95 = await coral.metrics.getP95("payments", "http.server.duration");
-const p50 = await coral.metrics.getP50("payments", "http.server.duration");
-
-// Service activity
-const activity = await coral.activity.getServiceActivity("payments");
-console.log(`Requests: ${activity.requestCount}, Error rate: ${activity.errorRate}`);
-
-// Raw SQL queries
-const result = await coral.db.query(`
-  SELECT service_name, AVG(duration_ns) as avg_latency
-  FROM beyla_http_metrics
-  WHERE timestamp > now() - INTERVAL '1 hour'
-  GROUP BY service_name
-`);
+```text
+coral script [flags]
 ```
 
-### Example Scripts
+#### coral script list
 
-See `examples/scripts/` directory:
+List scripts in ~/.coral/scripts/.
 
-- `latency-report.ts` - Service latency monitoring with P50/P95/P99
-- `correlation-analysis.ts` - Cross-service error correlation
-- `high-latency-alert.ts` - Anomaly detection and alerts
-- `service-activity.ts` - Request counts and error rates
-- `sdk-demo-monitor.ts` - Full SDK feature demonstration
+```text
+coral script list [flags]
+```
 
-### Security & Sandboxing
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
 
-Scripts run with restricted permissions:
+#### coral script remove
 
-- ✅ **Allowed**: Network access to colony gRPC API only
-- ✅ **Allowed**: Read local files (for imports)
-- ✅ **Allowed**: Console output (stdout/stderr)
-- ❌ **Blocked**: Write to filesystem
-- ❌ **Blocked**: Execute shell commands
-- ❌ **Blocked**: Access environment variables (except `CORAL_*`)
+Remove a script from ~/.coral/scripts/.
 
-Deno permissions:
-`--allow-net=<colony-addr> --allow-read=./ --allow-env=CORAL_*`
+```text
+coral script remove [flags]
+```
 
----
+Requires `--name`; removes the local source file. It does not undeploy runtime correlations created by that script.
 
-## DuckDB Queries
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--name` | string | empty | **Required.** Script name (required) |
+
+#### coral script write
+
+Write a TypeScript script to ~/.coral/scripts/<name>.ts.
+
+```text
+coral script write [flags]
+```
+
+Requires `--name` and nonempty `--content` or `--file`. Names use letters, digits, hyphens, and underscores. Writing an existing name replaces the stored source.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--content` | string | empty | Script content (TypeScript source) |
+| `--file` | string | empty | Read content from this file instead of --content |
+| `--name` | string | empty | **Required.** Script name (required) |
+
+### coral services
+
+List and manage services.
+
+```text
+coral services [flags]
+```
+
+With no subcommand, lists services. `--local` and `--agent` select agent inventory; the default is merged Colony inventory. `--source auto|watched` applies to local/agent inventories. `--since` controls the Colony telemetry discovery window and is rejected for local/agent scope.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (resolves via colony registry) |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+| `--local` | bool | `false` | List services on the local agent |
+| `--name` | stringSlice | `[]` | Filter by exact service name (comma-separated) |
+| `--since` | string | `1h` | Telemetry discovery window for colony inventory (e.g. 10m, 24h) |
+| `--sort` | string | `name` | Sort by name,instances,last-seen (colony) or name,port,pid (agent); prefix with - to reverse |
+| `--source` | string | empty | Filter by source: auto or watched |
+| `--wide` | bool | `false` | Show all agent IDs in colony output |
+
+#### coral services list
+
+List services.
+
+```text
+coral services list [flags]
+```
+
+Agent inventory uses direct agent access after target resolution; the CLI must reach that agent. Health-check state, heartbeat liveness, registration, and telemetry activity are separate. Cached or missing check data is not evidence of health.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (resolves via colony registry) |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+| `--local` | bool | `false` | List services on the local agent |
+| `--name` | stringSlice | `[]` | Filter by exact service name (comma-separated) |
+| `--since` | string | `1h` | Telemetry discovery window for colony inventory (e.g. 10m, 24h) |
+| `--sort` | string | `name` | Sort by name,instances,last-seen (colony) or name,port,pid (agent); prefix with - to reverse |
+| `--source` | string | empty | Filter by source: auto or watched |
+| `--wide` | bool | `false` | Show all agent IDs in colony output |
+
+#### coral services watch
+
+Watch and enrich one or more services.
+
+```text
+coral services watch [service-spec...] [flags]
+```
+
+Specifications use `name:port[:health][:type]`. Single-name syntax accepts `--port` or `--exe-pattern`, never both. Direct watch defaults to the local agent; `--colony` requires `--agent` or fleet selection. Fleet watch needs explicit selectors or `--all`; `--agent-url` and `--wait` do not apply to the fleet path. Matching existing registrations are unchanged; conflicts are not silently updated.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (resolves via colony registry) |
+| `--agent-url` | string | empty | Agent URL (default: auto-discover) |
+| `--agents` | stringSlice | `[]` | Target exact agent IDs (comma-separated) |
+| `--all` | bool | `false` | Target all registered agents explicitly |
+| `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
+| `--concurrency` | int | `8` | Maximum concurrent target operations (1-128) |
+| `--dry-run` | bool | `false` | Preview the pinned target set without performing the operation |
+| `--exe-pattern` | string | empty | Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (only works with single service, mutually exclusive with --port) |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+| `--health` | string | empty | Health check endpoint (legacy, only works with single service) |
+| `--port` / `-p` | int | `0` | Service port (legacy, only works with single service) |
+| `--report` | string | empty | Save a JSON result report for inspection or --retry-failed |
+| `--request-timeout` | duration | `10s` | Timeout per target attempt (maximum 5m) |
+| `--retries` | int | `0` | Retries per failed target for transient errors (0-10) |
+| `--retry-failed` | string | empty | Retry only failed/canceled targets from a saved JSON report |
+| `--runtime` | stringSlice | `[]` | Filter runtime: native,docker,k8s-sidecar,k8s-daemonset,unknown (comma-separated) |
+| `--service` | stringSlice | `[]` | Filter exact service names (comma-separated) |
+| `--status` | stringSlice | `[]` | Filter heartbeat status: healthy,degraded,unhealthy (comma-separated) |
+| `--version` | stringSlice | `[]` | Filter exact agent versions (comma-separated) |
+| `--wait` | bool | `false` | Wait for initial health checks and display status (recommended for interactive use) |
+
+### coral shell
+
+Open interactive shell or execute command in agent environment.
+
+```text
+coral shell [command...] [flags]
+```
+
+Executes in the agent environment; it does not enter an application container. Omit the command for an interactive PTY, or use `--` followed by a command and arguments. User labels are audit metadata, not OS-user impersonation.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--agent` | string | empty | Agent ID (resolves via colony registry) |
+| `--agent-addr` | string | empty | Agent address (default: auto-discover) |
+| `--colony` | string | empty | Colony ID (default: auto-detect) |
+| `--user-id` | string | empty | User ID for audit (default: $USER) |
+
+### coral status
+
+Show global Coral environment status.
+
+```text
+coral status [flags]
+```
+
+Queries configured Colonies with their endpoint, TLS trust, and current token. Request failure means unreachable; invalid configuration or mismatched identity can mean unknown. Neither implies a stopped Colony.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format` / `-o` | string | `table` | Output format (table, json) |
+
+### coral terminal
+
+Launch the mission-control TUI.
+
+```text
+coral terminal [flags]
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--auto-browser` | bool | `false` | Automatically open the browser dashboard on first render event |
+| `--colony` | string | empty | Colony ID to connect to (default: from config) |
+| `--debug` | bool | `false` | Enable debug logging to stderr |
+| `--model` | string | empty | Override LLM model (e.g. anthropic:claude-sonnet-4-6) |
+
+### coral version
+
+Show version information.
+
+```text
+coral version [flags]
+```
+
+## Fleet selection and reports
+
+`colony agents`, mesh diagnostics, and fleet service watches share exact-match
+selectors: `--agents`, `--status`, `--service`, `--runtime`, and `--version`.
+Values within one selector are ORed; different selectors are ANDed. Agent
+status refers to heartbeat liveness, not service health checks. Runtime names
+include `native`, `docker`, `k8s-sidecar`, `k8s-daemonset`, and `unknown`.
+
+Bulk `--dry-run` reads inventory and prints planned targets without pinging,
+auditing, or registering services. Target IDs are pinned before execution.
+`--concurrency` defaults to 8 (range 1–128), `--request-timeout` to 10s (maximum
+5m), and `--retries` to zero (maximum 10). Only transient failures are retried;
+successful service steps are retained.
+
+Reports contain `version`, `operation`, `colony_id`, `parameters`, `dry_run`,
+timestamps, `summary`, and ordered `results`. Target status is `planned`,
+`succeeded`, `failed`, or `canceled`. `--retry-failed` selects only failed or
+canceled IDs from a saved report; it cannot combine with new selectors or
+`--all`. Omitted operation parameters are restored from the report; conflicting
+parameters or a different Colony are rejected. Dry-run reports cannot be retried.
+See [fleet operations](user/fleet.md) for the complete report example and workflow.
+
+## Compatibility names
+
+- `coral connect` is a permanent hidden alias for `coral services watch`, with
+  the same arguments and options.
+- `coral colony service list` is a hidden legacy service-list entry point.
+- `coral colony mcp` retains legacy MCP children. Prefer `coral mcp configure`,
+  `coral mcp list-tools`, and `coral mcp proxy`. Legacy `generate-config`
+  corresponds to client configuration; `test-tool` belongs to that legacy
+  interface rather than the local proxy's single `coral_cli` vocabulary.
+- `--monitor-all` on agent startup is a deprecated no-op; use the default or
+  opt out with `--no-monitor-all`.
+
+Internal commands such as `_tun-helper` are implementation details and are
+excluded from the user command inventory.
+
+## Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `CORAL_CONFIG` | Replaces the loader's base directory: `<base>/.coral/config.yaml`; default base is the user's home. Does not relocate every state file |
+| `CORAL_COLONY_ID` | Colony selection, ahead of project selection and global default |
+| `CORAL_COLONY_ENDPOINT` | Explicit operator URL; also an optional direct agent bootstrap URL |
+| `CORAL_API_TOKEN` | Bearer token sent by supported Colony clients to the public API |
+| `CORAL_CA_FILE`, `CORAL_CA_DATA` | Client CA file or base64-encoded CA data |
+| `CORAL_INSECURE` | Disable client TLS verification for isolated testing |
+| `CORAL_CA_FINGERPRINT` | Expected Colony Root CA fingerprint for bootstrap |
+| `CORAL_BOOTSTRAP_PSK` | Secret authorizing initial agent enrollment |
+| `CORAL_CERTS_DIR` | Agent certificate and enrollment state directory |
+| `CORAL_DISCOVERY_ENDPOINT` | Discovery service override |
+| `CORAL_PUBLIC_ENDPOINT` | Colony advertised WireGuard UDP endpoint override, `host:port`, comma-separated for multiple |
+| `CORAL_MESH_SUBNET` | Colony IPv4 mesh subnet override |
+| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Agent dialable TCP endpoint for reverse-dial bootstrap |
+| `CORAL_BOOTSTRAP_LISTEN_PORT` | Local reverse-dial listener port, default 8444 |
+| `CORAL_VERIFY_BOOTSTRAP_REACHABILITY` | Opt-in Discovery reachability diagnostic |
+| `CORAL_SERVICES` | Agent service specifications; replaces configured service list |
+| `CORAL_MONITOR_ALL` | Default-on process observation; set false to opt out |
+| `CORAL_LOG_LEVEL`, `CORAL_LOG_FORMAT` | Agent logging configuration |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | Provider credentials when configured as environment key sources |
+| `OPENAI_BASE_URL` | OpenAI-compatible endpoint fallback, after configured `base_urls.openai` |
+
+Additional collection environment settings and YAML field definitions live in
+[the configuration reference](user/configuration-reference.md). Settings are consumed by their corresponding component;
+exporting a value in an operator shell does not update an already running server.
+
+## Files
+
+| Path | Purpose |
+| --- | --- |
+| `~/.coral/config.yaml` | Global defaults, Discovery and AI settings |
+| `~/.coral/colonies/<id>/config.yaml` | Per-Colony server or remote connection settings |
+| `<project>/.coral/config.yaml` | Project context and local settings |
+| `./agent.yaml`, `/etc/coral/agent.yaml` | Agent startup file search order, unless `--config` is explicit |
+| `~/.coral/colonies/<id>/ca/` | Colony CA material; protect private keys |
+| `~/.coral/colonies/<id>/tokens.yaml` | Public API token store, unless configured elsewhere |
+| `~/.coral/certs/` | Default agent credentials and `enrollment.json` checkpoint |
+| `~/.coral/agent/metrics.duckdb` | Shared agent observation database in its process home |
+| `~/.coral/scripts/` | Stored investigation script sources |
+
+Colony data uses its resolved storage path. Inspect configuration and startup
+logs before backups or relocation; the configuration directory alone is not a
+complete state backup.
+
+## Exit status and output
+
+The full CLI exits 0 when a handler returns success and 1 when it returns an
+error. Some status commands print missing or unhealthy state while returning
+success; do not interpret the exit code alone as a health verdict. Registered
+placeholders are called out above.
+
+Bulk operations return a nonzero status for any failed or canceled target after
+printing/saving results. With JSON format, their reports remain valid JSON on
+stdout while progress and command errors use stderr. Other commands have their
+own output contracts; inspect their documented formats before piping output.
+Remote execution can translate a returned command failure into a CLI error;
+it does not universally preserve the child's numeric exit code.
+
+## Examples
 
 ```bash
-# List agents and databases
-coral duckdb list-agents
-coral duckdb list  # alias
-
-# One-shot queries
-coral duckdb query <agent-id> "<sql>" [-d <database>] [-f table|csv|json]
-
-# Interactive shell
-coral duckdb shell <agent-id> [-d <database>]
-coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
-
-# Shell meta-commands
-.tables      # List all tables
-.databases   # Show attached databases
-.help        # Show help
-.refresh     # Detach and re-attach databases to refresh data
-.exit        # Exit shell
+coral init shop --env dev
+coral config current-context --verbose
+coral colony agents --service api
+coral services list --format json
+coral services watch api:8080:/health
+coral query summary api --since 10m
+coral profile cpu --service api --duration 30 > api.folded
+coral debug session list --service api
+coral mesh ping --service api --dry-run
+coral script remove --name old-investigation
 ```
 
-### Available Databases
-
-**Agent:**
-
-- `metrics.duckdb` - All agent metrics (spans, HTTP/gRPC/SQL metrics)
-
-**Colony (future):**
-
-- `metrics.duckdb` - Aggregated historical data
-
-### Agent Key Tables
-
-**Beyla (eBPF metrics):**
-
-- `beyla_http_metrics_local` - HTTP RED metrics
-- `beyla_grpc_metrics_local` - gRPC call metrics
-- `beyla_sql_metrics_local` - Database query metrics
-
-**Beyla (eBPF traces):**
-
-- `beyla_traces_local` - OTLP distributed tracing spans
-
-**Telemetry (OTel):**
-
-- `otel_spans_local` - OTLP distributed tracing spans
-
----
-
-## On-Demand Profiling
-
-**Collect performance profiles on-demand from running services.**
-
-```bash
-# CPU profiling - Statistical sampling
-coral profile cpu --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>]
-
-# Memory profiling - Heap allocation tracking
-coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json]
-
-# Examples - CPU profiling:
-coral profile cpu --service api                               # Basic 30s CPU profile
-coral profile cpu --service api --duration 60                 # 60 second profile
-coral profile cpu --service api --frequency 99                # Custom sampling frequency
-coral profile cpu --service api --format folded | flamegraph.pl > cpu.svg  # Generate flame graph
-coral profile cpu --service api --pod api-7d8f9c              # Target specific pod
-
-# Examples - Memory profiling:
-coral profile memory --service api                            # Basic 30s memory profile
-coral profile memory --service api --sample-rate 4096         # Custom sampling rate (4MB)
-coral profile memory --service api --format folded | flamegraph.pl > memory.svg  # Generate flame graph
-
-# Flags:
-#   --service <name>       Service name (required)
-#   --duration <seconds>   Profiling duration in seconds (default: 30, max: 300)
-#   --frequency <hz>       CPU sampling frequency in Hz (default: 99, max: 1000)
-#   --sample-rate <kb>     Memory sampling rate in KB (default: 512)
-#   --format <type>        Output format: folded (default), json
-```
-
-**What you get:**
-
-- **CPU Profiles**: Stack traces showing where CPU time is spent (on-demand,
-  high-frequency sampling)
-- **Memory Profiles**: Allocation flame graphs showing memory usage patterns
-- **Flame graph compatible**: Outputs folded stack format for flamegraph.pl
-  visualization
-- **Low overhead**: ~2-5% CPU overhead during profiling window
-
-**Use cases:**
-
-- Identify CPU hotspots in production
-- Track memory allocation patterns
-- Generate flame graphs for performance analysis
-- Compare before/after optimization changes
-
-**See also:** Use `coral query cpu-profile` and `coral query memory-profile` for
-historical profiling data.
-
----
-
-## Live Debugging (SDK mode)
-
-```bash
-# Attach probes
-coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return] \
-  [--sample-rate <n>] [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
-coral debug trace <service> --path <path> [--duration <time>]
-
-# Update kernel-level filter for an active session (without detaching)
-coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>] [--format text|json]
-
-# Manage debug sessions
-coral debug session list [--service <name>] [--status <status>] [--format text|json|csv]
-coral debug session get <session-id> [--format text|json|csv]
-coral debug session query <service> --function <name> [--since <duration>] [--format text|json|csv]
-coral debug session query <service> --session-id <id> [--format text|json|csv]
-coral debug session events <session-id> [--max <n>] [--follow] [--since <duration>] [--format text|json]
-coral debug session stop <session-id> [--format text|json]
-
-# Examples - Attach with kernel-level filters:
-coral debug attach api --function processOrder              # Attach without filters (all events)
-coral debug attach api --function processOrder --min-duration 50ms   # Only slow calls (>50ms)
-coral debug attach api --function processOrder --filter-rate 100     # Sample 1 in 100 events
-
-# Examples - Live filter updates:
-coral debug filter abc123 --min-duration 100ms              # Raise threshold on active session
-coral debug filter abc123 --filter-rate 10                  # Switch to 1-in-10 sampling
-coral debug filter abc123 --min-duration 0 --filter-rate 1  # Reset to capture all events
-
-# Examples - Session management:
-coral debug session list                                    # List all active sessions
-coral debug session list --service api                      # List sessions for specific service
-coral debug session get abc123                              # Get session metadata
-coral debug session query api --function processOrder       # Query results for function
-coral debug session query api --session-id abc123           # Query specific session results
-coral debug session events abc123 --follow                  # Stream events from session
-coral debug session stop abc123                             # Stop a debug session
-```
-
-### Kernel-level Filter Flags
-
-Filter flags (`--min-duration`, `--max-duration`, `--filter-rate`) configure an eBPF BPF map
-that drops events **inside the kernel** before they ever reach userspace. This eliminates
-unnecessary data copies on high-volume hot paths (10K+ calls/sec).
-
-| Flag               | Description                                           | Example       |
-|--------------------|-------------------------------------------------------|---------------|
-| `--min-duration`   | Only emit events slower than this threshold           | `50ms`, `1s`  |
-| `--max-duration`   | Only emit events faster than this threshold           | `500ms`       |
-| `--filter-rate`    | Emit 1 in every N events (0 or 1 = all events)        | `100`         |
-
-Use `coral debug filter <session-id>` to adjust these thresholds on an active session without
-detaching the probe or losing collected data.
-
----
-
-## Agent Shell Access
-
-```bash
-# Interactive shell
-coral shell [--agent <agent-id>] [--agent-addr <address>] [--user-id <user>]
-
-# One-off command execution (like kubectl exec)
-coral shell [--agent <agent-id>] -- <command> [args...]
-
-# Examples - Interactive mode:
-coral shell                                   # Local agent
-coral shell --agent hostname-api-1            # Specific agent by ID
-coral shell --agent-addr 100.64.0.5:9001      # Specific agent by address
-
-# Examples - Command execution mode:
-coral shell -- ps aux                         # Execute command on local agent
-coral shell --agent 6b86a4acc127 -- ps aux    # Execute on specific agent
-coral shell -- sh -c "ps aux && netstat -tunlp"  # Complex command with shell
-coral shell --user-id alice@company.com -- whoami  # With audit user ID
-
-# Available tools in agent shell:
-#   - Network: tcpdump, netcat, curl, dig
-#   - Process: ps, top
-#   - Database: duckdb (query agent's local database)
-#   - Files: agent config, logs, data
-```
-
----
-
-## Container Execution
-
-```bash
-# Execute commands in service containers (nsenter mode)
-coral exec <service> <command> [args...] [flags]
-
-# Flags:
-#   --agent <agent-id>              Target specific agent by ID
-#   --agent-addr <address>          Target specific agent by address
-#   --colony <colony-id>            Colony ID (default: auto-detect)
-#   --user-id <user>                User ID for audit (default: $USER)
-#   --container <selector>          Process name, id:<ID prefix>, or pid:<n>
-#                                   Required in the host PID namespace
-#   --timeout <seconds>             Timeout in seconds (max 300, default: 30)
-#   --working-dir <path>            Working directory in container
-#   --env <KEY=VALUE>               Environment variables (repeatable)
-#   --namespaces <ns1,ns2,...>      Namespaces to enter (default: mnt)
-#                                   Options: mnt,pid,net,ipc,uts,cgroup
-
-# Examples - Basic usage:
-coral exec nginx cat /etc/nginx/nginx.conf
-coral exec api-server -- ls -la /data
-coral exec web -- ps aux
-
-# Examples - Advanced options:
-coral exec nginx --agent hostname-api-1 cat /app/config.yaml
-coral exec app --working-dir /app -- find . -name "*.log"
-coral exec api --env DEBUG=true env
-coral exec nginx --namespaces mnt,pid ps aux
-coral exec logs-processor --timeout 60 -- find /data -name "*.log"
-coral exec web --container nginx cat /etc/nginx/nginx.conf
-coral exec web --container id:3f1c9a7e2b4d cat /etc/nginx/nginx.conf
-coral exec web --container pid:4242 cat /etc/nginx/nginx.conf
-
-# Key differences:
-#   coral shell    → Runs on AGENT HOST (agent's environment)
-#   coral exec     → Runs in SERVICE CONTAINER (via nsenter)
-```
-
-`--container` uses explicit selector forms:
-
-| Value | Meaning |
-|-------|---------|
-| `nginx` | Exact, case-sensitive process name (`/proc/<pid>/comm`), not a runtime container name; hex-looking values are still names |
-| `id:3f1c9a7e2b4d` | Container ID prefix of any non-empty length from `/proc/<pid>/cgroup` |
-| `pid:4242` | Positive PID as seen by the agent |
-| Omitted or empty | Lowest visible positive PID excluding the agent in sidecar mode; refused in host mode |
-
-The service argument resolves an agent separately from container selection.
-Name and ID matches must identify a single container; ambiguous matches fail.
-Use a longer ID prefix or an explicit PID to disambiguate. Host processes
-sharing host init's mount namespace are refused for all selector forms.
-In Kubernetes shared-PID pods, the lowest PID may be `pause`; select the
-application explicitly. See [Container Selection](CLI.md#container-selection).
-
----
-
-## Environment Variables
-
-| Variable                   | Description                                                            |
-|----------------------------|------------------------------------------------------------------------|
-| `CORAL_COLONY_ENDPOINT`    | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
-| `CORAL_API_TOKEN`          | API token for authenticating to the public endpoint                    |
-| `CORAL_COLONY_ID`          | Override active colony ID                                              |
-| `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for agent bootstrap (sha256:hex)                   |
-| `CORAL_BOOTSTRAP_PSK`     | Bootstrap PSK for enrollment authorization                             |
-| `CORAL_BOOTSTRAP_PUBLIC_ENDPOINT` | Agent public `host:port` for reverse-dial bootstrap when the Colony is not dialable |
-| `CORAL_BOOTSTRAP_LISTEN_PORT` | Local reverse-dial listener port (default: `8444`)                 |
-| `CORAL_VERIFY_BOOTSTRAP_REACHABILITY` | Opt in to Discovery's quota-limited TCP reachability diagnostic |
-| `CORAL_CONFIG`             | Override config directory (default: `~/.coral`)                        |
-| `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL override                                         |
-
----
-
-**For detailed documentation, see [CLI.md](./CLI.md)**
+Server startup, privilege setup, credentials, and verification are explained in
+[the user guide](user/README.md). Configuration fields live in the
+[configuration reference](user/configuration-reference.md); programmatic analysis lives in the
+[TypeScript SDK reference](user/sdk-reference.md).

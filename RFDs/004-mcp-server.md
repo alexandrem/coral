@@ -1474,7 +1474,7 @@ DuckDB + Agent Registry
 - [x] Integration tests for audit logging
 - [x] Integration tests for server creation and initialization
 - [x] Integration tests for tool filtering
-- [x] Documentation: `docs/MCP.md` (user guide with architecture)
+- [x] Documentation: `docs/user/ai-assistants.md` (user guide with architecture)
 - [x] Documentation: `docs/development/MCP-Testing.md` (E2E testing guide)
 - [x] E2E test documentation for Claude Desktop integration
 - [x] Documentation for building custom MCP clients

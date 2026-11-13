@@ -90,8 +90,8 @@ These logs do not constitute durable keystroke recording or session playback.
 Access control also depends on the listener and middleware through which the
 agent is reached. [Identity and trust](identity-and-trust.md) explains why mesh
 encryption and certificate issuance alone do not establish per-command policy.
-For usage and deployment requirements, see [Live debugging](../LIVE_DEBUGGING.md),
-[Privileges](../PRIVILEGE.md), and [Agent deployment](../AGENT_DEPLOYMENT.md).
+For usage and deployment requirements, see [Live debugging](../user/live-debugging.md),
+[Privileges](../user/installation.md), and [Agent deployment](../user/deployment.md).
 
 ## Design history
 

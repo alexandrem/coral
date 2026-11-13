@@ -519,11 +519,11 @@ endpoint automatically.
 
 - [ ] Add the unit, integration, and isolated-network E2E coverage described
   below, then run the repository's required lint and test checks.
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` for routing, credentials,
+- [ ] Update `docs/user/README.md` and `docs/CLI_REFERENCE.md` for routing, credentials,
   explicit direct access, version compatibility, and HTTP/2 requirements.
-- [ ] Update `docs/COLONY.md` and `docs/SECURITY.md` for the authenticated
+- [ ] Update `docs/user/colony-operations.md` and `docs/user/security.md` for the authenticated
   execution service, its Colony-wide permission, and listener boundaries.
-- [ ] Update `docs/AGENT.md` for gateway caller metadata and session cleanup.
+- [ ] Update `docs/user/services.md` for gateway caller metadata and session cleanup.
 - [ ] Update `docs/architecture/system-overview.md` to separate telemetry and
   execution paths, and use Agent/Colony API labels instead of collector/poller
   labels for control operations.

@@ -111,7 +111,7 @@ coral ask "test question" --model openai:gpt-4o-mini
 - **Agent initialization:** `internal/agent/ask/agent.go`
 - **CLI command:** `internal/cli/ask/ask.go`
 - **Configuration:** `internal/config/ask.go`
-- **User documentation:** `docs/CONFIG.md`
+- **User documentation:** `docs/user/configuration-reference.md`
 - **Design document:** `RFDs/030-coral-ask-local.md`
 
 ---

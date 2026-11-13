@@ -192,67 +192,25 @@ Coral is designed for **complete data sovereignty**.
   machine. Or use Ollama for a fully air-gapped setup.
 - **Encrypted Mesh**: All traffic between hosts is secured via WireGuard.
 
-## Quick Start
+## Get Started
 
-```bash
-# Build
-make build
-
-# Initialize and run
-bin/coral init my-colony
-bin/coral colony start   # terminal 1
-bin/coral agent start    # terminal 2
-
-# Ask
-bin/coral ask config     # configure your LLM (first time)
-bin/coral ask "Why is the API slow?"
-```
-
-To observe specific services explicitly (default: all services on the host):
-
-```bash
-bin/coral connect frontend:3000 api:8080:/health
-```
+Start with the [Coral User Guide](docs/user/README.md). It covers installation,
+your first Colony and agent, configuration, deployment, investigation, and
+troubleshooting. Linux agents provide eBPF observation; the CLI can also run on
+macOS. An AI provider is optional for direct query and debugging commands.
 
 ## Documentation
 
-#### Architecture
-
-- **[Architecture Book](docs/architecture/README.md)**: Component responsibilities,
-  data ownership, collection and investigation flows, and failure behavior.
-
-#### User Experience
-
-- **[Installation & Permissions](docs/INSTALLATION.md)**: Quick start guide to
-  setting up Colony and Agents.
-- **[CLI Handbook](docs/CLI.md)**: Conceptual guide and common workflows for the
-  `coral` CLI.
-- **[CLI Reference](docs/CLI_REFERENCE.md)**: Complete command-line manual and
-  syntax reference.
-- **[Configuration Guide](docs/CONFIG.md)**: Reference for Colony and Agent
-  configuration files.
-- **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How to use on-demand
-  instrumentation and profiling.
-
-#### Operations & Deployment
-
-- **[Deployment Guide](docs/DEPLOYMENT.md)**: Best practices for running Coral
-  in production (K8s, VMs).
-- **[Service Discovery](docs/SERVICE_DISCOVERY.md)**: Understanding how Coral
-  finds and maps your distributed services.
-- **[Troubleshooting Guide](docs/BOOTSTRAP_TROUBLESHOOTING.md)**: Solutions for
-  common connectivity and bootstrap issues.
-
-#### Developer & SDK
-
-- **[SDK Reference](docs/SDK_REFERENCE.md)**: Enriching telemetry with
-  application-level tracing.
-- **[Instrumentation Guide](docs/INSTRUMENTATION.md)**: Best practices for
-  custom probes and SDK integration.
-- **[MCP (Model Context Protocol)](docs/MCP.md)**: Architectural details on how
-  Coral interfaces with AI assistants.
-- **[OTLP Ingestion](docs/OTLP_INGESTION.md)**: Importing external OpenTelemetry
-  data into the Coral mesh.
+- [User Guide](docs/user/README.md): Install, configure, operate, and use Coral.
+- [CLI Reference](docs/CLI_REFERENCE.md): The single man-style command manual,
+  including arguments, options, defaults, environment, and files.
+- [Configuration Reference](docs/user/configuration-reference.md): Colony, agent, and client settings.
+- [TypeScript SDK Reference](docs/user/sdk-reference.md): Programmatic investigations.
+- [Architecture Book](docs/architecture/README.md): Internal responsibilities,
+  data ownership, collection flows, and failure behavior.
+- [Kubernetes Manifests](deployments/k8s/README.md): Deployment variants and
+  their privilege requirements.
+- [Examples](examples/): Applications and reusable investigation scripts.
 
 ## License
 

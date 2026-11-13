@@ -54,17 +54,17 @@ every file that will need updating:
 
 | Surface area | Docs to update |
 |---|---|
-| New or changed CLI commands / flags | `docs/CLI.md`, `docs/CLI_REFERENCE.md` |
-| New or changed MCP tools | `docs/MCP.md`, `docs/CLI_MCP_MAPPING.md` |
-| New or changed config keys | `docs/CONFIG.md` |
-| New or changed agent behaviour | `docs/AGENT.md` |
-| New or changed colony/server behaviour | `docs/COLONY.md` |
-| New or changed service-discovery behaviour | `docs/SERVICE_DISCOVERY.md`, `docs/DISCOVERY.md` |
-| New or changed storage/DuckDB behaviour | `docs/STORAGE.md` |
-| New or changed provider support | `docs/PROVIDERS.md` |
-| New or changed SDK/scripting API | `docs/SDK_REFERENCE.md` |
-| New or changed installation/setup steps | `docs/INSTALLATION.md` |
-| New or changed security model | `docs/SECURITY.md` |
+| New or changed CLI commands / flags | Relevant workflow in `docs/user/`, plus `docs/CLI_REFERENCE.md` |
+| New or changed MCP tools | `docs/user/ai-assistants.md` |
+| New or changed config keys | `docs/user/configuration-reference.md` |
+| New or changed agent behaviour | `docs/user/services.md`, `docs/user/deployment.md` as applicable |
+| New or changed colony/server behaviour | `docs/user/colony-operations.md` |
+| New or changed service-discovery behaviour | `docs/user/services.md`, `docs/user/deployment.md` as applicable |
+| New or changed storage/DuckDB behaviour | `docs/user/queries.md`, `docs/architecture/data-ownership.md` |
+| New or changed provider support | `docs/user/ai-assistants.md` |
+| New or changed SDK/scripting API | `docs/user/sdk-reference.md` |
+| New or changed installation/setup steps | `docs/user/installation.md`, `docs/user/getting-started.md` |
+| New or changed security model | `docs/user/security.md`, `docs/architecture/identity-and-trust.md` |
 
 Only include tasks for docs that actually apply — do not add spurious doc tasks
 for unrelated files.

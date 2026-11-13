@@ -219,7 +219,7 @@ new_sqlite_classes = ["ColonyRegistry"]
 
 - [x] Load test with simulated burst registration (1k+ concurrent requests).
 
-- [x] Update documentation files (`docs/CONFIG.md`, `docs/DISCOVERY.md`).
+- [x] Update documentation files (`docs/user/configuration-reference.md`, `docs/user/deployment.md`).
 
 ## API Changes
 

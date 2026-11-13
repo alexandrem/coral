@@ -61,7 +61,7 @@ encapsulation path used by internal mesh traffic. A successful ping demonstrates
 that path at the time of measurement, not the health of every RPC or collector.
 
 Implementation: [mesh ping](../../internal/agent/mesh_ping.go).
-Procedures live in [WireGuard troubleshooting](../WIREGUARD_TROUBLESHOOTING.md).
+Procedures live in [WireGuard troubleshooting](../user/troubleshooting.md).
 
 ## Design history
 

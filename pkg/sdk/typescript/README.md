@@ -446,9 +446,9 @@ coral run script.ts --timeout 120  # 120 seconds
 
 ## Further Reading
 
-- [Example Scripts](../../examples/scripts/) - Complete working examples
-- [CLI Documentation](../../docs/CLI.md) - `coral run` command usage
-- [RFD 076](../../RFDs/076-sandboxed-typescript-execution.md) - Technical design
+- [Example Scripts](../../../examples/scripts/) - Complete working examples
+- [CLI Documentation](../../../docs/user/scripting.md) - `coral run` command usage
+- [RFD 076](../../../RFDs/076-sandboxed-typescript-execution.md) - Technical design
 - [Deno Documentation](https://deno.land/manual) - Deno runtime
 
 ## License

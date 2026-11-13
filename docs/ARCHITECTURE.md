@@ -11,5 +11,5 @@ responsibilities and an end-to-end telemetry operation.
 - [Service discovery and naming](architecture/service-discovery.md)
 - [MCP and LLM integration](architecture/mcp-and-llm.md)
 
-Deployment and usage procedures remain in the [Deployment guide](DEPLOYMENT.md)
-and [CLI handbook](CLI.md). Proposals and design history live in [RFDs](../RFDs/).
+Deployment and usage procedures remain in the [Deployment guide](user/deployment.md)
+and [CLI handbook](user/README.md). Proposals and design history live in [RFDs](../RFDs/).

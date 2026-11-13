@@ -112,7 +112,7 @@ refused for every selector form.
 In sidecar mode, omitting `--container` selects the lowest visible positive
 PID excluding the agent. In Kubernetes pods with `shareProcessNamespace: true`,
 this may be the `pause` container, so select the application explicitly.
-See [Container Selection](../../docs/CLI.md#container-selection) for details.
+See [Container Selection](../../docs/user/remote-execution.md#select-a-container-process) for details.
 
 ### Port Configuration
 

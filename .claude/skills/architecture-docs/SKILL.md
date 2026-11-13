@@ -21,11 +21,11 @@ sources to fetch during ordinary documentation work.
   identities, data ownership, flows, invariants, and failure behavior.
 - `RFDs/` records design proposals, decisions, and implementation plans. Check
   the code before treating an RFD as a description of current behavior.
-- `docs/guides/`, `docs/CLI.md`, `docs/LIVE_DEBUGGING.md`, and related user guides
-  own walkthroughs and usage. `docs/CLI_REFERENCE.md`, `docs/SDK_REFERENCE.md`,
-  and `docs/CONFIG.md` own detailed interface and configuration reference.
-- `docs/DEPLOYMENT.md`, `docs/AGENT_DEPLOYMENT.md`, and troubleshooting documents
-  own deployment, inspection, and recovery procedures.
+- `docs/user/` owns installation, configuration choices, walkthroughs,
+  deployment, inspection, and recovery procedures. Its `README.md` is the reading
+  map; use the `user-docs` skill for this audience. `docs/CLI_REFERENCE.md` is the
+  single man-style command manual. `docs/user/sdk-reference.md` and
+  `docs/user/configuration-reference.md` own interface and configuration reference.
 - `docs/DESIGN.md` records broader design context; it is not evidence that a
   proposed capability is implemented.
 

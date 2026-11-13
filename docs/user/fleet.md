@@ -1,4 +1,4 @@
-# Fleet operations
+# Fleet Operations
 
 Agent inspection, mesh diagnostics, and bulk observation use the same selectors:
 `--agents`, `--status`, `--service`, `--runtime`, and `--version`. Values within a
@@ -131,3 +131,6 @@ error and whether it is transient. Target results are ordered by full agent ID.
 Agent inventory keeps its existing JSON array. Mesh audit JSON now uses the shared
 envelope: scripts that previously read the result array directly should use
 `.results[].data`.
+
+See [services and health](services.md) for inventory interpretation and the
+[CLI reference](../CLI_REFERENCE.md) for all command options.

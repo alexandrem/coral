@@ -413,7 +413,7 @@ are taking 850ms (69% of total request time). Recent errors show
 
 ### Phase 4: Testing & Documentation ✅
 
-- [x] Update `docs/CLI_MCP_MAPPING.md` with unified query interface section
+- [x] Update `docs/user/ai-assistants.md` with unified query interface section
 - [x] Update RFD 035 with superseded notice
 - [x] Fix all broken tests (mocks updated for new interfaces)
 - [x] Write unit tests for unified query methods (13 new test cases)
@@ -588,7 +588,7 @@ All phases of the unified query interface have been successfully implemented:
 
 ### Phase 4: Documentation ✅
 
-- Updated `docs/CLI_MCP_MAPPING.md` with new unified tools
+- Updated `docs/user/ai-assistants.md` with new unified tools
 - Updated RFD 035 to reference RFD 067
 - Created implementation walkthrough
 

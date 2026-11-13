@@ -143,7 +143,7 @@ are cached with TTLs to avoid repetitive inference.
       context hash).
     - Audit log integration: record requestor, prompt, response, tokens, tools.
 
-2. **DuckDB Storage (`docs/STORAGE.md` + schema)**
+2. **DuckDB Storage (`docs/architecture/data-ownership.md` + schema)**
     - New tables: `ask_cache`, `ask_context_chunks`, optional `ask_embeddings`.
     - Views optimizing retrieval (e.g., last hour metrics per service).
 
@@ -151,7 +151,7 @@ are cached with TTLs to avoid repetitive inference.
     - Update `coral ask` to support flags (`--refresh`, `--model`, `--json`).
     - Display citations referencing specific colony datasets.
 
-4. **MCP Server (`docs/MCP.md`)**
+4. **MCP Server (`docs/user/ai-assistants.md`)**
     - Expose `coral_get_insight` tool that mirrors `ask`.
 
 **Configuration Example**
