@@ -153,6 +153,11 @@ Since RFD 103, the agent observes every process on the host by default — no
 ```bash
 # Connect agent to services dynamically after startup (triggers eBPF restart)
 coral services watch <service-spec>...
+coral services watch api:8080 --agent agent-1 --colony production
+
+# --colony selects the registry used to resolve --agent (also on coral connect).
+# watch requires --agent with --colony; otherwise it targets the local agent.
+# --format, --source, and --local apply only to service listing.
 coral services watch frontend:3000
 coral services watch api:8080:/health:http
 coral services watch frontend:3000 api:8080:/health redis:6379

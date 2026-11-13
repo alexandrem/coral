@@ -29,16 +29,19 @@ type listOptions struct {
 }
 
 func addListFlags(cmd *cobra.Command, options *listOptions) {
-	cmd.PersistentFlags().StringVar(&options.agent, "agent", "", "Agent ID (resolves via colony registry)")
-	cmd.PersistentFlags().BoolVar(&options.local, "local", false, "List services on the local agent")
-	cmd.PersistentFlags().StringVar(&options.source, "source", "", "Filter by source: auto or watched")
-	cmd.PersistentFlags().StringVar(&options.colony, "colony", "", "Colony ID (default: current colony)")
-	cmd.PersistentFlags().StringVarP(&options.format, "format", "o", "table", "Output format (table, json)")
+	cmd.Flags().StringVar(&options.agent, "agent", "", "Agent ID (resolves via colony registry)")
+	cmd.Flags().BoolVar(&options.local, "local", false, "List services on the local agent")
+	cmd.Flags().StringVar(&options.source, "source", "", "Filter by source: auto or watched")
+	helpers.AddColonyFlag(cmd, &options.colony)
+	cmd.Flags().StringVarP(&options.format, "format", "o", "table", "Output format (table, json)")
 }
 
 func runList(cmd *cobra.Command, options *listOptions) error {
 	if options.local && options.agent != "" {
 		return fmt.Errorf("cannot specify both --local and --agent")
+	}
+	if options.local && options.colony != "" {
+		return fmt.Errorf("cannot specify both --local and --colony")
 	}
 	filter, err := sourceFilter(options.source)
 	if err != nil {

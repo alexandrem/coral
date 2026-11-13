@@ -15,6 +15,7 @@ func NewCmd() *cobra.Command {
 		Use:   "services",
 		Short: "List and manage services",
 		Long:  "List services across the colony, on a specific agent, or on the local agent.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd, options)
 		},
@@ -24,10 +25,12 @@ func NewCmd() *cobra.Command {
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List services",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd, options)
 		},
 	}
+	addListFlags(list, options)
 	cmd.AddCommand(list)
 	cmd.AddCommand(NewWatchCmd())
 	return cmd
@@ -60,6 +63,7 @@ func NewLegacyServiceCmd() *cobra.Command {
 		Use:    "list",
 		Short:  "List services",
 		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd, options)
 		},

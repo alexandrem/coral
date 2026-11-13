@@ -11,6 +11,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 const (
@@ -26,6 +27,7 @@ func NewConnectCmd() *cobra.Command {
 		exePattern string
 		agentAddr  string
 		agent      string
+		colony     string
 		wait       bool
 	)
 
@@ -76,6 +78,9 @@ Note:
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if colony != "" && agent == "" {
+				return fmt.Errorf("--colony requires --agent; omit --colony to target a local agent or an explicit --agent-url")
+			}
 
 			// Parse service specifications
 			serviceSpecs, err := parseServiceSpecsWithLegacySupport(args, port, healthURL, exePattern)
@@ -96,7 +101,7 @@ Note:
 				}
 
 				// Resolve agent ID to mesh IP via colony registry.
-				resolvedAddr, err := resolveAgentID(ctx, agent, "")
+				resolvedAddr, err := resolveAgentID(ctx, agent, colony)
 				if err != nil {
 					return fmt.Errorf("failed to resolve agent ID: %w", err)
 				}
@@ -267,6 +272,7 @@ Note:
 	cmd.Flags().StringVar(&exePattern, "exe-pattern", "", "Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (only works with single service, mutually exclusive with --port)")
 	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
+	helpers.AddColonyFlag(cmd, &colony)
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for initial health checks and display status (recommended for interactive use)")
 
 	return cmd
