@@ -302,9 +302,9 @@ beyla:
 - [x] E2E test: run a client-only process (no listening port) with
       `OTEL_SERVICE_NAME` set; assert Beyla config contains an `exe_path`
       rule for it
-- [x] Update `docs/AGENT.md`: document `MonitorAll` behaviour,
+- [x] Update `docs/user/services.md`: document `MonitorAll` behaviour,
       `discovery_sync_interval`, and `discovery_providers` config keys
-- [x] Update `docs/SERVICE_DISCOVERY.md`: document provider priority chain
+- [x] Update `docs/user/services.md`: document provider priority chain
       and `OTEL_SERVICE_NAME` support
 
 ## API Changes
@@ -439,7 +439,7 @@ is respected automatically in all Linux environments.
   A new `worker-app` fixture (no listening socket, `OTEL_SERVICE_NAME` set)
   and `TestClientOnlyWorkerDiscovery` test assert Beyla's generated config
   contains an `exe_path`-only rule for it.
-- ✅ `docs/AGENT.md` and `docs/SERVICE_DISCOVERY.md` document the provider
+- ✅ `docs/user/services.md` and `docs/user/services.md` document the provider
   priority chain and configuration keys.
 
 **Note:** the E2E changes (removing the static fixture config, adding the

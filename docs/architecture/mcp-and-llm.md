@@ -41,7 +41,7 @@ it does not independently validate the application's diagnosis or make every
 CLI command read-only.
 
 Implementation: [proxy](../../internal/cli/colony/mcp.go).
-User setup lives in [MCP](../MCP.md).
+User setup lives in [MCP](../user/ai-assistants.md).
 
 ## The local reasoning loop
 

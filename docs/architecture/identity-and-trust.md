@@ -104,7 +104,7 @@ compound operation described above.
 Implementation: [certificate manager](../../internal/agent/certs/manager.go),
 [startup bootstrap](../../internal/cli/agent/startup/bootstrap.go), and
 [local enrollment store](../../internal/agent/enrollmentstate/store.go).
-Operational setup is documented in [Bootstrap security](../BOOTSTRAP_SECURITY.md).
+Operational setup is documented in [Bootstrap security](../user/security.md).
 
 ## Design history
 

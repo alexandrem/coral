@@ -30,7 +30,7 @@ configured timeout bounds execution.
 These are distinct paths: the inline helper creates its SDK import map; file
 execution does not automatically reproduce that setup. File-based scripts use
 their applicable Deno configuration and import resolution. The
-[scripting guide](../guides/TYPESCRIPT_SCRIPTING.md) owns usage details.
+[scripting guide](../user/scripting.md) owns usage details.
 
 Implementation: [CLI run and inline execution](../../internal/cli/run/run.go)
 and [inline execution tests](../../internal/cli/run/execute_inline_test.go).

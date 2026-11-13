@@ -471,7 +471,7 @@ sequenceDiagram
   CA fingerprint and colony-ID SAN, even though the Colony opened TCP.
 - **UDP endpoint authenticity comes from WireGuard, but endpoint *selection*
   must be bound to the enrolling key.** Discovery's `RegisterAgent` is
-  documented as unsigned (`docs/BOOTSTRAP_SECURITY.md`, "No Request Signing
+  documented as unsigned (`docs/user/security.md`, "No Request Signing
   on Discovery") — any caller who knows `agent_id`/`mesh_id` can overwrite an
   Agent's endpoint record. A substituted endpoint still cannot let an
   attacker complete a WireGuard handshake as the Agent (no private key), so

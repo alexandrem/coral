@@ -96,7 +96,7 @@ views may differ because polling is periodic, retention differs, and some
 sources have only partial coverage. A missing central result is therefore not
 proof that the underlying process produced no observation.
 
-Usage and SQL interfaces are documented in [Storage](../STORAGE.md) and the
+Usage and SQL interfaces are documented in [Storage](data-ownership.md) and the
 [CLI reference](../CLI_REFERENCE.md).
 
 ## Design history

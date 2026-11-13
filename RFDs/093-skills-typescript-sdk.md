@@ -32,7 +32,7 @@ areas: [ "cli", "mcp", "sdk" ]
 - ✅ `coral_run` MCP tool in `internal/colony/mcp/tools_run.go` — executes inline TypeScript, relays stderr to user terminal, returns captured stdout as tool result
 - ✅ `coral://sdk/reference` MCP Resource — compact plain-text SDK index served on demand
 - ✅ Unit and integration tests in `tools_run_test.go` and `tools_schema_test.go`
-- ✅ `docs/SDK_REFERENCE.md` updated with full Skills section
+- ✅ `docs/user/sdk-reference.md` updated with full Skills section
 
 ## Summary
 
@@ -364,7 +364,7 @@ coral run analysis.ts
 - [x] Unit tests for each skill (mock SDK client)
 - [x] Integration test for `coral_run` tool execution and output capture
 - [x] E2E test: LLM invokes `coral_run` with a skill, verifies `SkillResult` shape
-- [x] Update `docs/SDK_REFERENCE.md` with skills section
+- [x] Update `docs/user/sdk-reference.md` with skills section
 
 ## Security Considerations
 

@@ -321,7 +321,7 @@ completed and tested.
 - `internal/agent/agent.go` - Added debugManager and ServiceResolver
 - `internal/agent/service_handler.go` - StreamDebugEvents RPC handler
 - `internal/config/schema.go` - DebugConfig struct
-- `docs/CONFIG.md` - Debug configuration documentation
+- `docs/user/configuration-reference.md` - Debug configuration documentation
 - `proto/coral/agent/v1/agent.proto` - StreamDebugEvents RPC definition
 
 **Integration Status:**

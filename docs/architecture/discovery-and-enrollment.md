@@ -197,8 +197,8 @@ that TCP path exists. Two peers without an inbound path still need a different
 connectivity mechanism. Explicit endpoint configuration changes routing; it does
 not bypass fingerprint, ticket, or PSK validation.
 
-For deployment diagnosis, use [Bootstrap troubleshooting](../BOOTSTRAP_TROUBLESHOOTING.md)
-and [WireGuard troubleshooting](../WIREGUARD_TROUBLESHOOTING.md).
+For deployment diagnosis, use [Bootstrap troubleshooting](../user/troubleshooting.md)
+and [WireGuard troubleshooting](../user/troubleshooting.md).
 
 ## Design history
 

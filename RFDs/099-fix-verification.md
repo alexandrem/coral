@@ -345,13 +345,13 @@ colony:
       re-creates the issue and snapshot rows in a fresh colony.
 - [ ] Integration test: `coral ask "is checkout fixed?"` triggers
       `coral_verify_issue` and surfaces the verdict in the AI response.
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `coral issue`
+- [ ] Update `docs/user/README.md` and `docs/CLI_REFERENCE.md` with `coral issue`
       subcommands and all flags.
-- [ ] Update `docs/MCP.md` and `docs/CLI_MCP_MAPPING.md` with the five new
+- [ ] Update `docs/user/ai-assistants.md` and `docs/user/ai-assistants.md` with the five new
       MCP tools.
-- [ ] Update `docs/COLONY.md` with issue registry behaviour, auto-snapshot
+- [ ] Update `docs/user/colony-operations.md` with issue registry behaviour, auto-snapshot
       semantics, and snapshot storage path.
-- [ ] Update `docs/STORAGE.md` with `issues` and `issue_snapshots` schema
+- [ ] Update `docs/architecture/data-ownership.md` with `issues` and `issue_snapshots` schema
       and the `colony.issues` config block.
 
 ## API Changes

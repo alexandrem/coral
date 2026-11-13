@@ -571,7 +571,7 @@ func wrapPermissionError(err error) error {
 		fmt.Fprintf(&helpMsg, "     sudo chmod u+s %s\n\n", binaryPath)
 	}
 
-	helpMsg.WriteString("For more information, see: docs/INSTALLATION.md")
+	helpMsg.WriteString("For more information, see: docs/user/installation.md")
 
 	return fmt.Errorf("%s", helpMsg.String())
 }

@@ -107,7 +107,7 @@ heap attribution.
 
 Implementation: [trace/profile SQL](../../internal/colony/database/trace_profile.go)
 and [CLI trace profile](../../internal/cli/query/trace_profile.go).
-Usage is documented in [Live debugging](../LIVE_DEBUGGING.md).
+Usage is documented in [Live debugging](../user/live-debugging.md).
 
 ## Design history
 

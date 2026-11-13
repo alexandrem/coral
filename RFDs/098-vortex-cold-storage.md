@@ -249,12 +249,12 @@ colony:
       export.
 - [ ] Integration test: `coral colony cold-storage restore` re-imports a segment and
       rows appear in the hot table.
-- [ ] Update `docs/STORAGE.md` with cold storage architecture, partition
+- [ ] Update `docs/architecture/data-ownership.md` with cold storage architecture, partition
       layout, and manifest schema.
-- [ ] Update `docs/CONFIG.md` with `colony.cold_storage` config block.
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `coral
+- [ ] Update `docs/user/configuration-reference.md` with `colony.cold_storage` config block.
+- [ ] Update `docs/user/README.md` and `docs/CLI_REFERENCE.md` with `coral
       cold-storage` subcommands.
-- [ ] Update `docs/COLONY.md` with cold storage export behaviour and metrics.
+- [ ] Update `docs/user/colony-operations.md` with cold storage export behaviour and metrics.
 
 ## API Changes
 
@@ -339,7 +339,7 @@ coral duckdb query agent-abc123 \
 
 - S3/GCS credentials are stored in the colony config file (same sensitivity
   as database credentials). Recommend IAM roles / workload identity in
-  production; document this in `docs/SECURITY.md`.
+  production; document this in `docs/user/security.md`.
 - Exported Vortex files contain raw telemetry including URL paths, service
   names, and trace IDs. Bucket access should be restricted to colony IAM
   roles; document recommended bucket policies.

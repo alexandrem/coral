@@ -67,10 +67,8 @@ combine queries, local scripts, and actions on an agent.
 
 ## Other documentation
 
-For setup and usage, see [Getting started](../guides/getting-started.md), the
-[CLI handbook](../CLI.md), and [Live debugging](../LIVE_DEBUGGING.md). Interface
-details live in the [CLI reference](../CLI_REFERENCE.md),
-[SDK reference](../SDK_REFERENCE.md), and [Configuration guide](../CONFIG.md).
-Deployment and recovery procedures live in [Deployment](../DEPLOYMENT.md) and
-[Bootstrap troubleshooting](../BOOTSTRAP_TROUBLESHOOTING.md). Proposals and
-decision history live in [RFDs](../../RFDs/).
+For installation, configuration, feature workflows, deployment, and recovery,
+start with the [User Guide](../user/README.md). Detailed interfaces live in the
+single [CLI manual](../CLI_REFERENCE.md), [SDK reference](../user/sdk-reference.md),
+and [configuration reference](../user/configuration-reference.md). Proposals and decision history live
+in [RFDs](../../RFDs/).

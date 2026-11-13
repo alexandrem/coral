@@ -40,7 +40,7 @@ areas: [ "networking", "security", "cli", "configuration" ]
    - `CAP_SYS_ADMIN`, `CAP_SYS_PTRACE`, `CAP_BPF` needed throughout for Beyla telemetry
    - eBPF programs run continuously, not just at startup
 
-**See:** `docs/PRIVILEGE.md` for detailed architecture explanation.
+**See:** `docs/user/installation.md` for detailed architecture explanation.
 
 ### Helper Subprocess Usage
 
@@ -325,7 +325,7 @@ TUN device creation requires elevated privileges. Choose one of:
      sudo chown root:root /usr/local/bin/coral
      sudo chmod u+s /usr/local/bin/coral
 
-For more information, see: docs/INSTALLATION.md
+For more information, see: docs/user/installation.md
 ```
 
 *With capabilities installed*:
@@ -459,8 +459,8 @@ func (l *Loader) SaveColonyConfig(config *ColonyConfig) error {
 
 **Update documentation**:
 
-- `docs/INSTALLATION.md` - Installation methods for each platform
-- `docs/SECURITY.md` - Security implications of each method
+- `docs/user/installation.md` - Installation methods for each platform
+- `docs/user/security.md` - Security implications of each method
 - `README.md` - Quick start with privilege requirements
 
 **Installation script** (optional):
@@ -859,7 +859,7 @@ TUN device creation requires elevated privileges. Choose one of:
      sudo chown root:root /usr/local/bin/coral
      sudo chmod u+s /usr/local/bin/coral
 
-For more information, see: docs/INSTALLATION.md
+For more information, see: docs/user/installation.md
 ```
 
 **E002: Helper subprocess failed**

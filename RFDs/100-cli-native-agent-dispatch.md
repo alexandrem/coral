@@ -216,7 +216,7 @@ as the TUI does, without adding any dependency on the colony MCP server.
 - [x] **Remove the 21 per-operation MCP tool handlers** — deleted
       `internal/colony/mcp/` package entirely and `internal/colony/server/mcp_tools.go`.
       Colony `CallTool`/`ListTools` gRPC handlers now return "not supported".
-- [x] **Update `docs/MCP.md`** — replaced architecture diagram and added
+- [x] **Update `docs/user/ai-assistants.md`** — replaced architecture diagram and added
       `coral_cli` tool contract section; legacy per-operation tools noted as
       reference-only.
 
@@ -231,10 +231,10 @@ as the TUI does, without adding any dependency on the colony MCP server.
       creates in CLI mode without MCP connection and uses `coral_cli` tool.
 - [ ] E2E test in `tests/e2e/distributed`: verify TUI agent session log contains
       parseable CLI commands that produce the same output when run manually.
-- [x] Update `docs/CLI.md` with CLI dispatch mode explanation and configuration.
+- [x] Update `docs/user/README.md` with CLI dispatch mode explanation and configuration.
 - [x] Update `docs/CLI_REFERENCE.md` with `--format json` flag coverage for
       debug commands and CLI dispatch mode note.
-- [x] Update `docs/MCP.md` architecture section to reflect the two-track model
+- [x] Update `docs/user/ai-assistants.md` architecture section to reflect the two-track model
       (TUI via CLI dispatch, external clients via MCP proxy).
 
 ## API Changes
@@ -358,7 +358,7 @@ ask:
   return "not supported".
 - ✅ Integration tests: `TestCLIDispatchMode` and `TestCLIDispatchToolsContract`
   verify CLI dispatch creates correctly without MCP and registers `coral_cli`.
-- ✅ `docs/MCP.md`, `docs/CLI.md`, `docs/CLI_REFERENCE.md` updated.
+- ✅ `docs/user/ai-assistants.md`, `docs/user/README.md`, `docs/CLI_REFERENCE.md` updated.
 
 ## Future Work
 
