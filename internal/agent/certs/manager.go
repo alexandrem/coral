@@ -134,7 +134,8 @@ func (m *Manager) Load() error {
 	keyPath := filepath.Join(m.certsDir, KeyFileName)
 	rootCAPath := filepath.Join(m.certsDir, RootCAFileName)
 
-	if err := os.Chmod(m.certsDir, 0700); err != nil { // #nosec G302: private directory requires traversal.
+	// #nosec G302: private directory requires traversal.
+	if err := os.Chmod(m.certsDir, 0700); err != nil {
 		return fmt.Errorf("failed to secure certs directory: %w", err)
 	}
 	if err := os.Chmod(keyPath, 0600); err != nil {
@@ -194,7 +195,8 @@ func (m *Manager) Save(result *bootstrap.Result) error {
 	}
 
 	// Enforce permissions even when the directory already exists.
-	if err := os.Chmod(m.certsDir, 0700); err != nil { // #nosec G302: private directory requires traversal.
+	// #nosec G302: private directory requires traversal.
+	if err := os.Chmod(m.certsDir, 0700); err != nil {
 		return fmt.Errorf("failed to secure certs directory: %w", err)
 	}
 

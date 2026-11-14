@@ -147,7 +147,8 @@ func (s *Store) Load() (*Checkpoint, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	// Also secure checkpoints created by older versions or restored from backups.
-	if err := os.Chmod(s.dir, 0700); err != nil { // #nosec G302: private directory requires traversal.
+	// #nosec G302: private directory requires traversal.
+	if err := os.Chmod(s.dir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to secure enrollment directory: %w", err)
 	}
 	if err := os.Chmod(s.path(), 0600); err != nil {
