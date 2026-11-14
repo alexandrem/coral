@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 )
 
-// writeFileAtomic writes data to a temp file in the same directory as path
+// WriteFileAtomic writes data to a temp file in the same directory as path
 // and renames it into place, so a crash never leaves a partially written
-// file at path.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+// file at path. Certificate files must be written before committing the
+// enrollment manifest.
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 
 	tmp, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+"-*")
@@ -19,6 +20,10 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }() // no-op once the rename below succeeds
 
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to set temp file permissions: %w", err)
+	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("failed to write temp file: %w", err)
@@ -29,9 +34,6 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("failed to close temp file: %w", err)
-	}
-	if err := os.Chmod(tmpPath, perm); err != nil {
-		return fmt.Errorf("failed to set temp file permissions: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("failed to rename temp file into place: %w", err)

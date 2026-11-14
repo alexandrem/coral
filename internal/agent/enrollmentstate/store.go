@@ -9,14 +9,17 @@
 package enrollmentstate
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/crypto/curve25519"
 
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/privilege"
@@ -79,6 +82,40 @@ func (s *Store) path() string {
 	return filepath.Join(s.dir, CheckpointFileName)
 }
 
+func validateKeys(keys *auth.WireGuardKeyPair) error {
+	if keys == nil {
+		return fmt.Errorf("missing WireGuard keypair")
+	}
+	if err := auth.ValidateWireGuardKey(keys.PrivateKey); err != nil {
+		return fmt.Errorf("invalid WireGuard private key")
+	}
+	if err := auth.ValidateWireGuardKey(keys.PublicKey); err != nil {
+		return fmt.Errorf("invalid WireGuard public key")
+	}
+	privateKey, _ := base64.StdEncoding.DecodeString(keys.PrivateKey)
+	publicKey, err := curve25519.X25519(privateKey, curve25519.Basepoint)
+	if err != nil || base64.StdEncoding.EncodeToString(publicKey) != keys.PublicKey {
+		return fmt.Errorf("WireGuard public key does not match private key")
+	}
+	return nil
+}
+
+// ValidateAssignment checks that an assigned mesh IP belongs to its subnet.
+func ValidateAssignment(assignedIP, meshSubnet string) error {
+	ip := net.ParseIP(assignedIP)
+	if ip == nil {
+		return fmt.Errorf("invalid assigned mesh IP")
+	}
+	_, subnet, err := net.ParseCIDR(meshSubnet)
+	if err != nil {
+		return fmt.Errorf("invalid mesh subnet")
+	}
+	if !subnet.Contains(ip) {
+		return fmt.Errorf("assigned mesh IP is outside mesh subnet")
+	}
+	return nil
+}
+
 // Load reads and validates the checkpoint. It returns ErrNotExist if no
 // checkpoint file exists, or a wrapped ErrInvalid if the file is corrupt,
 // truncated, or uses an unsupported schema version.
@@ -103,6 +140,19 @@ func (s *Store) Load() (*Checkpoint, error) {
 	if cp.AgentID == "" || cp.ColonyID == "" || cp.WireGuardPrivateKey == "" || cp.WireGuardPublicKey == "" {
 		return nil, fmt.Errorf("%w: missing required fields", ErrInvalid)
 	}
+	if cp.State != StatePending && cp.State != StateEnrolled {
+		return nil, fmt.Errorf("%w: unsupported state", ErrInvalid)
+	}
+	if err := validateKeys(&auth.WireGuardKeyPair{PrivateKey: cp.WireGuardPrivateKey, PublicKey: cp.WireGuardPublicKey}); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	// Also secure checkpoints created by older versions or restored from backups.
+	if err := os.Chmod(s.dir, 0700); err != nil { // #nosec G302: private directory requires traversal.
+		return nil, fmt.Errorf("failed to secure enrollment directory: %w", err)
+	}
+	if err := os.Chmod(s.path(), 0600); err != nil {
+		return nil, fmt.Errorf("failed to secure enrollment checkpoint: %w", err)
+	}
 
 	s.logger.Info().
 		Str("event", "agent_enrollment_checkpoint_loaded").
@@ -117,10 +167,17 @@ func (s *Store) Load() (*Checkpoint, error) {
 // SavePendingIdentity durably records a WireGuard identity before it is
 // advertised to Discovery or the Colony, so a retry after a crash reuses the
 // same key instead of generating a new one. If a checkpoint already exists
-// for the same agent/colony/key it is left untouched.
+// in pending state for the same agent/colony/key it is left untouched. An old
+// commit marker is replaced before any new certificate material is written.
 func (s *Store) SavePendingIdentity(agentID, colonyID string, keys *auth.WireGuardKeyPair) (*Checkpoint, error) {
+	if agentID == "" || colonyID == "" {
+		return nil, fmt.Errorf("pending identity requires agent and colony IDs")
+	}
+	if err := validateKeys(keys); err != nil {
+		return nil, err
+	}
 	if existing, err := s.Load(); err == nil {
-		if existing.AgentID == agentID && existing.ColonyID == colonyID && existing.WireGuardPublicKey == keys.PublicKey {
+		if existing.State == StatePending && existing.AgentID == agentID && existing.ColonyID == colonyID && existing.WireGuardPublicKey == keys.PublicKey {
 			return existing, nil
 		}
 	}
@@ -151,11 +208,20 @@ func (s *Store) CommitEnrollment(agentID, colonyID, wgPubKey, assignedIP, meshSu
 	if err != nil {
 		return nil, fmt.Errorf("cannot commit enrollment without a pending checkpoint: %w", err)
 	}
+	if cp.State != StatePending {
+		return nil, fmt.Errorf("cannot commit enrollment without a pending checkpoint")
+	}
 	if cp.AgentID != agentID || cp.ColonyID != colonyID {
 		return nil, fmt.Errorf("cannot commit enrollment: pending checkpoint identity %s/%s does not match %s/%s", cp.AgentID, cp.ColonyID, agentID, colonyID)
 	}
 	if cp.WireGuardPublicKey != wgPubKey {
 		return nil, fmt.Errorf("cannot commit enrollment: pending checkpoint WireGuard key does not match the key used for registration")
+	}
+	if err := ValidateAssignment(assignedIP, meshSubnet); err != nil {
+		return nil, err
+	}
+	if certSHA256 == "" || certSerial == "" {
+		return nil, fmt.Errorf("cannot commit enrollment without certificate hash and serial")
 	}
 
 	cp.State = StateEnrolled
@@ -178,18 +244,27 @@ func (s *Store) CommitEnrollment(agentID, colonyID, wgPubKey, assignedIP, meshSu
 	return cp, nil
 }
 
-// ArchiveIncomplete moves the checkpoint file out of the way into a
+// ArchiveIncomplete archives the checkpoint and supplied certificate files in a
 // timestamped recovery directory, instead of deleting it, so an operator can
-// still inspect what was there. Absent files are skipped. Call this before
+// still inspect what was there. A valid WireGuard identity remains pending in
+// the active directory so a crash during recovery cannot lose it. Absent files
+// are skipped. Call this before
 // re-running SavePendingIdentity/compound enrollment for local state that
 // cannot be trusted (corrupt, incomplete, or identity-mismatched).
-func (s *Store) ArchiveIncomplete(reason string) error {
-	path := s.path()
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
+func (s *Store) ArchiveIncomplete(reason string, certificateFiles ...string) error {
+	var files []string
+	for _, name := range append([]string{CheckpointFileName}, certificateFiles...) {
+		if filepath.Base(name) != name {
+			return fmt.Errorf("invalid enrollment file name")
 		}
-		return fmt.Errorf("failed to stat checkpoint: %w", err)
+		if _, err := os.Stat(filepath.Join(s.dir, name)); err == nil {
+			files = append(files, name)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to stat enrollment file: %w", err)
+		}
+	}
+	if len(files) == 0 {
+		return nil
 	}
 
 	s.logger.Info().
@@ -197,14 +272,47 @@ func (s *Store) ArchiveIncomplete(reason string) error {
 		Str("reason", reason).
 		Msg("Archiving incomplete enrollment checkpoint")
 
-	recoveryDir := filepath.Join(s.dir, fmt.Sprintf("recovery-%s", time.Now().UTC().Format("20060102T150405Z")))
-	if err := os.MkdirAll(recoveryDir, 0700); err != nil {
+	recoveryDir, err := os.MkdirTemp(s.dir, "recovery-"+time.Now().UTC().Format("20060102T150405Z")+"-*")
+	if err != nil {
 		return fmt.Errorf("failed to create recovery directory: %w", err)
 	}
 
-	if err := os.Rename(path, filepath.Join(recoveryDir, CheckpointFileName)); err != nil {
-		return fmt.Errorf("failed to archive checkpoint: %w", err)
+	for _, name := range files {
+		path := filepath.Join(recoveryDir, name)
+		if name == CheckpointFileName {
+			// Preserve the original manifest for inspection, then invalidate its
+			// commit marker before moving any certificates. Keep a usable key
+			// at the active path throughout recovery.
+			cp, loadErr := s.Load()
+			if loadErr == nil {
+				data, err := json.Marshal(cp)
+				if err != nil {
+					return fmt.Errorf("failed to encode archived checkpoint: %w", err)
+				}
+				if err := WriteFileAtomic(path, data, 0600); err != nil {
+					return err
+				}
+				keys := &auth.WireGuardKeyPair{PrivateKey: cp.WireGuardPrivateKey, PublicKey: cp.WireGuardPublicKey}
+				if _, err := s.SavePendingIdentity(cp.AgentID, cp.ColonyID, keys); err != nil {
+					return err
+				}
+			} else if !errors.Is(loadErr, ErrInvalid) {
+				return loadErr
+			} else if err := os.Rename(s.path(), path); err != nil {
+				return fmt.Errorf("failed to archive invalid checkpoint: %w", err)
+			}
+		} else if err := os.Rename(filepath.Join(s.dir, name), path); err != nil {
+			return fmt.Errorf("failed to archive enrollment file: %w", err)
+		}
+		if err := os.Chmod(path, 0600); err != nil {
+			return fmt.Errorf("failed to secure archived enrollment file: %w", err)
+		}
+		if err := privilege.FixFileOwnership(path); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to fix archived file ownership")
+		}
 	}
+	syncDir(recoveryDir)
+	syncDir(s.dir)
 
 	if err := privilege.FixFileOwnership(recoveryDir); err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to fix recovery directory ownership")
@@ -235,7 +343,7 @@ func (s *Store) write(cp *Checkpoint) error {
 		return fmt.Errorf("failed to marshal enrollment checkpoint: %w", err)
 	}
 
-	if err := writeFileAtomic(s.path(), data, 0600); err != nil {
+	if err := WriteFileAtomic(s.path(), data, 0600); err != nil {
 		return fmt.Errorf("failed to write enrollment checkpoint: %w", err)
 	}
 

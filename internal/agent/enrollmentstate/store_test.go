@@ -1,6 +1,7 @@
 package enrollmentstate
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -163,9 +164,11 @@ func TestArchiveIncomplete(t *testing.T) {
 
 	require.NoError(t, store.ArchiveIncomplete("test_reason"))
 
-	// The checkpoint is no longer visible to Load.
-	_, err = store.Load()
-	require.ErrorIs(t, err, ErrNotExist)
+	// The key remains pending, including if recovery is interrupted here.
+	pending, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, StatePending, pending.State)
+	assert.Equal(t, keys.PrivateKey, pending.WireGuardPrivateKey)
 
 	// But it was moved, not deleted.
 	entries, err := os.ReadDir(dir)
@@ -202,4 +205,88 @@ func TestSavePendingIdentity_ReusableAcrossRetries(t *testing.T) {
 	assert.Equal(t, keys.PrivateKey, loaded.WireGuardPrivateKey)
 	assert.Equal(t, keys.PublicKey, loaded.WireGuardPublicKey)
 	assert.Equal(t, StatePending, loaded.State)
+}
+
+func TestLoadRejectsCorruptIdentity(t *testing.T) {
+	for _, mutation := range []string{"private key", "public key", "key mismatch", "state"} {
+		t.Run(mutation, func(t *testing.T) {
+			dir := t.TempDir()
+			store := NewStore(dir, zerolog.Nop())
+			cp, err := store.SavePendingIdentity("agent-1", "colony-1", testKeys(t))
+			require.NoError(t, err)
+			switch mutation {
+			case "private key":
+				cp.WireGuardPrivateKey = "truncated"
+			case "public key":
+				cp.WireGuardPublicKey = "invalid"
+			case "key mismatch":
+				cp.WireGuardPublicKey = testKeys(t).PublicKey
+			case "state":
+				cp.State = "unknown"
+			}
+			data, err := json.Marshal(cp)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(store.path(), data, 0600))
+			_, err = store.Load()
+			require.ErrorIs(t, err, ErrInvalid)
+			require.NoError(t, store.ArchiveIncomplete("invalid"))
+			_, err = store.Load()
+			require.ErrorIs(t, err, ErrNotExist)
+		})
+	}
+}
+
+func TestCommitEnrollmentRejectsInvalidAssignment(t *testing.T) {
+	for _, assignment := range []struct{ ip, subnet string }{
+		{"", "100.64.0.0/10"}, {"100.64.0.5", "invalid"}, {"192.0.2.1", "100.64.0.0/10"},
+	} {
+		t.Run(assignment.ip+"/"+assignment.subnet, func(t *testing.T) {
+			store := NewStore(t.TempDir(), zerolog.Nop())
+			keys := testKeys(t)
+			_, err := store.SavePendingIdentity("a", "c", keys)
+			require.NoError(t, err)
+			_, err = store.CommitEnrollment("a", "c", keys.PublicKey, assignment.ip, assignment.subnet, "sha", "serial")
+			require.Error(t, err)
+			cp, err := store.Load()
+			require.NoError(t, err)
+			assert.Equal(t, StatePending, cp.State)
+		})
+	}
+}
+
+func TestLoadIgnoresUncommittedManifest(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir, zerolog.Nop())
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".tmp-enrollment.json-interrupted"), []byte(`{"state":"enrolled"}`), 0600))
+	_, err := store.Load()
+	require.ErrorIs(t, err, ErrNotExist)
+}
+
+func TestArchivePreservesIdentityAndOriginalCommit(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir, zerolog.Nop())
+	keys := testKeys(t)
+	_, err := store.SavePendingIdentity("a", "c", keys)
+	require.NoError(t, err)
+	_, err = store.CommitEnrollment("a", "c", keys.PublicKey, "100.64.0.5", "100.64.0.0/10", "sha", "serial")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "agent.key"), []byte("private"), 0600))
+	require.NoError(t, store.ArchiveIncomplete("interrupted", "agent.key"))
+	cp, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, StatePending, cp.State)
+	assert.Equal(t, keys.PrivateKey, cp.WireGuardPrivateKey)
+	assert.Empty(t, cp.AssignedIP)
+	archives, err := filepath.Glob(filepath.Join(dir, "recovery-*"))
+	require.NoError(t, err)
+	require.Len(t, archives, 1)
+	archived, err := NewStore(archives[0], zerolog.Nop()).Load()
+	require.NoError(t, err)
+	assert.Equal(t, StateEnrolled, archived.State)
+	assert.FileExists(t, filepath.Join(archives[0], "agent.key"))
+	// A second recovery in the same second must not overwrite the archive.
+	require.NoError(t, store.ArchiveIncomplete("retry"))
+	archives, err = filepath.Glob(filepath.Join(dir, "recovery-*"))
+	require.NoError(t, err)
+	require.Len(t, archives, 2)
 }
