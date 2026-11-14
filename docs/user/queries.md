@@ -1,9 +1,9 @@
 # Querying Telemetry
 
-Begin with an accessible Colony and [services in its inventory](services.md).
-Use a summary to choose a service, then narrow the time window and evidence
-source. Commands below run on the operator workstation; they do not require an
-LLM or elevated workstation privileges.
+Use these commands to find which service is slow or failing, then narrow to
+metrics, traces, logs, or SQL for that service. You need an accessible Colony
+and [services in its inventory](services.md). Commands run on the operator
+workstation and need neither an LLM nor elevated privileges.
 
 ## Move from a summary to individual requests
 
@@ -31,11 +31,10 @@ coral query metrics api --http-method POST --status-code-range 5xx
 coral query logs api --search 'timeout' --format json
 ```
 
-If you only want a source you have configured, use
-`--source ebpf` or `--source telemetry` on metrics and traces. Protocol detection
-and standard application OTLP ingestion have different storage paths; successful
-receipt of arbitrary OTLP metrics does not imply that every metric name is
-available through the protocol query interface. See
+To restrict metrics or traces to one evidence source, use `--source ebpf` for
+protocol traffic observed by the agent or `--source telemetry` for application
+OTLP. The two use different storage paths, so a custom OTLP metric the agent
+received may not appear in protocol metric queries. See
 [instrumentation](instrumentation.md#send-opentelemetry-data).
 
 ## Inspect dependencies
@@ -59,9 +58,8 @@ visibility affect attribution. For its inference rules, see
 
 Most telemetry commands accept relative `--since` values such as `5m`, `1h`,
 and `24h`; some also accept `--until`. Defaults differ: summary uses five
-minutes, while common trace and metric queries use one hour. Consult the
-command's manual entry instead of assuming every query accepts identical time
-expressions.
+minutes, while common trace and metric queries use one hour. Check a command's
+manual entry for the options it accepts.
 
 Use `--format json` where supported when saving evidence for another tool.
 CPU profiles default to folded stacks, memory summaries have their own formats,

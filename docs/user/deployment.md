@@ -6,6 +6,17 @@ supervised services. Complete [initialization](getting-started.md) before
 installing an agent, and obtain its enrollment credentials through a trusted
 channel.
 
+Choose the deployment task below. Check [network paths](#network-paths) before
+enrolling a host on a different network.
+
+| Task | Procedure |
+| --- | --- |
+| Use a self-hosted Discovery service | [Discovery settings](#use-your-own-discovery-service) |
+| Run an agent as a Linux service | [systemd installation](#linux-hosts-with-systemd) |
+| Run in a container or Kubernetes | [Container deployment](#containers-and-kubernetes) |
+| Allow operator queries from outside the mesh | [Operator HTTPS access](#operator-https-access) |
+| Restart or upgrade an existing deployment | [State and upgrades](#restarts-upgrades-and-retention) |
+
 ## Network paths
 
 A WireGuard **endpoint** is the host and UDP port used to establish a tunnel.
@@ -65,6 +76,7 @@ For an existing installation, set its URL in the Colony account's global
 configuration:
 
 ```yaml
+# ~/.coral/config.yaml (global settings for the Colony service account; fragment)
 discovery:
   endpoint: https://discovery.example.com
   stun_servers:
@@ -86,6 +98,12 @@ deploy it or replace the Colony fingerprint and Bootstrap PSK checks.
 
 ## Linux hosts with systemd
 
+Run this procedure on the Linux agent host. The supplied service runs as the
+`coral` account and reads `/etc/coral/agent.yaml`; settings in your workstation's
+home do not configure that service.
+
+### Install the binary and prepare the service account
+
 Use a locally built `coral-agent` or a binary from a release you have selected.
 The [installer](../../scripts/install-agent.sh) can copy a local binary with
 `--binary-path` and prepare accounts and directories. Its `--skip-service`
@@ -97,16 +115,21 @@ sudo ./scripts/install-agent.sh \
   --skip-service
 ```
 
-Choose the build path matching the target machine. This command still installs
-dependencies and copies files; it does not configure an enrolled running agent.
-The installer has a legacy Discovery default, so pass your actual
-`--discovery` URL when using its bootstrap options. Configure service startup
-explicitly rather than relying on a certificate created under root's home.
+Choose the build path matching the target machine. This command installs
+dependencies and copies files; it does not enroll or start an agent. Its
+`--discovery` option defaults to Coral's standard Discovery service; pass your
+own URL if you run one. Enroll the agent as the service account rather than
+relying on a certificate created under root's home.
+
+### Write the agent settings
 
 Create `/etc/coral/agent.yaml`, owned by the service account with permissions
-that protect the PSK. Replace the following placeholders:
+that protect the PSK. This minimal enrollment file uses placeholders obtained
+from the [Colony's enrollment bundle](security.md#provision-an-agent). Merge it
+into existing agent settings if the file already exists:
 
 ```yaml
+# /etc/coral/agent.yaml (agent host)
 agent:
   colony:
     id: '<colony-id>'
@@ -116,18 +139,25 @@ agent:
     certs_dir: /var/lib/coral/.coral/certs
 ```
 
-Use the [supplied systemd unit](../../deployments/systemd/coral-agent.service).
-Its `coral` account uses `/var/lib/coral` as home; make that directory writable
-so `~/.coral/agent/metrics.duckdb` persists. Add an override if you use a custom
-Discovery service:
+The installer's `coral` account uses `/var/lib/coral` as home; make that directory
+writable so `~/.coral/agent/metrics.duckdb` persists. Keep the certificate path
+consistent with this file when performing manual certificate operations.
+
+### Install the unit and set its environment
+
+Copy the [supplied systemd unit](../../deployments/systemd/coral-agent.service)
+to `/etc/systemd/system/coral-agent.service`. For a custom Discovery service,
+run `sudo systemctl edit coral-agent` and add this override:
 
 ```ini
+# systemctl edit coral-agent (service override fragment)
 [Service]
 Environment=CORAL_DISCOVERY_ENDPOINT=https://discovery.example.com
 ```
 
-After copying the unit to `/etc/systemd/system/coral-agent.service` and writing
-any override, start and verify it:
+### Start and verify the agent
+
+After saving the unit and any override, run:
 
 ```bash
 sudo systemctl daemon-reload
@@ -175,10 +205,11 @@ to perform equivalent discovery. See [services](services.md).
 ## Operator HTTPS access
 
 Enable the optional endpoint in the Colony configuration to serve operators
-outside the mesh. This fragment uses an explicitly supplied certificate and
-requires tokens:
+outside the mesh. On the Colony host, merge this fragment into the server's
+configuration. It uses an explicitly supplied certificate and requires tokens:
 
 ```yaml
+# ~/.coral/colonies/<colony-id>/config.yaml (Colony server settings fragment)
 public_endpoint:
   enabled: true
   host: 0.0.0.0
@@ -208,8 +239,9 @@ startup to reuse an enrollment. Run only one writer for a given local database.
 Before an upgrade, stop the relevant process, back up its state consistently,
 replace the binary, verify privileges, and restart under the same account and
 paths. Validate agent inventory, mesh connectivity, and fresh telemetry after
-restart. The guide does not promise automatic schema downgrade or restoration
-from an arbitrary live copy of DuckDB files.
+restart. Coral does not downgrade database schemas, and a copy of DuckDB files
+taken while the process runs may not restore cleanly, so back up only after
+stopping it.
 
 Agent raw-data retention and Colony summary retention are separate and differ
 by stream. Configure them in the [configuration reference](configuration-reference.md) and

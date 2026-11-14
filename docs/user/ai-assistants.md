@@ -6,24 +6,60 @@ and debugging operations. Configure ordinary [CLI query access](queries.md)
 first so model failures and Colony connectivity failures can be diagnosed
 separately.
 
+| I want to… | Use |
+| --- | --- |
+| Ask a question from the CLI | [Built-in client](#configure-the-built-in-client), then [ask a question](#ask-a-bounded-question) |
+| Investigate interactively with rendered results | [Terminal](#use-the-terminal) |
+| Connect an existing assistant | [External MCP client](#connect-an-external-mcp-client) |
+
 ## Configure the built-in client
+
+On the workstation that will run `coral ask`, first verify Colony access:
+
+```bash
+coral query summary
+coral ask list-providers --models
+```
+
+Choose a provider and a model available through your account. Implemented
+providers include Anthropic, Google, OpenAI, and Ollama. The model catalog
+describes Coral's integration; it does not verify account access. For a local
+model, follow [Ollama setup](#use-a-local-ollama-model); for a custom OpenAI base
+URL, use [compatible endpoint setup](#use-an-openai-compatible-endpoint).
+
+For a hosted provider, set its API key in this workstation's environment. Common
+variables are `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, and `OPENAI_API_KEY`. Run the
+wizard to select the provider, model, and key reference, then inspect the result:
 
 ```bash
 coral ask config
 coral ask config show
 coral ask config validate
-coral ask list-providers --models
 ```
 
-The wizard saves global settings in `~/.coral/config.yaml`, or Colony-specific
-settings when given `--colony`. Providers implemented in this checkout include
-Anthropic, Google, OpenAI, and Ollama. The provider/model catalog describes
-Coral's integration, not a guarantee that an account can access every listed
-model. Use a model available through your provider account.
+`show` displays global settings and saved Colony model overrides. `validate`
+checks global configuration and key availability; it does not validate the
+selected Colony's merged settings or prove a model request will succeed. Read
+its warnings, then [make a first request](#ask-a-bounded-question).
+
+### Choose the settings scope
+
+AI settings belong to the account running the client:
+
+| Scope | Where to configure it |
+| --- | --- |
+| Global defaults | `~/.coral/config.yaml`, under `ai.ask`; the wizard's default destination |
+| One Colony context | Local `~/.coral/colonies/<id-or-name>/config.yaml`, under `ask`; use the wizard's `--colony` option |
+| One query | `coral ask --model provider:model` |
+
+These paths follow the [configuration base](configuration.md#use-a-different-configuration-base).
+A remote operator edits their workstation's files; changing the server's files
+does not update that workstation's AI settings.
 
 For example, this global configuration fragment references an environment key:
 
 ```yaml
+# ~/.coral/config.yaml (client settings; merge into the existing file)
 ai:
   ask:
     default_model: anthropic:claude-sonnet-4-6
@@ -36,16 +72,11 @@ files and source control. Per-query `--model provider:model` overrides the
 configured model. Provider keys, model settings, and optional base URLs are
 documented in the [configuration reference](configuration-reference.md).
 
-The common provider key variables are `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`,
-and `OPENAI_API_KEY`. Configure the provider you intend to use, then validate
-from the same account and environment that will run the client. A provider
-model list describes Coral's catalog; account access and tool-calling support
-still depend on the chosen model and endpoint.
-
 To select a model for one environment, use the wizard's `--colony` option or
-place an `ask` fragment at the top level of that Colony's configuration:
+merge an `ask` fragment into that context's local file:
 
 ```yaml
+# ~/.coral/colonies/<id-or-name>/config.yaml (client settings fragment)
 ask:
   default_model: anthropic:claude-sonnet-4-6
   conversation:
@@ -74,6 +105,7 @@ runs at another address. The provider also accepts a persistent URL in
 endpoint, not a secret:
 
 ```yaml
+# ~/.coral/config.yaml (client settings fragment)
 ai:
   ask:
     default_model: ollama:my-local-model
@@ -170,6 +202,7 @@ The OpenAI provider accepts a configured base URL. This fragment routes that
 provider to a compatible server:
 
 ```yaml
+# ~/.coral/config.yaml (client settings fragment)
 ai:
   ask:
     default_model: openai:my-model

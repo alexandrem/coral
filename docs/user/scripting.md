@@ -7,6 +7,23 @@ the standalone agent binary does not run scripts.
 
 ## Prepare the runtime and connection
 
+### Select a compatible Colony connection
+
+Run scripts on the workstation or operations host that has the full CLI and
+Deno companion. Confirm the selected environment before running a report:
+
+```bash
+coral config current-context --verbose
+```
+
+The current TypeScript client constructs an HTTP URL from the resolved
+host/port and does not attach `CORAL_API_TOKEN`. Use a trusted, reachable
+internal Colony endpoint for these scripts. Configuring the CLI for token-based
+public HTTPS access does not give this SDK equivalent TLS or authentication
+support. Keep the internal API within its intended access boundary.
+
+### Prepare imports before running a script
+
 Run scripts from a directory containing their imports and a `deno.json` import
 map. The file-based `coral run` path does not automatically install the SDK or
 create this map. The repository's [script examples](../../examples/scripts/)
@@ -32,12 +49,6 @@ their common directory: filesystem reads are restricted to the current tree.
 The sandbox allows network calls to the resolved Colony host, and access to
 `CORAL_COLONY_ADDR` and `CORAL_MODE`. It does not grant subprocess execution,
 filesystem writes, or arbitrary environment access.
-
-The current TypeScript client constructs an HTTP URL from the resolved
-host/port and does not attach `CORAL_API_TOKEN`. Use a trusted, reachable
-internal Colony endpoint for these scripts. Configuring the CLI for token-based
-public HTTPS access does not give this SDK equivalent TLS or authentication
-support. Keep the internal API within its intended access boundary.
 
 ## Write and verify a report
 
@@ -129,8 +140,7 @@ has fired. The maintained [latency-trap skill](../../pkg/sdk/typescript/skills/l
 shows the same workflow packaged as a reusable investigation recipe.
 
 `SkillResult` values can also include structured data, recommendations, and
-render metadata for the terminal dashboard. These runtime investigation
-recipes differ from the repository's documentation-authoring skills. See the
+render metadata for the terminal dashboard. See the
 [SDK reference](sdk-reference.md) for the result contract and built-in
 recipes, and [scripting architecture](../architecture/typescript-investigations.md)
 for execution boundaries.

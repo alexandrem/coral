@@ -6,6 +6,17 @@ enrollment, and a healthy agent heartbeat does not prove telemetry collection.
 Run operator commands with the same context, trust settings, and token as the
 failing client.
 
+Start with the symptom closest to the failure:
+
+| Symptom | Procedure |
+| --- | --- |
+| An agent never joins the Colony | [Enrollment](#an-agent-cannot-enroll) |
+| Certificates expired or startup lost its identity | [Certificate and enrollment recovery](#certificate-and-enrollment-recovery) |
+| Enrollment works but peers cannot communicate | [Mesh connectivity](#mesh-traffic-fails-after-enrollment) |
+| Services or observations are absent or old | [Missing or stale telemetry](#telemetry-is-missing-or-stale) |
+| Profiles are empty or functions cannot be found | [Profiles and function metadata](#profiles-or-functions-are-missing) |
+| An assistant cannot query the deployment | [AI and MCP access](#ai-or-mcp-cannot-query-the-colony) |
+
 ## Establish the current state
 
 ```bash
@@ -102,24 +113,27 @@ traffic, forwarding rules, and mesh-subnet conflicts. Use a public endpoint
 override for an intentional load-balancer address; do not advertise a mesh
 address as the external endpoint. See [network paths](deployment.md#network-paths).
 
-Fleet ping and audit return a report envelope. Inspect NAT findings with
-`.results[].data`, rather than treating the top-level JSON as the old result
-array. [Fleet operations](fleet.md) explains retries and partial failures.
+For fleet ping and audit, read NAT findings from `.results[].data` in the JSON
+report. [Fleet operations](fleet.md) explains retries and partial failures.
 
 ## Telemetry is missing or stale
 
-First verify a running process and representative traffic. Compare the
-agent-local inventory with the Colony's inventory and query source:
+First verify a running process and representative traffic. On the agent host,
+inspect the local inventory:
 
 ```bash
 coral services list --local
+```
+
+Then compare with Colony inventory and query sources from the operator CLI:
+
+```bash
 coral services list
 coral query traces api --source ebpf --since 10m
 coral query traces api --source telemetry --since 10m
 ```
 
-Run `--local` on the agent host; run the remaining commands on a configured
-operator CLI. If automatic services are absent, inspect process visibility,
+If automatic services are absent, inspect process visibility,
 `monitor_all`, Beyla startup warnings, and readable `/proc` namespaces. If a
 watch is present but unhealthy, confirm its port and health path inside the
 application's network namespace. A host-published container port may differ

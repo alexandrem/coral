@@ -2,23 +2,17 @@
 
 Coral is an open-source debugger for distributed applications. It helps you
 investigate slow requests, application errors, and resource usage across services
-running on hosts, in containers, or in Kubernetes. You can inspect what the
-system is doing, narrow a problem to a service or process, and collect further
-evidence from the running application.
+running on hosts, in containers, or in Kubernetes, then collect further evidence
+from the running application.
 
-An investigation might begin with an increase in API latency. You can inspect
-recent metrics and traces, follow dependencies to another service, then capture
-a CPU profile or attach a probe to a specific function. Coral brings these
-operations into a command-line workflow, with retained observations for recent
-history and on-demand tools for examining current behavior.
+**Start here:** [install Coral](installation.md), then follow
+[your first Colony](getting-started.md) to collect and query your first
+observations. If Coral is already running, continue with
+[services and health](services.md) or [querying telemetry](queries.md).
 
-You can drive that workflow yourself, combine queries in TypeScript scripts,
-or ask an AI assistant to investigate. The built-in `coral ask` client and
-external MCP clients give assistants access to Coral's query and debugging
-commands. Their tool results provide evidence you can inspect and use to
-evaluate a proposed explanation. An LLM is optional for direct use of the tools.
+## How Coral works
 
-Coral runs on infrastructure you control. A deployment has three main parts:
+Coral runs on infrastructure you control. A deployment has three parts:
 
 - **Agents** run near your applications. They discover processes, collect
   observations, and carry out profiling, probing, and remote commands.
@@ -28,17 +22,20 @@ Coral runs on infrastructure you control. A deployment has three main parts:
 - The **CLI** runs on your workstation or an operations host. It connects you,
   your scripts, and your AI clients to the deployment.
 
-Linux agents use eBPF to observe supported application traffic without changing
-application code. You can also send application-defined OpenTelemetry spans to
-an agent and expose Go runtime metadata for deeper investigations. Available
-profiling and debugging features depend on the host's privileges and the
-application's runtime and binary metadata. macOS can run the CLI and Colony;
-Linux observation agents run inside the host or VM containing the applications.
+An investigation might begin with an increase in API latency. You inspect recent
+metrics and traces, follow dependencies to another service, then capture a CPU
+profile or attach a probe to a specific function. You can run these steps
+yourself, combine queries in [TypeScript scripts](scripting.md), or ask an
+[AI assistant](ai-assistants.md) to investigate through the built-in `coral ask`
+client or an external MCP client. Tool results are evidence you can inspect; an
+LLM is optional.
 
-Start with [installation](installation.md) and [your first Colony](getting-started.md)
-to collect and query your first observations. If Coral is already running,
-continue with [services and health](services.md) or
-[querying telemetry](queries.md), then choose an investigation tool below.
+Linux agents use eBPF to observe supported application traffic without changing
+application code. You can also send application-defined OpenTelemetry spans to an
+agent and expose Go runtime metadata for deeper investigations. Profiling and
+debugging depend on the host's privileges and the application's runtime and
+binary metadata. macOS can run the CLI and Colony; Linux observation agents run
+inside the host or VM containing the applications.
 
 ## Install and configure
 

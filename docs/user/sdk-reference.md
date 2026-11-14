@@ -10,6 +10,21 @@ The maintained interfaces are in [mod.ts](../../pkg/sdk/typescript/mod.ts) and
 checkout. A declared interface or exported placeholder is not evidence that
 an RPC-backed feature is implemented.
 
+Choose a module by the evidence or operation you need:
+
+| Module | Current behavior |
+| --- | --- |
+| [Services](#services-api) | Registered-agent service inventory |
+| [Metrics](#metrics-api) | Percentile queries; inspect the returned units |
+| [Activity](#activity-api) | Request and error counts and rates |
+| [Database](#database-api) | SQL queries returning a `QueryResult` wrapper |
+| [Correlations](#stateful-correlation-api) | Deploy, list, and remove active agent-side investigations |
+| [Traces](#traces-api) | Placeholder helpers returning empty arrays; use CLI trace queries |
+| [System](#system-api) | Placeholder helper returning zero values; use CLI summaries |
+| [Recipes](#investigation-recipes) | Experimental analyses; check their query and schema assumptions |
+
+Read [client configuration](#client-configuration) before the first query.
+
 ## Client Configuration
 
 Query helpers generally accept an optional final `ClientConfig`:

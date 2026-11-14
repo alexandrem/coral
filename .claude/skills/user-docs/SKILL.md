@@ -21,19 +21,23 @@ recognize its result. Before drafting substantial prose, read
   exit behavior there. Do not create parallel per-binary command catalogs.
 - `docs/user/configuration-reference.md` and `docs/user/sdk-reference.md` own
   configuration and TypeScript interface reference. Keep explanations of choices
-  in the workflow chapters. Link to maintained deployment manifests and runnable
-  examples instead of copying their complete contents into chapters.
+  in the workflow chapters; `docs/user/configuration.md` owns configuration
+  workflows and remote workstation setup. Follow the
+  [configuration guidance](references/writing-guidelines.md#configuration-files-and-examples).
+  Link to maintained deployment manifests and runnable examples instead of
+  copying their complete contents into chapters.
 - `docs/architecture/` explains internals. `docs/development/` covers contributor
   work. `RFDs/` records proposals and design history; it is not a feature list.
 
-Give each procedure one canonical home. Update inbound links and section links
-when consolidating, including links in design history. Remove superseded guides
-after their material is accounted for; do not recreate deleted navigation stubs.
-If a legacy page has already been shortened, review its original contents from
-version control before concluding that the new guide covers it. Preserve useful
-procedures and examples unless they are obsolete, unsupported, or already covered
-at the destination. An ordinary feature edit does not authorize a repository-wide
-migration.
+Give each procedure one canonical home. An ordinary feature edit does not
+authorize a repository-wide migration.
+
+When consolidating, update inbound and section links (including in design
+history), remove superseded guides once their material is accounted for, and do
+not recreate deleted navigation stubs. Review a shortened legacy page's original
+contents in version control before concluding the new guide covers it. Preserve
+useful procedures and examples unless they are obsolete, unsupported, or already
+covered at the destination.
 
 ## Verify the user contract
 
@@ -71,9 +75,16 @@ not search parent directories.
 ## Review
 
 Read the result as a user: can they complete the task, understand the output,
-and take a useful next step if it fails? Check changed local links and fragments,
+and take a useful next step if it fails? Complete the reader pass at the end of
+the writing guidelines. Run `make docs-check` for links, fragments, reading-map
+coverage, YAML examples, and shell syntax. Also check
 reading-map coverage, fenced examples, and reference coverage against the current
 command tree. Run documentation checks for documentation-only work; use code
 checks when implementation also changes. Do not run privileged deployments merely
 to validate prose. Report any walkthroughs that were checked against source but
 not exercised on a running deployment.
+
+For changed configuration examples, check YAML parsing, field names, and duration
+values against the appropriate component schema. Check shell syntax where
+practical. When regrouping reference tables, account for existing fields and
+defaults, and preserve section anchors or update their inbound links.
