@@ -404,3 +404,25 @@ func TestPathMethods(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmpDir, RootCAFileName), m.GetRootCAPath())
 	assert.Equal(t, filepath.Join(tmpDir, CAChainFileName), m.GetCAChainPath())
 }
+
+func TestSaveRepairsPrivatePermissions(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0755))
+	// Atomic replacement must correct an existing file's permissive mode.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, KeyFileName), []byte("old"), 0644))
+	cert, key, ca := generateTestCertificate(t, "agent-1", "colony-1", time.Now().Add(90*24*time.Hour))
+	manager := NewManager(Config{CertsDir: dir, Logger: zerolog.Nop()})
+	require.NoError(t, manager.Save(&bootstrap.Result{Certificate: cert, PrivateKey: key, RootCA: ca, CAChain: ca}))
+	require.NoError(t, manager.Load())
+	for path, mode := range map[string]os.FileMode{dir: 0700, manager.GetKeyPath(): 0600} {
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		require.Equal(t, mode, info.Mode().Perm())
+	}
+	// Restoring a backup must also repair permissions before certificate reuse.
+	require.NoError(t, os.Chmod(manager.GetKeyPath(), 0644))
+	require.NoError(t, manager.Load())
+	info, err := os.Stat(manager.GetKeyPath())
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+}

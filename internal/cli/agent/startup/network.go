@@ -182,11 +182,18 @@ func (n *NetworkInitializer) loadOrGenerateAgentKeys() (*auth.WireGuardKeyPair, 
 
 	cp, err := store.Load()
 	switch {
-	case err == nil:
+	case err == nil && cp.AgentID == n.agentID && cp.ColonyID == n.cfg.ColonyID:
 		n.logger.Info().
 			Str("agent_pubkey", cp.WireGuardPublicKey).
 			Msg("Restored agent WireGuard identity from enrollment checkpoint")
 		return &auth.WireGuardKeyPair{PrivateKey: cp.WireGuardPrivateKey, PublicKey: cp.WireGuardPublicKey}, nil
+
+	case err == nil:
+		n.logger.Warn().Str("event", "agent_enrollment_identity_mismatch").
+			Msg("Stored WireGuard identity belongs to another agent or colony")
+		if archErr := archiveEnrollment(store, "identity_mismatch"); archErr != nil {
+			return nil, archErr
+		}
 
 	case errors.Is(err, enrollmentstate.ErrNotExist):
 		// No prior identity; fall through to generate one.
@@ -195,7 +202,7 @@ func (n *NetworkInitializer) loadOrGenerateAgentKeys() (*auth.WireGuardKeyPair, 
 		n.logger.Warn().
 			Err(err).
 			Msg("Enrollment checkpoint is invalid, archiving before generating a new WireGuard identity")
-		if archErr := store.ArchiveIncomplete("invalid_checkpoint"); archErr != nil {
+		if archErr := archiveEnrollment(store, "invalid_checkpoint"); archErr != nil {
 			return nil, fmt.Errorf("failed to archive invalid enrollment checkpoint: %w", archErr)
 		}
 	}

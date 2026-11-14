@@ -15,6 +15,7 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/agent/heartbeat"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
@@ -389,11 +390,8 @@ func (cm *ConnectionManager) ApplyBootstrapRegistration(resp *meshv1.RegisterRes
 	if !resp.Accepted {
 		return fmt.Errorf("bootstrap registration rejected by colony: %s", resp.Reason)
 	}
-	if net.ParseIP(resp.AssignedIp) == nil {
-		return fmt.Errorf("invalid mesh IP in bootstrap registration response: %s", resp.AssignedIp)
-	}
-	if _, _, err := net.ParseCIDR(resp.MeshSubnet); err != nil {
-		return fmt.Errorf("invalid mesh subnet in bootstrap registration response: %w", err)
+	if err := enrollmentstate.ValidateAssignment(resp.AssignedIp, resp.MeshSubnet); err != nil {
+		return fmt.Errorf("invalid bootstrap registration: %w", err)
 	}
 
 	cm.stateMu.Lock()

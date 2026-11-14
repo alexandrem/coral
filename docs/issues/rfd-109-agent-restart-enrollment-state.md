@@ -1,8 +1,47 @@
 # RFD 109 Agent Restart Loses Mesh Enrollment State
 
-Status: Proposed  
+Status: Fixed
 Affected areas: Agent startup, certificate storage, WireGuard identity, RFD 109 enrollment  
 Related documents: RFD 048, RFD 108, RFD 109
+
+## Current assessment (2026-11-14)
+
+The original failure described below was partially addressed already:
+`internal/agent/enrollmentstate` persists a versioned checkpoint, network startup
+loads its WireGuard key, and bootstrap restores a matching assignment. The
+remaining gaps still made this issue applicable:
+
+- Stored WireGuard keys were accepted without checking their encoding, their
+  relationship, or the selected Agent/Colony identity.
+- Certificate reuse checked the Common Name identity but not its SPIFFE URI;
+  newly issued compound results could be committed before assignment validation.
+- Certificate writes were neither atomic nor synchronized before committing
+  the manifest. Recovery archived only the checkpoint, leaving old certificate
+  material in place, and could lose a valid key if interrupted during archiving.
+- Restored enrollments always configured an endpoint-less Colony peer, even
+  when Discovery supplied a current dialable endpoint.
+
+The fix validates keypairs and identities before reuse, validates compound
+results before saving, writes and synchronizes certificate files atomically
+before the commit marker, and archives the complete old bundle. Recovery keeps
+a valid key pending in the active directory throughout archiving. Recovery
+directories have unique names, private permissions, and corrected ownership.
+Restart uses the current Discovery endpoint when usable; initial rendezvous
+and loopback/mesh-only Colony advertisements retain WireGuard roaming.
+
+Regression tests cover pending identities, a response received before local
+writes, certificates written before manifest commit, committed checkpoints
+before mesh setup, legacy certificate-only directories, missing certificates,
+invalid keypairs, identity mismatches, permissions, and changing Discovery
+endpoints. These tests simulate startup boundaries using real certificate files;
+they do not exercise a live NAT/WireGuard deployment.
+
+Validation: the repository Go suite (`go test ./...`), focused enrollment/startup
+tests, and `make lint` pass. The distributed NAT-local Colony restart test still
+requires validation in the Docker/WireGuard environment.
+
+The original diagnosis and proposed design below are retained as historical
+context and acceptance criteria.
 
 ## Summary
 
