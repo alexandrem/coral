@@ -87,7 +87,7 @@ func main() {
 // parse reads a Markdown file, collecting links, heading anchors, and fenced
 // code blocks. Links and headings inside code blocks are ignored.
 func parse(path string) (*doc, error) {
-	raw, err := os.ReadFile(path) //nolint:gosec // Paths come from the documentation tree or its links.
+	raw, err := os.ReadFile(path) // #nosec G304 -- Paths come from the documentation tree or its links. //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
