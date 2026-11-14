@@ -6,38 +6,30 @@ OpenTelemetry for application-defined spans, and expose runtime metadata when
 function or heap investigation needs it. None of these integrations requires
 configuring an LLM.
 
+| Evidence needed | Setup |
+| --- | --- |
+| Supported protocol traffic without application changes | [Automatic observation](services.md#control-automatic-naming-and-observation) on a Linux agent |
+| Application-defined spans | [OpenTelemetry exporter and agent receiver](#send-opentelemetry-data) |
+| Go function metadata or a runtime heap endpoint | [Coral Go SDK](#expose-go-runtime-metadata) |
+
 ## Send OpenTelemetry data
 
-Point an application's existing OTLP exporter at its agent. Default application
-receivers are gRPC on 4317 and HTTP/protobuf on 4318. Set a distinct service
-name so observations can be grouped correctly:
+Start with a [running, enrolled agent](getting-started.md#enroll-and-start-an-agent)
+and an application whose tracing SDK initializes an OTLP exporter. Configure
+the receiver on the agent host and the exporter in the application's launch
+environment; they are separate settings.
 
-```bash
-export OTEL_SERVICE_NAME=api
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
-export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-```
+### Choose the agent receiver address
 
-Use an exporter SDK that reads these variables and initializes tracing in your
-application. For HTTP/protobuf exporters, use the HTTP receiver instead:
+Default application receivers are gRPC on 4317 and HTTP/protobuf on 4318.
+`127.0.0.1` works when the application and agent share a network namespace.
+Separate containers may need a reachable agent hostname and a non-loopback bind.
 
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-```
-
-The HTTP paths are `/v1/traces` and `/v1/metrics`; signal-specific endpoint
-variables may require the full path, depending on the exporter. `127.0.0.1`
-works only when the application can reach the receiver in that network
-namespace. Separate containers may need a reachable agent hostname instead.
-See the [runnable Go OTEL application](../../examples/otel-go-app/README.md)
-for exporter setup, resource attributes, and request generation.
-
-In agent configuration, receiver bind addresses and capture filters can be
-set independently. This fragment keeps local application access and the
-default trace filtering policy:
+To restrict the receiver to local applications, merge this fragment into the
+agent's startup file. It retains the default trace filtering policy:
 
 ```yaml
+# /etc/coral/agent.yaml (agent settings fragment)
 telemetry:
   grpc_endpoint: 127.0.0.1:4317
   http_endpoint: 127.0.0.1:4318
@@ -53,7 +45,37 @@ public operator API and does not inherit its token policy. Ports 4319/4320
 belong to the internal managed Beyla receiver; do not point application
 exporters at them.
 
-After generating traffic, verify:
+### Configure the application's exporter
+
+Choose one protocol below. Set the variables in the environment that starts
+the application, then restart it using its normal launcher. These examples
+assume the shared network namespace described above.
+
+For gRPC:
+
+```bash
+export OTEL_SERVICE_NAME=api
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+```
+
+For HTTP/protobuf:
+
+```bash
+export OTEL_SERVICE_NAME=api
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+The HTTP paths are `/v1/traces` and `/v1/metrics`; signal-specific endpoint
+variables may require the full path, depending on the exporter. Use an exporter
+SDK that reads these variables; exporting them alone does not initialize tracing.
+See the [runnable Go OTEL application](../../examples/otel-go-app/README.md)
+for exporter setup, resource attributes, and request generation.
+
+### Generate traffic and verify ingestion
+
+Send requests through the application, then run on a configured operator CLI:
 
 ```bash
 coral query traces api --source telemetry --since 10m
@@ -89,10 +111,15 @@ runtime metadata within a trusted network boundary. A loopback bind works for
 an agent in the same network namespace; a separate agent container may need a
 different bind address and network policy.
 
-Register the service with a watch and inspect available function metadata:
+On the agent host, register the service with a watch:
 
 ```bash
 coral services watch api:8080
+```
+
+From a configured operator CLI, search for a function in your application:
+
+```bash
 coral debug search ProcessOrder --service api
 ```
 
@@ -114,8 +141,7 @@ and inlining, but changes application performance; use it deliberately. For one
 small function you control, `//go:noinline` is a narrower option. Follow
 [live debugging](live-debugging.md) for attachment and duration limitations.
 
-CPU stack collection depends on unwind support and architecture. An arbitrary
-Go build tag such as `framepointer` does not itself change compiler behavior
-unless the application or toolchain defines that behavior. Check the actual
-binary and collector output when stack samples are empty, rather than assuming
-a tag fixes them. See [profiling](profiling.md) for collection requirements.
+CPU stack collection depends on unwind support and architecture. If stack
+samples are empty, check the actual binary and the collector's output; build tags
+such as `framepointer` do not change compiler behavior on their own. See
+[profiling](profiling.md) for collection requirements.

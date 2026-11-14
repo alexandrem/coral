@@ -93,16 +93,29 @@ coral colony token list
 ```
 
 Save the token value when it is printed; it cannot be recovered later from the
-token metadata. On the workstation:
+token metadata. Creation updates the local token file. Before trying the token,
+send SIGHUP to the running Colony process or restart it so its in-memory token
+store loads the new entry. Confirm the reload in the server logs.
+
+On the workstation, configure the [remote connection and CA trust](configuration.md#connect-a-remote-workstation),
+then supply the token and verify access:
 
 ```bash
 export CORAL_API_TOKEN='<operator-token>'
 coral query summary
 ```
 
-Use `debug` for supported probe operations, `analyze` where the public API
-requires it, and `admin` only for administrative access. These are the
-implemented permission names, rather than generic `read` and `write` roles.
+Grant the narrowest permissions the user needs. `--permissions` takes a
+comma-separated list of these names:
+
+| Permission | Allows |
+| --- | --- |
+| `status` | Read Colony status, agents, and topology |
+| `query` | Query metrics, traces, and logs |
+| `analyze` | AI analysis, which can trigger shell commands or probes |
+| `debug` | Attach live eBPF probes and debug |
+| `admin` | Full administrative access, including configuration changes |
+
 The [CLI manual](../CLI_REFERENCE.md) documents token options such as rate
 limits. Revoke an unwanted token with:
 
@@ -110,10 +123,9 @@ limits. Revoke an unwanted token with:
 coral colony token revoke operator
 ```
 
-Token management changes the local token file. Send SIGHUP to the running Colony
-process, or restart it, to reload the in-memory token store. Verify access with
-the intended remaining token afterward. SIGHUP reloads tokens; it is not a general
-hot reload of every server setting.
+After revocation, reload the token store again with SIGHUP or a restart. Verify
+access with the intended remaining token afterward. SIGHUP reloads tokens; it is
+not a general hot reload of every server setting.
 
 ## Understand the access boundary
 

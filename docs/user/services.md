@@ -19,17 +19,22 @@ coral services list --name api --wide
 The Colony combines registered services and recently observed telemetry. The
 default telemetry discovery window is one hour; `--since` changes that window
 while retaining registered entries. To inspect a specific agent's current
-inventory instead:
+inventory from the operator workstation:
 
 ```bash
 coral services list --agent '<agent-id>'
+```
+
+`--agent` resolves the target through the Colony and then uses the agent API,
+so the workstation needs a route to that agent. On the agent host, use local
+discovery instead:
+
+```bash
 coral services list --local
 coral services list --local --source auto
 coral services list --local --source watched
 ```
 
-Run `--local` on the agent host. `--agent` resolves the target through the
-Colony and then uses the agent API, so the CLI needs a route to that agent.
 `--since` is rejected for local and single-agent inventories.
 
 ## Add an explicit watch

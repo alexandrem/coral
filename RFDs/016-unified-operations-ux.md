@@ -536,7 +536,7 @@ agent:
     colony:
         id: prod-us-east
         auto_discover: true
-        discovery_url: https://discovery.coral.io
+        discovery_url: https://discovery.coralmesh.dev
 ```
 
 Per-command overrides:
@@ -906,7 +906,7 @@ agent:
         id: prod-us-east
         url: ""  # Empty = auto-discover
         auto_discover: true
-        discovery_url: https://discovery.coral.io
+        discovery_url: https://discovery.coralmesh.dev
         fallback_offline: true
 
     # Storage
