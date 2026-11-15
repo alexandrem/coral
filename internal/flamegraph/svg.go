@@ -82,7 +82,10 @@ func renderSVG(w io.Writer, root *node, maxDepth int, opts Options) error {
 `)
 
 	// Embedded JavaScript.
-	if err := writeJS(w, opts, imageWidth, imageHeight); err != nil {
+	if sw.err != nil {
+		return sw.err
+	}
+	if err := writeJS(w); err != nil {
 		return err
 	}
 
@@ -103,9 +106,9 @@ func renderSVG(w io.Writer, root *node, maxDepth int, opts Options) error {
 	sw.printf(`<text id="search" x="%d" y="24" onclick="search_prompt()" style="opacity:0.1;cursor:pointer">Search</text>
 `,
 		imageWidth-xPad-60)
-	sw.printf(`<text id="matched" x="%d" y="24"> </text>
+	sw.printf(`<text id="matched" x="%d" y="44" text-anchor="end"> </text>
 `,
-		imageWidth-xPad-60)
+		imageWidth-xPad)
 
 	// Render frames.
 	var render func(ln *layoutNode)
@@ -130,29 +133,28 @@ func renderSVG(w io.Writer, root *node, maxDepth int, opts Options) error {
 				escapedName := html.EscapeString(ln.name)
 
 				// Truncate text to fit.
-				chars := int(math.Floor(pixelWidth / (fontSize * fontWidth)))
+				chars := int(math.Floor(math.Max(0, pixelWidth-6) / (fontSize * fontWidth)))
+				runes := []rune(ln.name)
 				displayText := ""
 				if chars >= 3 {
-					if chars >= len(ln.name) {
+					if chars >= len(runes) {
 						displayText = escapedName
 					} else {
-						displayText = html.EscapeString(ln.name[:chars-2]) + ".."
+						displayText = html.EscapeString(string(runes[:chars-2])) + ".."
 					}
 				}
 
-				sw.printf(`<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
-`)
+				sw.printf(`<g class="func_g" data-name="%s" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+`, escapedName)
 				sw.printf(`<title>%s (%d %s, %.2f%%)</title>
 `,
-					escapedName, ln.value, opts.CountName, pct)
-				sw.printf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s" rx="2" ry="2" />
+					escapedName, ln.value, html.EscapeString(opts.CountName), pct)
+				sw.printf(`<rect x="%g" y="%g" width="%g" height="%g" fill="%s" rx="2" ry="2" />
 `,
 					x1, y1, x2-x1, y2-y1, color)
-				if displayText != "" {
-					sw.printf(`<text x="%.1f" y="%.1f">%s</text>
+				sw.printf(`<text x="%g" y="%g">%s</text>
 `,
-						x1+3, y1+float64(frameHeight)-4, displayText)
-				}
+					x1+3, y1+float64(frameHeight)-4, displayText)
 				sw.print("</g>\n")
 			}
 		}

@@ -2,6 +2,9 @@ package flamegraph
 
 import (
 	"bytes"
+	"encoding/xml"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -290,3 +293,43 @@ func TestLayoutTree(t *testing.T) {
 		t.Errorf("c.x = %f, want 10", c.x)
 	}
 }
+
+func TestRender_XMLAndUnicode(t *testing.T) {
+	for _, tc := range []struct{ name, frame, title, unit string }{
+		{name: "escaping", frame: "main<&\"", title: "CPU <&\"", unit: "samples <&\""},
+		{name: "Unicode truncation", frame: strings.Repeat("é", 40), title: "CPU", unit: "samples"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Render(&buf, []FoldedStack{{Frames: []string{tc.frame}, Value: 1}}, Options{Width: 100, Title: tc.title, CountName: tc.unit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc struct {
+				XMLName xml.Name `xml:"svg"`
+				Frames  []struct {
+					Name  string `xml:"data-name,attr"`
+					Title string `xml:"title"`
+				} `xml:"g"`
+			}
+			if err := xml.Unmarshal(buf.Bytes(), &doc); err != nil {
+				t.Fatalf("invalid SVG XML: %v", err)
+			}
+			if len(doc.Frames) != 1 || doc.Frames[0].Name != tc.frame || doc.Frames[0].Title != fmt.Sprintf("%s (1 %s, 100.00%%)", tc.frame, tc.unit) {
+				t.Fatalf("SVG changed symbol or unit: %+v", doc)
+			}
+		})
+	}
+}
+
+func TestRender_WriteError(t *testing.T) {
+	want := errors.New("write failed")
+	err := Render(failingWriter{want}, []FoldedStack{{Frames: []string{"main"}, Value: 1}}, Options{})
+	if !errors.Is(err, want) {
+		t.Fatalf("got %v, want writer error %v", err, want)
+	}
+}
+
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write(p []byte) (int, error) { return 0, w.err }

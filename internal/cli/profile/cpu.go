@@ -3,7 +3,6 @@ package profile
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -50,6 +49,10 @@ Examples:
 				return fmt.Errorf("--service is required")
 			}
 
+			if format != "folded" && format != "json" && format != "svg" {
+				return fmt.Errorf("unknown format: %s (use 'folded', 'json', or 'svg')", format)
+			}
+
 			// Validate duration.
 			if durationSeconds <= 0 {
 				durationSeconds = 30 // Default 30 seconds
@@ -73,7 +76,7 @@ Examples:
 			}
 
 			// Show progress message.
-			fmt.Fprintf(os.Stderr, "Profiling CPU for service '%s' (%ds at %dHz)...\n",
+			cmd.PrintErrf("Profiling CPU for service '%s' (%ds at %dHz)...\n",
 				serviceName, durationSeconds, frequencyHz)
 
 			// Create request.
@@ -85,7 +88,7 @@ Examples:
 			})
 
 			// Call ProfileCPU RPC with extended timeout.
-			ctx, cancel := context.WithTimeout(context.Background(),
+			ctx, cancel := context.WithTimeout(cmd.Context(),
 				time.Duration(durationSeconds+60)*time.Second)
 			defer cancel()
 
@@ -103,7 +106,7 @@ Examples:
 			case "json":
 				return printCPUProfileJSON(resp.Msg)
 			case "svg":
-				return printCPUProfileSVG(resp.Msg)
+				return printCPUProfileSVG(cmd.OutOrStdout(), resp.Msg)
 			case "folded":
 				fallthrough
 			default:

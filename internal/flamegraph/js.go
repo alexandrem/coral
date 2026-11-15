@@ -6,134 +6,85 @@ import (
 )
 
 // writeJS writes the embedded JavaScript for interactivity.
-func writeJS(w io.Writer, opts Options, imageWidth, imageHeight int) error {
+func writeJS(w io.Writer) error {
 	_, err := fmt.Fprintf(w, `<script type="text/ecmascript"><![CDATA[
 "use strict";
-var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm;
-var xpad = %d, frameheight = %d;
+var details, searchbtn, unzoombtn, matchedtxt, svg, frames, currentSearchTerm;
+var xpad = %d;
 
 function init(evt) {
-    details = document.getElementById("details").firstChild;
+    details = document.getElementById("details");
     searchbtn = document.getElementById("search");
     unzoombtn = document.getElementById("unzoom");
     matchedtxt = document.getElementById("matched");
-    svg = document.getElementsByTagName("svg")[0];
+    svg = document.documentElement;
+    frames = Array.from(document.getElementsByClassName("func_g"));
+    frames.forEach(function(frame) {
+        var rect = find_child(frame, "rect");
+        // Keep positions on the frame itself: names and counts can repeat.
+        frame.original = {
+            x: parseFloat(rect.getAttribute("x")),
+            width: parseFloat(rect.getAttribute("width")),
+            y: parseFloat(rect.getAttribute("y"))
+        };
+        update_text(frame, frame.original.width);
+    });
 }
 
-// Functions used by mouseover/mouseout.
 function s(node) {
-    details.nodeValue = node.getElementsByTagName("title")[0].textContent;
+    details.textContent = find_child(node, "title").textContent;
 }
 function c() {
-    details.nodeValue = " ";
+    details.textContent = " ";
 }
 
-// Zoom into a frame.
+// Always zoom from original coordinates, including when zooming an ancestor.
 function zoom(node) {
-    var attr = find_child(node, "rect").attributes;
-    var ox = parseFloat(attr.x.value);
-    var ow = parseFloat(attr.width.value);
-    if (ow === 0) return;
-
-    var svgWidth = svg.width.baseVal.value;
-    var scaleFactor = (svgWidth - 2 * xpad) / ow;
-    var nx = xpad - ox * scaleFactor + xpad * (scaleFactor - 1);
-
-    var el = document.getElementsByClassName("func_g");
-    for (var i = 0; i < el.length; i++) {
-        var r = find_child(el[i], "rect");
-        var rx = parseFloat(r.attributes.x.value);
-        var rw = parseFloat(r.attributes.width.value);
-        var ry = parseFloat(r.attributes.y.value);
-        var ty = parseFloat(find_child(el[i], "text").attributes.y.value);
-
-        // Determine the target frame's y range.
-        var targetY = parseFloat(attr.y.value);
-
-        // Hide frames that are not ancestors or descendants.
-        if (rx + rw < ox || rx > ox + ow) {
-            // Not overlapping horizontally: hide unless it's an ancestor.
-            if (ry >= targetY) {
-                el[i].style.display = "none";
-                continue;
-            }
+    var target = node.original;
+    if (target.width <= 0) return;
+    var width = svg.viewBox.baseVal.width - 2 * xpad;
+    var scale = width / target.width;
+    frames.forEach(function(frame) {
+        var orig = frame.original;
+        var ancestor = orig.y > target.y;
+        // Allow only floating-point noise at shared frame boundaries.
+        var contains = orig.x <= target.x + 1e-7 && orig.x + orig.width >= target.x + target.width - 1e-7;
+        var inside = orig.x >= target.x - 1e-7 && orig.x + orig.width <= target.x + target.width + 1e-7;
+        if (frame !== node && (ancestor ? !contains : !inside)) {
+            frame.style.display = "none";
+            return;
         }
-
-        // Show ancestor frames (below target in y, i.e., larger y).
-        if (ry > targetY && (rx + rw < ox || rx > ox + ow)) {
-            el[i].style.display = "none";
-            continue;
-        }
-
-        el[i].style.display = "block";
-
-        // Scale horizontally.
-        var newX = nx + rx * scaleFactor;
-        var newW = rw * scaleFactor;
-        r.attributes.x.value = newX;
-        r.attributes.width.value = newW;
-
-        // Update text.
-        var t = find_child(el[i], "text");
-        t.attributes.x.value = newX + 3;
-        update_text(t, newW);
-    }
-
-    unzoombtn.style.opacity = "1.0";
+        frame.style.display = "block";
+        frame.style.opacity = ancestor ? "0.5" : "1";
+        var rect = find_child(frame, "rect");
+        var newX = ancestor ? xpad : xpad + (orig.x - target.x) * scale;
+        var newWidth = ancestor ? width : orig.width * scale;
+        rect.setAttribute("x", newX);
+        rect.setAttribute("width", newWidth);
+        update_text(frame, newWidth);
+    });
+    unzoombtn.style.opacity = "1";
 }
 
-// Reset zoom.
 function unzoom() {
-    var el = document.getElementsByClassName("func_g");
-    for (var i = 0; i < el.length; i++) {
-        el[i].style.display = "block";
-        var r = find_child(el[i], "rect");
-        var orig = original_attrs(find_child(el[i], "title").textContent, r);
-        r.attributes.x.value = orig[0];
-        r.attributes.width.value = orig[1];
-        var t = find_child(el[i], "text");
-        t.attributes.x.value = parseFloat(orig[0]) + 3;
-        update_text(t, parseFloat(orig[1]));
-    }
-    unzoombtn.style.opacity = "0.0";
+    frames.forEach(function(frame) {
+        frame.style.display = "block";
+        frame.style.opacity = "1";
+        var rect = find_child(frame, "rect");
+        rect.setAttribute("x", frame.original.x);
+        rect.setAttribute("width", frame.original.width);
+        update_text(frame, frame.original.width);
+    });
+    unzoombtn.style.opacity = "0";
 }
 
-// Store original attributes for unzoom.
-var origData = {};
-function original_attrs(title, rect) {
-    var key = title + "," + rect.attributes.y.value;
-    if (!(key in origData)) {
-        origData[key] = [rect.attributes.x.value, rect.attributes.width.value];
-    }
-    return origData[key];
-}
-
-// Save initial positions on first zoom.
-(function() {
-    var saved = false;
-    var origZoom = zoom;
-    zoom = function(node) {
-        if (!saved) {
-            var el = document.getElementsByClassName("func_g");
-            for (var i = 0; i < el.length; i++) {
-                var r = find_child(el[i], "rect");
-                var title = find_child(el[i], "title").textContent;
-                original_attrs(title, r);
-            }
-            saved = true;
-        }
-        origZoom(node);
-    };
-})();
-
-// Search functionality.
 function search_prompt() {
     var term = prompt("Search (regex):", currentSearchTerm || "");
-    if (term === null || term === "") {
+    if (term === null) return;
+    if (term === "") {
         reset_search();
         return;
     }
-    currentSearchTerm = term;
     search(term);
 }
 
@@ -145,77 +96,46 @@ function search(term) {
         alert("Invalid regex: " + e.message);
         return;
     }
-
-    var el = document.getElementsByClassName("func_g");
+    currentSearchTerm = term;
     var matched = 0;
-    var totalVal = 0;
-    var matchedVal = 0;
-
-    for (var i = 0; i < el.length; i++) {
-        var title = find_child(el[i], "title").textContent;
-        var rect = find_child(el[i], "rect");
-
-        // Extract value from title "name (N unit, X%%)".
-        var m = title.match(/\((\d+)/);
-        var val = m ? parseInt(m[1]) : 0;
-        totalVal += val;
-
-        if (re.test(title)) {
-            rect.style.fill = "rgb(230,0,230)";
-            matched++;
-            matchedVal += val;
-        } else {
-            rect.style.fill = "";
-        }
-    }
-
-    if (matched > 0 && totalVal > 0) {
-        matchedtxt.firstChild.nodeValue = "Matched: " + matched + " frames";
-        matchedtxt.style.opacity = "1.0";
-        searchbtn.style.opacity = "1.0";
-    }
-    searching = true;
+    frames.forEach(function(frame) {
+        var match = re.test(frame.getAttribute("data-name"));
+        find_child(frame, "rect").style.fill = match ? "rgb(230,0,230)" : "";
+        if (match) matched++;
+    });
+    matchedtxt.textContent = "Matched: " + matched + " frames";
+    matchedtxt.style.opacity = "1";
+    searchbtn.style.opacity = "1";
 }
 
 function reset_search() {
-    var el = document.getElementsByClassName("func_g");
-    for (var i = 0; i < el.length; i++) {
-        find_child(el[i], "rect").style.fill = "";
-    }
-    matchedtxt.firstChild.nodeValue = " ";
-    matchedtxt.style.opacity = "0.0";
+    frames.forEach(function(frame) { find_child(frame, "rect").style.fill = ""; });
+    matchedtxt.textContent = " ";
+    matchedtxt.style.opacity = "0";
     searchbtn.style.opacity = "0.1";
     currentSearchTerm = null;
-    searching = false;
 }
 
 function find_child(parent, name) {
-    var children = parent.childNodes;
-    for (var i = 0; i < children.length; i++) {
-        if (children[i].tagName === name) return children[i];
-    }
-    return null;
+    return parent.getElementsByTagName(name)[0];
 }
 
-function update_text(t, width) {
-    var name = t.textContent;
-    var charWidth = %f;
-    var maxChars = Math.floor(width / charWidth);
-    if (maxChars < 3) {
-        t.style.display = "none";
-    } else {
-        t.style.display = "block";
-    }
+function update_text(frame, width) {
+    var text = find_child(frame, "text");
+    var rect = find_child(frame, "rect");
+    text.setAttribute("x", parseFloat(rect.getAttribute("x")) + 3);
+    var chars = Array.from(frame.getAttribute("data-name"));
+    var maxChars = Math.floor(Math.max(0, width - 6) / %f);
+    text.textContent = maxChars < 3 ? "" : (chars.length <= maxChars ? chars.join("") : chars.slice(0, maxChars - 2).join("") + "..");
 }
 
-// Keyboard shortcuts.
 document.addEventListener("keydown", function(e) {
-    if (e.ctrlKey && e.key === "f") {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
         search_prompt();
     }
 });
 ]]></script>
-`, xPad, frameHeight, fontSize*fontWidth)
+`, xPad, fontSize*fontWidth)
 	return err
 }

@@ -133,7 +133,7 @@ func (s *CLIDebugSuite) TestDebugSessionGetNotFound() {
 //
 // Validates:
 // - Command executes without transport error (data may or may not exist)
-// - JSON format flag is accepted
+// - Unsupported formats fail instead of silently returning folded stacks
 func (s *CLIDebugSuite) TestQueryCPUProfileCommand() {
 	s.T().Log("Testing 'coral query cpu-profile' command...")
 
@@ -152,9 +152,10 @@ func (s *CLIDebugSuite) TestQueryCPUProfileCommand() {
 	}
 	s.T().Log(out)
 
-	// JSON format flag — must be accepted without error.
+	// Historical CPU profiles support folded and SVG output, not JSON.
 	jsonResult := s.cliEnv.Run(s.ctx, "query", "cpu-profile", "--service", "otel-app", "--format", "json")
-	jsonResult.MustSucceed(s.T())
+	jsonResult.MustFail(s.T())
+	s.Require().Contains(jsonResult.Output, "unknown format")
 
 	// SVG format flag — must be accepted and, when historical data exists,
 	// render a real interactive flame graph rather than just being ignored.

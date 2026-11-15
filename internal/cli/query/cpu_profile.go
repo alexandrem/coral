@@ -1,9 +1,7 @@
 package query
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -53,6 +51,10 @@ Examples:
 				return fmt.Errorf("--service is required")
 			}
 
+			if format != "folded" && format != "svg" {
+				return fmt.Errorf("unknown format: %s (use 'folded' or 'svg')", format)
+			}
+
 			// Parse time range.
 			now := time.Now()
 			var startTime, endTime time.Time
@@ -83,8 +85,8 @@ Examples:
 				return fmt.Errorf("--since time must be before --until time")
 			}
 
-			fmt.Fprintf(os.Stderr, "Querying historical CPU profiles for service '%s'\n", serviceName)
-			fmt.Fprintf(os.Stderr, "Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+			cmd.PrintErrf("Querying historical CPU profiles for service '%s'\n", serviceName)
+			cmd.PrintErrf("Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
 			// Create gRPC client.
 			client, err := helpers.GetColonyDebugClient("")
@@ -100,7 +102,7 @@ Examples:
 			})
 
 			// Call QueryHistoricalCPUProfile RPC.
-			ctx := context.Background()
+			ctx := cmd.Context()
 			resp, err := client.QueryHistoricalCPUProfile(ctx, req)
 			if err != nil {
 				return fmt.Errorf("failed to query colony: %w", err)
@@ -111,14 +113,14 @@ Examples:
 			}
 
 			if len(resp.Msg.Samples) == 0 {
-				fmt.Fprintf(os.Stderr, "No historical CPU profile data found for service '%s' in the specified time range.\n", serviceName)
-				fmt.Fprintf(os.Stderr, "The colony polls agents every 30 seconds. Wait a moment and try again.\n")
+				cmd.PrintErrf("No historical CPU profile data found for service '%s' in the specified time range.\n", serviceName)
+				cmd.PrintErrf("The colony polls agents every 30 seconds. Wait a moment and try again.\n")
 				return nil
 			}
 
 			// Output metadata to stderr.
-			fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(resp.Msg.Samples))
-			fmt.Fprintf(os.Stderr, "Total samples: %d\n\n", resp.Msg.TotalSamples)
+			cmd.PrintErrf("Total unique stacks: %d\n", len(resp.Msg.Samples))
+			cmd.PrintErrf("Total samples: %d\n\n", resp.Msg.TotalSamples)
 
 			switch format {
 			case "svg":
@@ -138,7 +140,7 @@ Examples:
 						Value:  int64(s.Count),
 					})
 				}
-				return flamegraph.Render(os.Stdout, stacks, flamegraph.Options{
+				return flamegraph.Render(cmd.OutOrStdout(), stacks, flamegraph.Options{
 					Title:     "CPU Flame Graph (Historical)",
 					CountName: "samples",
 					Colors:    flamegraph.PaletteHot,
@@ -150,12 +152,18 @@ Examples:
 						continue
 					}
 					for i := len(sample.FrameNames) - 1; i >= 0; i-- {
-						fmt.Print(sample.FrameNames[i])
+						if _, err := fmt.Fprint(cmd.OutOrStdout(), sample.FrameNames[i]); err != nil {
+							return err
+						}
 						if i > 0 {
-							fmt.Print(";")
+							if _, err := fmt.Fprint(cmd.OutOrStdout(), ";"); err != nil {
+								return err
+							}
 						}
 					}
-					fmt.Printf(" %d\n", sample.Count)
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), " %d\n", sample.Count); err != nil {
+						return err
+					}
 				}
 			}
 

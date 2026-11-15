@@ -2,6 +2,7 @@ package profile
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	agentpb "github.com/coral-mesh/coral/coral/agent/v1"
@@ -48,9 +49,9 @@ func printCPUProfileFolded(profile *debugpb.ProfileCPUResponse) error {
 }
 
 // printCPUProfileSVG renders the profile as an interactive SVG flame graph.
-func printCPUProfileSVG(profile *debugpb.ProfileCPUResponse) error {
+func printCPUProfileSVG(w io.Writer, profile *debugpb.ProfileCPUResponse) error {
 	stacks := cpuSamplesToFolded(profile.Samples)
-	return flamegraph.Render(os.Stdout, stacks, flamegraph.Options{
+	return flamegraph.Render(w, stacks, flamegraph.Options{
 		Title:     "CPU Flame Graph",
 		CountName: "samples",
 		Colors:    flamegraph.PaletteHot,
