@@ -28,14 +28,12 @@
 // Key features:
 //   - Configurable sampling frequency (1-1000 Hz)
 //   - Configurable duration (1-300 seconds)
-//   - Multiple output formats (folded stacks, JSON)
-//   - Low overhead (<5% CPU during profiling)
+//   - Multiple output formats (folded stacks, JSON, interactive SVG)
 //
 // # Memory Profiling
 //
-// Memory profiling tracks heap allocations to identify memory usage patterns
-// and potential leaks. This feature is planned for RFD 077 and currently
-// returns a stub implementation:
+// Memory profiling fetches heap allocation data from a compatible runtime
+// endpoint to identify allocation hotspots and investigate memory growth:
 //
 //	coral profile memory --service api --duration 30
 //
@@ -75,5 +73,5 @@
 //
 //   - RFD 070: On-demand CPU profiling
 //   - RFD 072: Continuous profiling and historical queries
-//   - RFD 077: Memory profiling (in progress)
+//   - RFD 077: Memory profiling
 package profile

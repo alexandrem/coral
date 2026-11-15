@@ -211,6 +211,7 @@ macOS. An AI provider is optional for direct query and debugging commands.
 - [Kubernetes Manifests](deployments/k8s/README.md): Deployment variants and
   their privilege requirements.
 - [Examples](examples/): Applications and reusable investigation scripts.
+- [Developer Testing](docs/development/TESTING.md): Run tests, lint, and documentation checks.
 
 ## License
 

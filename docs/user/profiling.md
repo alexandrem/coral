@@ -67,11 +67,16 @@ coral profile cpu --service api --duration 30 --format svg > api-cpu.svg
 coral profile memory --service api --duration 30 --format svg > api-memory.svg
 ```
 
-Open the SVG in your browser. Click a frame to zoom, search for a function, or
-hover to inspect counts. Wide CPU frames represent more captured samples;
-memory frames represent allocation bytes. Width does not necessarily reflect
-the latency of a particular request. An empty capture under
-load needs investigation: check target process, perf permissions, startup
+The CLI renders a self-contained SVG with embedded interaction JavaScript.
+Generating it requires no installed browser or external rendering tool. Open
+the saved file in a browser with JavaScript enabled, click a frame to zoom,
+and use **Reset Zoom** to restore the full graph. Use **Search** to match
+function names with a regular expression, or hover to inspect counts.
+
+Wide CPU frames represent more captured samples, while memory frames represent
+allocation bytes. Width does not necessarily reflect
+the latency of a particular request. An empty capture under load needs
+investigation: check target process, perf permissions, startup
 warnings, and stack unwinding before interpreting it as idle CPU.
 
 ## Compare a trace with profiles

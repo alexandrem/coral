@@ -1124,6 +1124,9 @@ coral profile cpu [flags]
 
 Requires `--service`. Duration is integer seconds (maximum 300); frequency is Hz (maximum 1000). Default output is folded stacks. Needs a Linux observation agent with working perf/BPF collection.
 
+`--format svg` writes a self-contained interactive flame graph to stdout. Progress
+messages use stderr. Unknown output formats return an error before collection.
+
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--duration` / `-d` | int32 | `30` | Profiling duration in seconds (default: 30s, max: 300s) |
@@ -1209,6 +1212,11 @@ Query historical CPU profiles.
 ```text
 coral query cpu-profile [flags]
 ```
+
+Output formats are `folded` and `svg`; unsupported formats, including `json`,
+return an error before querying. SVG output is a self-contained interactive
+flame graph. Query metadata uses stderr. With no historical samples, the command
+succeeds with a message on stderr and leaves stdout empty.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
