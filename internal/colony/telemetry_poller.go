@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -77,14 +78,28 @@ func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
 	aggregator := NewTelemetryAggregator()
 	totalSpans := 0
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
-		spans, err := p.pollAgent(ctx, agent)
+	// Track checkpoint updates per agent. Only commit after successful storage.
+	type checkpointUpdate struct {
+		sessionID string
+		maxSeqID  uint64
+	}
+	pendingCheckpoints := make(map[string]checkpointUpdate)
+
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
+		spans, sessionID, maxSeqID, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
 
 		aggregator.AddSpans(agent.AgentID, spans)
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		totalSpans += len(spans)
+
+		if maxSeqID > 0 {
+			pendingCheckpoints[agent.AgentID] = checkpointUpdate{sessionID: sessionID, maxSeqID: maxSeqID}
+		}
 		return nil
 	})
 
@@ -98,7 +113,15 @@ func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
 				Err(err).
 				Int("summary_count", len(summaries)).
 				Msg("Failed to store telemetry summaries")
+			// DO NOT update checkpoints on storage failure - retry on next poll.
 			return err
+		}
+
+		// Storage succeeded - commit checkpoints (RFD 089).
+		for agentID, cp := range pendingCheckpoints {
+			if err := p.db.UpdatePollingCheckpoint(ctx, agentID, telemetryDataType, cp.sessionID, cp.maxSeqID); err != nil {
+				p.logger.Error().Err(err).Str("agent", agentID).Msg("Failed to update checkpoint")
+			}
 		}
 
 		p.logger.Info().
@@ -117,7 +140,10 @@ func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
 }
 
 // pollAgent queries a single agent using checkpoint-based polling (RFD 089).
-func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) ([]*agentv1.TelemetrySpan, error) {
+// Returns spans, session_id, max_seq_id, and any error. The caller is
+// responsible for committing the checkpoint only after the spans have been
+// durably stored.
+func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) ([]*agentv1.TelemetrySpan, string, uint64, error) {
 	// Get checkpoint for this agent.
 	checkpoint, err := p.db.GetPollingCheckpoint(ctx, agent.AgentID, telemetryDataType)
 	if err != nil {
@@ -144,7 +170,7 @@ func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) 
 
 	resp, err := client.QueryTelemetry(queryCtx, req)
 	if err != nil {
-		return nil, err
+		return nil, "", 0, err
 	}
 
 	// Handle session_id mismatch (agent database was recreated).
@@ -166,7 +192,7 @@ func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) 
 
 		resp, err = client.QueryTelemetry(queryCtx2, req)
 		if err != nil {
-			return nil, err
+			return nil, "", 0, err
 		}
 	}
 
@@ -178,7 +204,7 @@ func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) 
 			seqIDs[i] = span.SeqId
 			timestamps[i] = span.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().
 				Str("agent", agent.AgentID).
 				Uint64("gap_start", gap.StartSeqID).
@@ -188,14 +214,7 @@ func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) 
 		}
 	}
 
-	// Update checkpoint if we got data.
-	if resp.Msg.MaxSeqId > 0 {
-		if err := p.db.UpdatePollingCheckpoint(ctx, agent.AgentID, telemetryDataType, resp.Msg.SessionId, resp.Msg.MaxSeqId); err != nil {
-			p.logger.Error().Err(err).Str("agent", agent.AgentID).Msg("Failed to update checkpoint")
-		}
-	}
-
-	return resp.Msg.Spans, nil
+	return resp.Msg.Spans, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
 // RunCleanup performs telemetry database cleanup.

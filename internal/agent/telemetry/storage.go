@@ -9,43 +9,21 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-
-	"github.com/coral-mesh/coral/internal/duckdb"
 )
-
-// ORM model for telemetry spans table.
-
-type otelSpanDB struct {
-	Timestamp    time.Time `duckdb:"timestamp,immutable"`
-	TraceID      string    `duckdb:"trace_id,pk"`
-	SpanID       string    `duckdb:"span_id,pk"`
-	ParentSpanID string    `duckdb:"parent_span_id,immutable"`
-	ServiceName  string    `duckdb:"service_name,immutable"`
-	SpanKind     string    `duckdb:"span_kind,immutable"`
-	DurationMs   float64   `duckdb:"duration_ms,immutable"`
-	IsError      bool      `duckdb:"is_error,immutable"`
-	HTTPStatus   *int      `duckdb:"http_status,immutable"`
-	HTTPMethod   *string   `duckdb:"http_method,immutable"`
-	HTTPRoute    *string   `duckdb:"http_route,immutable"`
-	Attributes   string    `duckdb:"attributes,immutable"`
-	CreatedAt    time.Time `duckdb:"created_at,immutable"`
-}
 
 // Storage handles local storage of filtered telemetry spans.
 // Spans are stored for ~1 hour and can be queried by colony on-demand (RFD 025).
 type Storage struct {
-	db         *sql.DB
-	logger     zerolog.Logger
-	mu         sync.RWMutex
-	spansTable *duckdb.Table[otelSpanDB]
+	db     *sql.DB
+	logger zerolog.Logger
+	mu     sync.RWMutex
 }
 
 // NewStorage creates a new telemetry storage.
 func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 	s := &Storage{
-		db:         db,
-		logger:     logger.With().Str("component", "telemetry_storage").Logger(),
-		spansTable: duckdb.NewTable[otelSpanDB](db, "otel_spans_local"),
+		db:     db,
+		logger: logger.With().Str("component", "telemetry_storage").Logger(),
 	}
 
 	// Initialize schema.
@@ -149,24 +127,38 @@ func (s *Storage) StoreSpan(ctx context.Context, span Span) error {
 		httpRoute = &span.HTTPRoute
 	}
 
-	item := &otelSpanDB{
-		Timestamp:    span.Timestamp,
-		TraceID:      span.TraceID,
-		SpanID:       span.SpanID,
-		ParentSpanID: span.ParentSpanID,
-		ServiceName:  span.ServiceName,
-		SpanKind:     span.SpanKind,
-		DurationMs:   span.DurationMs,
-		IsError:      span.IsError,
-		HTTPStatus:   httpStatus,
-		HTTPMethod:   httpMethod,
-		HTTPRoute:    httpRoute,
-		Attributes:   string(attributesJSON),
-		CreatedAt:    time.Now(),
-	}
+	// Insert only if the (trace_id, span_id) pair doesn't already exist.
+	// A plain "ON CONFLICT DO NOTHING" upsert would still evaluate
+	// seq_id's DEFAULT nextval('seq_otel_spans') for the discarded row,
+	// since the DEFAULT is materialized before the conflict check runs.
+	// That permanently burns a seq_id and creates a phantom gap that the
+	// colony's gap detector (poller.DetectGaps) reports as real data loss.
+	// INSERT ... SELECT ... WHERE NOT EXISTS only evaluates the DEFAULT for
+	// rows that are actually inserted, so duplicate spans are silently
+	// dropped without consuming a sequence value.
+	// Parameters are explicitly cast because DuckDB cannot infer types for
+	// bare "SELECT ?, ?, ..." placeholders without a FROM clause to anchor
+	// them against.
+	query := `
+		INSERT INTO otel_spans_local (
+			timestamp, trace_id, span_id, parent_span_id, service_name, span_kind,
+			duration_ms, is_error, http_status, http_method, http_route, attributes, created_at
+		)
+		SELECT
+			CAST(? AS TIMESTAMP), CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT),
+			CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS DOUBLE PRECISION), CAST(? AS BOOLEAN),
+			CAST(? AS INTEGER), CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS JSON), CAST(? AS TIMESTAMP)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM otel_spans_local WHERE trace_id = ? AND span_id = ?
+		)
+	`
 
-	if err := s.spansTable.Upsert(ctx, item); err != nil {
-		return fmt.Errorf("failed to upsert span: %w", err)
+	if _, err := s.db.ExecContext(ctx, query,
+		span.Timestamp, span.TraceID, span.SpanID, span.ParentSpanID, span.ServiceName, span.SpanKind,
+		span.DurationMs, span.IsError, httpStatus, httpMethod, httpRoute, string(attributesJSON), time.Now(),
+		span.TraceID, span.SpanID,
+	); err != nil {
+		return fmt.Errorf("failed to insert span: %w", err)
 	}
 
 	return nil

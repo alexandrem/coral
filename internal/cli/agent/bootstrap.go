@@ -19,13 +19,16 @@ import (
 // NewBootstrapCmd creates the bootstrap command for agents.
 func NewBootstrapCmd() *cobra.Command {
 	var (
-		colonyID      string
-		agentID       string
-		caFingerprint string
-		bootstrapPSK  string
-		discoveryURL  string
-		certsDir      string
-		force         bool
+		colonyID                    string
+		agentID                     string
+		caFingerprint               string
+		bootstrapPSK                string
+		discoveryURL                string
+		certsDir                    string
+		force                       bool
+		bootstrapPublicEndpoint     string
+		verifyBootstrapReachability bool
+		bootstrapListenPort         int
 	)
 
 	cmd := &cobra.Command{
@@ -67,13 +70,16 @@ Examples:
   coral agent bootstrap --colony my-colony --fingerprint sha256:... --agent web-prod-1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBootstrap(cmd.Context(), bootstrapOptions{
-				ColonyID:      colonyID,
-				AgentID:       agentID,
-				CAFingerprint: caFingerprint,
-				BootstrapPSK:  bootstrapPSK,
-				DiscoveryURL:  discoveryURL,
-				CertsDir:      certsDir,
-				Force:         force,
+				ColonyID:                    colonyID,
+				AgentID:                     agentID,
+				CAFingerprint:               caFingerprint,
+				BootstrapPSK:                bootstrapPSK,
+				DiscoveryURL:                discoveryURL,
+				CertsDir:                    certsDir,
+				Force:                       force,
+				BootstrapPublicEndpoint:     bootstrapPublicEndpoint,
+				VerifyBootstrapReachability: verifyBootstrapReachability,
+				BootstrapListenPort:         bootstrapListenPort,
 			})
 		},
 	}
@@ -89,18 +95,27 @@ Examples:
 	cmd.Flags().StringVar(&discoveryURL, "discovery", discoveryDefault, "Discovery service URL")
 	cmd.Flags().StringVar(&certsDir, "certs-dir", os.Getenv("CORAL_CERTS_DIR"), "Directory for storing certificates")
 	cmd.Flags().BoolVar(&force, "force", false, "Force re-bootstrap even if certificate exists")
+	cmd.Flags().StringVar(&bootstrapPublicEndpoint, "bootstrap-public-endpoint", os.Getenv("CORAL_BOOTSTRAP_PUBLIC_ENDPOINT"),
+		"This agent's dialable ip:port, used for PSK-encrypted rendezvous bootstrap when the colony has no inbound connectivity (RFD 108)")
+	cmd.Flags().BoolVar(&verifyBootstrapReachability, "verify-bootstrap-reachability", false,
+		"Ask Discovery to TCP-probe --bootstrap-public-endpoint before accepting the rendezvous publish (opt-in, quota-limited diagnostic, not a guarantee)")
+	cmd.Flags().IntVar(&bootstrapListenPort, "bootstrap-listen-port", 0,
+		"Local port for the rendezvous listener (default: 8444)")
 
 	return cmd
 }
 
 type bootstrapOptions struct {
-	ColonyID      string
-	AgentID       string
-	CAFingerprint string
-	BootstrapPSK  string
-	DiscoveryURL  string
-	CertsDir      string
-	Force         bool
+	ColonyID                    string
+	AgentID                     string
+	CAFingerprint               string
+	BootstrapPSK                string
+	DiscoveryURL                string
+	CertsDir                    string
+	Force                       bool
+	BootstrapPublicEndpoint     string
+	VerifyBootstrapReachability bool
+	BootstrapListenPort         int
 }
 
 func runBootstrap(ctx context.Context, opts bootstrapOptions) error {
@@ -179,12 +194,15 @@ func runBootstrap(ctx context.Context, opts bootstrapOptions) error {
 
 	// Create bootstrap client.
 	client := bootstrap.NewClient(bootstrap.Config{
-		AgentID:           opts.AgentID,
-		ColonyID:          opts.ColonyID,
-		CAFingerprint:     opts.CAFingerprint,
-		BootstrapPSK:      opts.BootstrapPSK,
-		DiscoveryEndpoint: opts.DiscoveryURL,
-		Logger:            logger,
+		AgentID:                     opts.AgentID,
+		ColonyID:                    opts.ColonyID,
+		CAFingerprint:               opts.CAFingerprint,
+		BootstrapPSK:                opts.BootstrapPSK,
+		DiscoveryEndpoint:           opts.DiscoveryURL,
+		BootstrapPublicEndpoint:     opts.BootstrapPublicEndpoint,
+		VerifyBootstrapReachability: opts.VerifyBootstrapReachability,
+		BootstrapListenPort:         opts.BootstrapListenPort,
+		Logger:                      logger,
 	})
 
 	// Run bootstrap with timeout.

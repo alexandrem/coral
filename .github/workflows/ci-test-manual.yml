@@ -1,0 +1,75 @@
+name: Manual CI Test
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-test-manual-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+  GO_VERSION: "1.25.1"
+
+jobs:
+  test:
+    name: Run CI tests with coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install APT packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install Go tools
+        run: make install-tools || make install-tools
+
+      - name: Add tools to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Generate files
+        run: make generate
+        timeout-minutes: 10
+
+      - name: Run tests with coverage
+        run: make test-ci
+        timeout-minutes: 30
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out -o coverage.txt
+
+      - name: Check coverage threshold
+        run: |
+          coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${coverage}%"
+          threshold=15.0
+          if (( $(echo "$coverage < $threshold" | bc -l) )); then
+            echo "❌ Coverage ${coverage}% is below ${threshold}% threshold"
+            exit 1
+          else
+            echo "✅ Coverage ${coverage}% meets ${threshold}% threshold"
+          fi
+
+      - name: Upload coverage to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-ci-test-coverage-report
+          path: |
+            coverage.out
+            coverage.txt
+          retention-days: 30

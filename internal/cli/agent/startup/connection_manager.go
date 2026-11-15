@@ -12,8 +12,10 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/agent/heartbeat"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
@@ -89,6 +91,7 @@ type ConnectionManager struct {
 	backoff          *ExponentialBackoff
 	discoveryBackoff *ExponentialBackoff
 	colonyInfoMu     sync.RWMutex // Protects colonyInfo updates
+	discoveryLookup  func(*config.ResolvedConfig, logging.Logger) (*discovery.LookupColonyResponse, error)
 }
 
 // ExponentialBackoff implements exponential backoff with jitter for reconnection attempts.
@@ -166,6 +169,7 @@ func NewConnectionManager(
 			Multiplier:      2.0,
 			Jitter:          0.1,
 		},
+		discoveryLookup: QueryDiscoveryForColony,
 	}
 }
 
@@ -199,15 +203,16 @@ func (cm *ConnectionManager) AttemptDiscovery() (*discovery.LookupColonyResponse
 		Str("discovery_url", cm.config.DiscoveryURL).
 		Msg("Attempting discovery service query")
 
-	colonyInfo, err := QueryDiscoveryForColony(cm.config, cm.logger)
+	lookup := cm.discoveryLookup
+	if lookup == nil {
+		lookup = QueryDiscoveryForColony
+	}
+	colonyInfo, err := lookup(cm.config, cm.logger)
 	if err != nil {
 		return nil, fmt.Errorf("discovery lookup failed: %w", err)
 	}
 
-	// Update colony info with lock.
-	cm.colonyInfoMu.Lock()
-	cm.colonyInfo = colonyInfo
-	cm.colonyInfoMu.Unlock()
+	cm.SetColonyInfo(colonyInfo)
 
 	cm.logger.Info().
 		Str("colony_pubkey", colonyInfo.Pubkey).
@@ -222,11 +227,45 @@ func (cm *ConnectionManager) AttemptDiscovery() (*discovery.LookupColonyResponse
 	return colonyInfo, nil
 }
 
+// WaitForDiscovery continually queries Discovery until the Colony appears or
+// the caller cancels the context. This is used when startup cannot proceed
+// without Colony metadata, such as restoring a compound bootstrap enrollment.
+func (cm *ConnectionManager) WaitForDiscovery(ctx context.Context) (*discovery.LookupColonyResponse, error) {
+	for {
+		colonyInfo, err := cm.AttemptDiscovery()
+		if err == nil {
+			cm.discoveryBackoff.Reset()
+			return colonyInfo, nil
+		}
+
+		delay := cm.discoveryBackoff.NextDelay()
+		cm.logger.Warn().
+			Err(err).
+			Dur("retry_in", delay).
+			Msg("Discovery lookup required to finish agent startup failed - will retry")
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 // GetColonyInfo safely returns the current colony info.
 func (cm *ConnectionManager) GetColonyInfo() *discovery.LookupColonyResponse {
 	cm.colonyInfoMu.RLock()
 	defer cm.colonyInfoMu.RUnlock()
 	return cm.colonyInfo
+}
+
+// SetColonyInfo updates the discovered Colony information.
+func (cm *ConnectionManager) SetColonyInfo(colonyInfo *discovery.LookupColonyResponse) {
+	cm.colonyInfoMu.Lock()
+	defer cm.colonyInfoMu.Unlock()
+	cm.colonyInfo = colonyInfo
 }
 
 // GetLastSuccessfulEndpoint returns the last WireGuard endpoint that successfully connected.
@@ -338,6 +377,35 @@ func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
 		Msg("Successfully registered with colony")
 
 	return cm.assignedIP, cm.assignedSubnet, nil
+}
+
+// ApplyBootstrapRegistration records the registration returned by RFD 109's
+// compound BootstrapAndRegister RPC. It deliberately does not set a Colony
+// endpoint: the NAT-local Colony initiates WireGuard and the Agent learns its
+// endpoint through WireGuard roaming.
+func (cm *ConnectionManager) ApplyBootstrapRegistration(resp *meshv1.RegisterResponse) error {
+	if resp == nil {
+		return fmt.Errorf("bootstrap registration response is nil")
+	}
+	if !resp.Accepted {
+		return fmt.Errorf("bootstrap registration rejected by colony: %s", resp.Reason)
+	}
+	if err := enrollmentstate.ValidateAssignment(resp.AssignedIp, resp.MeshSubnet); err != nil {
+		return fmt.Errorf("invalid bootstrap registration: %w", err)
+	}
+
+	cm.stateMu.Lock()
+	cm.assignedIP = resp.AssignedIp
+	cm.assignedSubnet = resp.MeshSubnet
+	cm.currentEndpoint = ""
+	cm.stateMu.Unlock()
+	cm.setState(StateRegistered)
+
+	cm.logger.Info().
+		Str("assigned_ip", resp.AssignedIp).
+		Str("mesh_subnet", resp.MeshSubnet).
+		Msg("Applied compound bootstrap registration")
+	return nil
 }
 
 // StartHeartbeatLoop sends periodic heartbeats to the colony and monitors connection health.

@@ -1,11 +1,13 @@
 # Reef
 
-> Ideation process
+> Design proposal; not an implemented deployment option. See
+> [RFD 003](../RFDs/003-reef-multi-colony-federation.md) for the proposal.
+> Use the [user guide](user/README.md) for supported Colony and agent workflows.
 
 **Optional centralized layer**
 
 For users managing multiple environments (dev, staging, prod) or multiple
-applications, Coral offers **Reef** - a federation layer that aggregates data
+applications, the **Reef** proposal describes a federation layer that would aggregate data
 across colonies.
 
 **Note:** Reef is the **only centralized component** in Coral, and it's

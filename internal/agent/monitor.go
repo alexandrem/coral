@@ -51,6 +51,7 @@ type ServiceMonitor struct {
 	binaryHash          string
 	checkInterval       time.Duration
 	checkTimeout        time.Duration
+	missedLiveness      int                                                    // RFD 111: consecutive missed liveness checks for portless services.
 	functionCache       *FunctionCache                                         // RFD 063: Function discovery cache
 	onProcessDiscovered func(serviceName string, pid int32, binaryPath string) // RFD 072: Callback when PID is discovered
 	onSDKDiscovered     func(serviceName string, pid int32, sdkAddr string)    // RFD 077: Callback when SDK capabilities are set
@@ -183,8 +184,16 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		return
 	}
 
-	// findPidByPort finds the PID of the process listening on the given port.
-	pid, err := proc.FindPidByPort(int(m.service.Port))
+	var pid int32
+	var err error
+	if m.service.Port == 0 && m.service.ExePattern != "" {
+		// Portless service (RFD 111): resolve by executable pattern instead
+		// of listening port.
+		pid, err = proc.FindPidByExePattern(m.service.ExePattern)
+	} else {
+		// findPidByPort finds the PID of the process listening on the given port.
+		pid, err = proc.FindPidByPort(int(m.service.Port))
+	}
 	if err != nil {
 		// Don't log error on every check to avoid spam, unless debug logging is on
 		m.logger.Debug().Err(err).Msg("Failed to discover process ID")
@@ -212,38 +221,11 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 				m.onProcessDiscovered(m.service.Name, pid, path)
 			}
 
-			// Trigger function discovery (RFD 063).
-			// This happens once when service is first discovered, or when process restarts.
-			if m.functionCache != nil {
-				serviceName := m.service.Name
-				binaryPath := path
-
-				// Get SDK address if available.
-				sdkAddr := ""
-				if m.sdkCapabilities != nil && m.sdkCapabilities.SdkEnabled {
-					sdkAddr = m.sdkCapabilities.SdkAddr
-				}
-
-				m.logger.Info().
-					Str("service", serviceName).
-					Str("binary", binaryPath).
-					Str("sdk_addr", sdkAddr).
-					Msg("Triggering function discovery for newly discovered service")
-
-				// Trigger async discovery (don't block the monitor loop).
-				go func() {
-					if err := m.functionCache.DiscoverAndCache(context.Background(), serviceName, binaryPath, sdkAddr); err != nil {
-						m.logger.Error().
-							Err(err).
-							Str("service", serviceName).
-							Msg("Failed to discover and cache functions")
-					} else {
-						m.logger.Info().
-							Str("service", serviceName).
-							Msg("Function discovery completed successfully")
-					}
-				}()
-			}
+			// Function discovery is no longer triggered here: indexing a
+			// binary via DWARF parsing costs 100-500ms and is wasted work
+			// when no debug session or function query ever needs it.
+			// FunctionCache.EnsureIndexed is called lazily instead, at debug
+			// session start and on GetFunctions RPC invocation (RFD 104).
 		}
 	}
 	m.mu.Unlock()
@@ -251,6 +233,13 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 
 // performHealthCheck executes a health check for the service.
 func (m *ServiceMonitor) performHealthCheck() {
+	// Portless services (RFD 111) have no socket or HTTP endpoint to check;
+	// liveness is determined by whether a matching process still exists.
+	if m.service.Port == 0 {
+		m.performLivenessCheck()
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(m.ctx, m.checkTimeout)
 	defer cancel()
 
@@ -281,9 +270,64 @@ func (m *ServiceMonitor) performHealthCheck() {
 	m.mu.Unlock()
 }
 
+// performLivenessCheck re-resolves the service's exe_pattern to a PID (RFD
+// 111). The service is unhealthy only after DefaultMissedLivenessThreshold
+// consecutive misses, to avoid flapping on a brief PID-table race (e.g. the
+// process restarting between checks).
+func (m *ServiceMonitor) performLivenessCheck() {
+	pid, err := proc.FindPidByExePattern(m.service.ExePattern)
+
+	var newStatus ServiceStatus
+	var newErr error
+
+	m.mu.Lock()
+	if err == nil && pid != 0 {
+		m.missedLiveness = 0
+		newStatus = ServiceStatusHealthy
+	} else {
+		m.missedLiveness++
+		if err != nil {
+			newErr = err
+		} else {
+			newErr = fmt.Errorf("no process matching pattern %q", m.service.ExePattern)
+		}
+		if m.missedLiveness >= constants.DefaultMissedLivenessThreshold {
+			newStatus = ServiceStatusUnhealthy
+		} else {
+			// Below the miss threshold: hold the previous status rather
+			// than flapping to unhealthy on a single miss.
+			newStatus = m.status
+		}
+	}
+	m.status = newStatus
+	m.lastCheck = time.Now()
+	m.lastError = newErr
+	m.mu.Unlock()
+
+	if newErr != nil {
+		m.logger.Debug().Err(newErr).Int("missed_liveness", m.missedLiveness).Msg("Liveness check failed")
+	} else {
+		m.logger.Debug().Msg("Liveness check passed")
+	}
+}
+
 // checkHTTPHealth performs an HTTP health check.
 func (m *ServiceMonitor) checkHTTPHealth(ctx context.Context) error {
-	url := fmt.Sprintf("http://localhost:%d%s", m.service.Port, m.service.HealthEndpoint)
+	err := m.doHTTPCheck(ctx, "127.0.0.1")
+	if err == nil {
+		return nil
+	}
+
+	// Fall back to localhost in case the service binds only to IPv6 ([::1]) or requires Host: localhost.
+	if fbErr := m.doHTTPCheck(ctx, "localhost"); fbErr == nil {
+		return nil
+	}
+
+	return err
+}
+
+func (m *ServiceMonitor) doHTTPCheck(ctx context.Context, host string) error {
+	url := fmt.Sprintf("http://%s:%d%s", host, m.service.Port, m.service.HealthEndpoint)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -309,16 +353,23 @@ func (m *ServiceMonitor) checkHTTPHealth(ctx context.Context) error {
 
 // checkTCPHealth performs a TCP connectivity check.
 func (m *ServiceMonitor) checkTCPHealth(ctx context.Context) error {
-	address := fmt.Sprintf("localhost:%d", m.service.Port)
-
 	var d net.Dialer
+	address := fmt.Sprintf("127.0.0.1:%d", m.service.Port)
 	conn, err := d.DialContext(ctx, "tcp", address)
-	if err != nil {
-		return fmt.Errorf("tcp connection failed: %w", err)
+	if err == nil {
+		_ = conn.Close()
+		return nil
 	}
-	defer func() { _ = conn.Close() }() // TODO: errcheck
 
-	return nil
+	// Fallback to localhost if 127.0.0.1 fails (e.g. IPv6-only listener).
+	fallbackAddr := fmt.Sprintf("localhost:%d", m.service.Port)
+	fbConn, fbErr := d.DialContext(ctx, "tcp", fallbackAddr)
+	if fbErr == nil {
+		_ = fbConn.Close()
+		return nil
+	}
+
+	return fmt.Errorf("tcp connection failed: %w", err)
 }
 
 // SetSdkCapabilities updates the SDK capabilities for the service.

@@ -27,7 +27,7 @@ func newStatusCmd() *cobra.Command {
 
 This command provides a quick overview of:
 - Discovery service health
-- All configured colonies (running/stopped status)
+- All configured colonies (running, unreachable, or unknown status)
 - Network endpoints and connection information
 - Agent counts and uptime for running colonies
 
@@ -64,24 +64,13 @@ Use 'coral colony status <id>' for detailed information about a specific colony.
 			provider := status.NewProvider(loader)
 			coloniesInfo := provider.QueryColoniesInParallel(colonyIDs, globalConfig.DefaultColony)
 
-			// Calculate summary statistics
-			runningCount := 0
-			stoppedCount := 0
-			for _, info := range coloniesInfo {
-				if info.Running {
-					runningCount++
-				} else {
-					stoppedCount++
-				}
-			}
-
 			// Output in requested format.
 			formatter := status.NewFormatter(globalConfig)
 			if format != string(helpers.FormatTable) {
-				return formatter.OutputJSON(coloniesInfo, discoveryHealthy, runningCount, stoppedCount)
+				return formatter.OutputJSON(coloniesInfo, discoveryHealthy)
 			}
 
-			return formatter.OutputTable(coloniesInfo, discoveryHealthy, runningCount, stoppedCount, verbose)
+			return formatter.OutputTable(coloniesInfo, discoveryHealthy, verbose)
 		},
 	}
 

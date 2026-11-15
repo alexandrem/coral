@@ -82,6 +82,9 @@ const (
 	// ColonyServiceRequestCertificateProcedure is the fully-qualified name of the ColonyService's
 	// RequestCertificate RPC.
 	ColonyServiceRequestCertificateProcedure = "/coral.colony.v1.ColonyService/RequestCertificate"
+	// ColonyServiceBootstrapAndRegisterProcedure is the fully-qualified name of the ColonyService's
+	// BootstrapAndRegister RPC.
+	ColonyServiceBootstrapAndRegisterProcedure = "/coral.colony.v1.ColonyService/BootstrapAndRegister"
 	// ColonyServiceRevokeCertificateProcedure is the fully-qualified name of the ColonyService's
 	// RevokeCertificate RPC.
 	ColonyServiceRevokeCertificateProcedure = "/coral.colony.v1.ColonyService/RevokeCertificate"
@@ -126,6 +129,10 @@ type ColonyServiceClient interface {
 	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
 	// Request a client certificate using a bootstrap token.
 	RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error)
+	// Compound certificate issuance + mesh registration over an RFD 108
+	// rendezvous dial-back connection (RFD 109). Only permitted on that
+	// restricted connection; not exposed on the ordinary public listener.
+	BootstrapAndRegister(context.Context, *connect.Request[v1.BootstrapAndRegisterRequest]) (*connect.Response[v1.BootstrapAndRegisterResponse], error)
 	// Revoke an issued certificate.
 	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
 	// Get CA status and fingerprint (RFD 047).
@@ -255,6 +262,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("RequestCertificate")),
 			connect.WithClientOptions(opts...),
 		),
+		bootstrapAndRegister: connect.NewClient[v1.BootstrapAndRegisterRequest, v1.BootstrapAndRegisterResponse](
+			httpClient,
+			baseURL+ColonyServiceBootstrapAndRegisterProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("BootstrapAndRegister")),
+			connect.WithClientOptions(opts...),
+		),
 		revokeCertificate: connect.NewClient[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse](
 			httpClient,
 			baseURL+ColonyServiceRevokeCertificateProcedure,
@@ -290,28 +303,29 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // colonyServiceClient implements ColonyServiceClient.
 type colonyServiceClient struct {
-	getStatus           *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
-	listAgents          *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getTopology         *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
-	queryUnifiedSummary *connect.Client[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse]
-	queryUnifiedTraces  *connect.Client[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse]
-	queryUnifiedMetrics *connect.Client[v1.QueryUnifiedMetricsRequest, v1.QueryUnifiedMetricsResponse]
-	queryUnifiedLogs    *connect.Client[v1.QueryUnifiedLogsRequest, v1.QueryUnifiedLogsResponse]
-	listServices        *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
-	getMetricPercentile *connect.Client[v1.GetMetricPercentileRequest, v1.GetMetricPercentileResponse]
-	getServiceActivity  *connect.Client[v1.GetServiceActivityRequest, v1.GetServiceActivityResponse]
-	listServiceActivity *connect.Client[v1.ListServiceActivityRequest, v1.ListServiceActivityResponse]
-	executeQuery        *connect.Client[v1.ExecuteQueryRequest, v1.ExecuteQueryResponse]
-	queryTraceProfile   *connect.Client[v1.QueryTraceProfileRequest, v1.QueryTraceProfileResponse]
-	callTool            *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
-	streamTool          *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
-	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
-	requestCertificate  *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
-	revokeCertificate   *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
-	getCAStatus         *connect.Client[v1.GetCAStatusRequest, v1.GetCAStatusResponse]
-	meshPing            *connect.Client[v1.MeshPingRequest, v1.MeshPingResponse]
-	meshAudit           *connect.Client[v1.MeshAuditRequest, v1.MeshAuditResponse]
-	reportConnections   *connect.Client[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse]
+	getStatus            *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	listAgents           *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getTopology          *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
+	queryUnifiedSummary  *connect.Client[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse]
+	queryUnifiedTraces   *connect.Client[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse]
+	queryUnifiedMetrics  *connect.Client[v1.QueryUnifiedMetricsRequest, v1.QueryUnifiedMetricsResponse]
+	queryUnifiedLogs     *connect.Client[v1.QueryUnifiedLogsRequest, v1.QueryUnifiedLogsResponse]
+	listServices         *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	getMetricPercentile  *connect.Client[v1.GetMetricPercentileRequest, v1.GetMetricPercentileResponse]
+	getServiceActivity   *connect.Client[v1.GetServiceActivityRequest, v1.GetServiceActivityResponse]
+	listServiceActivity  *connect.Client[v1.ListServiceActivityRequest, v1.ListServiceActivityResponse]
+	executeQuery         *connect.Client[v1.ExecuteQueryRequest, v1.ExecuteQueryResponse]
+	queryTraceProfile    *connect.Client[v1.QueryTraceProfileRequest, v1.QueryTraceProfileResponse]
+	callTool             *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
+	streamTool           *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
+	listTools            *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	requestCertificate   *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
+	bootstrapAndRegister *connect.Client[v1.BootstrapAndRegisterRequest, v1.BootstrapAndRegisterResponse]
+	revokeCertificate    *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
+	getCAStatus          *connect.Client[v1.GetCAStatusRequest, v1.GetCAStatusResponse]
+	meshPing             *connect.Client[v1.MeshPingRequest, v1.MeshPingResponse]
+	meshAudit            *connect.Client[v1.MeshAuditRequest, v1.MeshAuditResponse]
+	reportConnections    *connect.Client[v1.ReportConnectionsRequest, v1.ReportConnectionsResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -399,6 +413,11 @@ func (c *colonyServiceClient) RequestCertificate(ctx context.Context, req *conne
 	return c.requestCertificate.CallUnary(ctx, req)
 }
 
+// BootstrapAndRegister calls coral.colony.v1.ColonyService.BootstrapAndRegister.
+func (c *colonyServiceClient) BootstrapAndRegister(ctx context.Context, req *connect.Request[v1.BootstrapAndRegisterRequest]) (*connect.Response[v1.BootstrapAndRegisterResponse], error) {
+	return c.bootstrapAndRegister.CallUnary(ctx, req)
+}
+
 // RevokeCertificate calls coral.colony.v1.ColonyService.RevokeCertificate.
 func (c *colonyServiceClient) RevokeCertificate(ctx context.Context, req *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error) {
 	return c.revokeCertificate.CallUnary(ctx, req)
@@ -453,6 +472,10 @@ type ColonyServiceHandler interface {
 	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
 	// Request a client certificate using a bootstrap token.
 	RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error)
+	// Compound certificate issuance + mesh registration over an RFD 108
+	// rendezvous dial-back connection (RFD 109). Only permitted on that
+	// restricted connection; not exposed on the ordinary public listener.
+	BootstrapAndRegister(context.Context, *connect.Request[v1.BootstrapAndRegisterRequest]) (*connect.Response[v1.BootstrapAndRegisterResponse], error)
 	// Revoke an issued certificate.
 	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
 	// Get CA status and fingerprint (RFD 047).
@@ -578,6 +601,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("RequestCertificate")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceBootstrapAndRegisterHandler := connect.NewUnaryHandler(
+		ColonyServiceBootstrapAndRegisterProcedure,
+		svc.BootstrapAndRegister,
+		connect.WithSchema(colonyServiceMethods.ByName("BootstrapAndRegister")),
+		connect.WithHandlerOptions(opts...),
+	)
 	colonyServiceRevokeCertificateHandler := connect.NewUnaryHandler(
 		ColonyServiceRevokeCertificateProcedure,
 		svc.RevokeCertificate,
@@ -644,6 +673,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceListToolsHandler.ServeHTTP(w, r)
 		case ColonyServiceRequestCertificateProcedure:
 			colonyServiceRequestCertificateHandler.ServeHTTP(w, r)
+		case ColonyServiceBootstrapAndRegisterProcedure:
+			colonyServiceBootstrapAndRegisterHandler.ServeHTTP(w, r)
 		case ColonyServiceRevokeCertificateProcedure:
 			colonyServiceRevokeCertificateHandler.ServeHTTP(w, r)
 		case ColonyServiceGetCAStatusProcedure:
@@ -729,6 +760,10 @@ func (UnimplementedColonyServiceHandler) ListTools(context.Context, *connect.Req
 
 func (UnimplementedColonyServiceHandler) RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.RequestCertificate is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) BootstrapAndRegister(context.Context, *connect.Request[v1.BootstrapAndRegisterRequest]) (*connect.Response[v1.BootstrapAndRegisterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.BootstrapAndRegister is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error) {

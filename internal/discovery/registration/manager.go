@@ -120,7 +120,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Start heartbeat goroutine.
 	m.wg.Add(1)
-	go m.heartbeatLoop()
+	go m.heartbeatLoop(ctx)
 
 	return nil
 }
@@ -296,7 +296,7 @@ func (m *Manager) register(ctx context.Context) error {
 }
 
 // heartbeatLoop runs the continuous registration loop.
-func (m *Manager) heartbeatLoop() {
+func (m *Manager) heartbeatLoop(ctx context.Context) {
 	defer m.wg.Done()
 
 	ticker := time.NewTicker(m.config.RegisterInterval)
@@ -308,6 +308,10 @@ func (m *Manager) heartbeatLoop() {
 
 	for {
 		select {
+		case <-ctx.Done():
+			m.logger.Debug().Msg("Heartbeat loop stopped: parent context canceled")
+			return
+
 		case <-m.stopCh:
 			m.logger.Debug().Msg("Heartbeat loop stopped")
 			return
@@ -315,8 +319,8 @@ func (m *Manager) heartbeatLoop() {
 		case <-ticker.C:
 			m.logger.Debug().Msg("Heartbeat tick: re-registering")
 
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			err := m.registerWithRetry(ctx)
+			heartbeatCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := m.registerWithRetry(heartbeatCtx)
 			cancel()
 
 			if err != nil {

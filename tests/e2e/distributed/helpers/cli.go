@@ -294,14 +294,14 @@ func AgentListJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface
 	return agents, nil
 }
 
-// ServiceList executes `coral service list` and returns the output.
+// ServiceList executes `coral services` and returns the output.
 func ServiceList(ctx context.Context, env *CLITestEnv) *CLIResult {
-	return env.Run(ctx, "colony", "service", "list")
+	return env.Run(ctx, "services")
 }
 
-// ServiceListJSON executes `coral service list --format json` and parses the output.
+// ServiceListJSON executes `coral services --format json` and parses the output.
 func ServiceListJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
-	result := env.Run(ctx, "colony", "service", "list", "-o", "json")
+	result := env.Run(ctx, "services", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("service list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -585,25 +585,27 @@ func AgentStatusJSON(ctx context.Context, env *CLITestEnv, agentID string) (map[
 	return status, nil
 }
 
-// QueryServices executes `coral colony service list` and returns the output.
+// QueryServices executes `coral services` and returns the output.
 func QueryServices(ctx context.Context, env *CLITestEnv) *CLIResult {
-	return env.Run(ctx, "colony", "service", "list")
+	return env.Run(ctx, "services")
 }
 
-// QueryServicesJSON executes `coral colony service list --format json` and parses the output.
+// QueryServicesJSON executes `coral services --format json` and parses the output.
 func QueryServicesJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
-	result := env.Run(ctx, "colony", "service", "list", "--format", "json")
+	result := env.Run(ctx, "services", "--format", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony service list failed: %w\nOutput: %s", result.Err, result.Output)
 	}
 
-	var services []map[string]interface{}
-	if err := json.Unmarshal([]byte(result.Output), &services); err != nil {
+	var response struct {
+		Services []map[string]interface{} `json:"services"`
+	}
+	if err := json.Unmarshal([]byte(result.Output), &response); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON output: %w\nOutput: %s", err, result.Output)
 	}
 
-	return services, nil
+	return response.Services, nil
 }
 
 // MeshPing executes `coral mesh ping` and returns the output.

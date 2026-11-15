@@ -46,7 +46,7 @@ func TestMCPProxyE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binaryPath, "colony", "mcp", "proxy", "--colony", "test-colony")
+	cmd := exec.CommandContext(ctx, binaryPath, "mcp", "proxy", "--colony", "test-colony")
 	cmd.Env = append(os.Environ(), "CORAL_CONFIG_HOME="+configDir)
 
 	stdin, err := cmd.StdinPipe()

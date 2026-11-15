@@ -2,6 +2,8 @@ package colony
 
 import (
 	"github.com/spf13/cobra"
+
+	"github.com/coral-mesh/coral/internal/cli/services"
 )
 
 // NewColonyCmd creates the colony command and its subcommands.
@@ -41,8 +43,8 @@ func addColonyCommands(cmd *cobra.Command) {
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
-	cmd.AddCommand(newServiceCmd()) // RFD 052 - Service-centric CLI.
-	cmd.AddCommand(NewCACmd())      // RFD 047 - CA management commands.
-	cmd.AddCommand(NewPSKCmd())     // RFD 088 - Bootstrap PSK management.
-	cmd.AddCommand(newTokenCmd())   // RFD 031 - API token management for public endpoint.
+	cmd.AddCommand(services.NewLegacyServiceCmd())
+	cmd.AddCommand(NewCACmd())    // RFD 047 - CA management commands.
+	cmd.AddCommand(NewPSKCmd())   // RFD 088 - Bootstrap PSK management.
+	cmd.AddCommand(newTokenCmd()) // RFD 031 - API token management for public endpoint.
 }

@@ -2,14 +2,22 @@ package agent
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func TestServiceMonitor_SetSdkCapabilities(t *testing.T) {
@@ -71,4 +79,128 @@ func TestServiceMonitor_GetStatus(t *testing.T) {
 	assert.Equal(t, int32(999), status.ProcessID)
 	assert.Equal(t, "/bin/test", status.BinaryPath)
 	assert.False(t, status.LastCheck.IsZero())
+}
+
+// TestServiceMonitor_LivenessCheck_UnknownBeforeFirstCheck verifies a
+// portless (RFD 111) monitor starts Unknown, matching the network-checked
+// monitor's initial state.
+func TestServiceMonitor_LivenessCheck_UnknownBeforeFirstCheck(t *testing.T) {
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:       "worker",
+		ExePattern: "python.*consumer.py",
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+
+	assert.Equal(t, ServiceStatusUnknown, monitor.GetStatus().Status)
+}
+
+// TestServiceMonitor_LivenessCheck_UnhealthyAfterThreshold verifies a
+// portless service is only marked unhealthy after
+// DefaultMissedLivenessThreshold consecutive misses, not on the first one
+// (RFD 111 debounces brief PID-table races).
+func TestServiceMonitor_LivenessCheck_UnhealthyAfterThreshold(t *testing.T) {
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:       "worker",
+		ExePattern: "definitely-not-a-real-process-name-xyz123",
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+	monitor.mu.Lock()
+	monitor.status = ServiceStatusHealthy
+	monitor.mu.Unlock()
+
+	for i := 1; i < constants.DefaultMissedLivenessThreshold; i++ {
+		monitor.performLivenessCheck()
+		assert.Equal(t, ServiceStatusHealthy, monitor.GetStatus().Status,
+			"status should be held (not flipped to unhealthy) below the miss threshold")
+	}
+
+	monitor.performLivenessCheck()
+	assert.Equal(t, ServiceStatusUnhealthy, monitor.GetStatus().Status,
+		"status should flip to unhealthy once the miss threshold is reached")
+}
+
+// TestServiceMonitor_LivenessCheck_RecoversOnMatch matches the running test
+// binary via its cmdline (see proc.FindPidByExePattern), verifying a
+// portless monitor recovers to healthy and resets its miss count once a
+// matching process is found again.
+func TestServiceMonitor_LivenessCheck_RecoversOnMatch(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires /proc")
+	}
+
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:       "self",
+		ExePattern: regexp.QuoteMeta(filepath.Base(os.Args[0])),
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+	monitor.mu.Lock()
+	monitor.status = ServiceStatusUnhealthy
+	monitor.missedLiveness = constants.DefaultMissedLivenessThreshold
+	monitor.mu.Unlock()
+
+	monitor.performLivenessCheck()
+
+	status := monitor.GetStatus()
+	assert.Equal(t, ServiceStatusHealthy, status.Status)
+	assert.Equal(t, 0, monitor.missedLiveness)
+}
+
+func TestServiceMonitor_CheckHTTPHealth_IPv4Loopback(t *testing.T) {
+	// Listen strictly on IPv4 127.0.0.1
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	server := &http.Server{Handler: mux}
+	go func() { _ = server.Serve(ln) }()
+	defer func() { _ = server.Close() }()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:           "api-ipv4",
+		Port:           int32(port),
+		HealthEndpoint: "/health",
+		ServiceType:    "http",
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+	monitor.checkTimeout = 2 * time.Second
+
+	err = monitor.checkHTTPHealth(context.Background())
+	assert.NoError(t, err)
+}
+
+func TestServiceMonitor_CheckTCPHealth_IPv4Loopback(t *testing.T) {
+	// Listen strictly on IPv4 127.0.0.1
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:        "tcp-ipv4",
+		Port:        int32(port),
+		ServiceType: "tcp",
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+	monitor.checkTimeout = 2 * time.Second
+
+	err = monitor.checkTCPHealth(context.Background())
+	assert.NoError(t, err)
 }

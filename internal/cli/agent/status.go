@@ -98,13 +98,6 @@ The agent must be running and accessible.`,
 
 			runtimeCtx := resp.Msg
 
-			// Query connected services (ListServices RPC).
-			var services []*agentv1.ServiceStatus
-			servicesResp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-			if err == nil && servicesResp != nil {
-				services = servicesResp.Msg.Services
-			}
-
 			// Get certificate info if --cert flag is set or querying localhost.
 			var certInfo *certs.CertificateInfo
 			isLocal := strings.HasPrefix(agentURL, "http://localhost") || strings.HasPrefix(agentURL, "http://127.0.0.1")
@@ -121,10 +114,10 @@ The agent must be running and accessible.`,
 
 			// Output in requested format.
 			if format != string(helpers.FormatTable) {
-				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, meshTelemetry, format)
+				return outputAgentStatusFormattedWithCert(runtimeCtx, certInfo, meshTelemetry, format)
 			}
 
-			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo, meshTelemetry)
+			return outputAgentStatusTableWithCert(runtimeCtx, certInfo, meshTelemetry)
 		},
 	}
 
@@ -143,7 +136,7 @@ The agent must be running and accessible.`,
 }
 
 // outputAgentStatusTable outputs agent status in human-readable format.
-func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
+func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
 	fmt.Println()
 	fmt.Println("Agent Status")
 	fmt.Println("============")
@@ -151,9 +144,6 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*age
 
 	fmt.Printf("Agent ID:     %s\n", ctx.AgentId)
 	fmt.Println()
-
-	// Connected Services section.
-	printServices(services)
 
 	// Platform section
 	fmt.Println("Platform:")
@@ -297,62 +287,6 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*age
 	return nil
 }
 
-func printServices(services []*agentv1.ServiceStatus) {
-	if len(services) > 0 {
-		fmt.Println("Connected Services:")
-		for _, svc := range services {
-			statusIcon := ""
-			switch svc.Status {
-			case "healthy":
-				statusIcon = "✓"
-			case "unhealthy":
-				statusIcon = "✗"
-			case "unknown":
-				statusIcon = "⚠"
-			default:
-				statusIcon = "?"
-			}
-
-			fmt.Printf("  %s %-20s\n", statusIcon, svc.Name)
-			fmt.Printf("      Port:       %d\n", svc.Port)
-			if svc.ServiceType != "" {
-				fmt.Printf("      Type:       %s\n", svc.ServiceType)
-			}
-			if svc.HealthEndpoint != "" {
-				fmt.Printf("      Health:     %s\n", svc.HealthEndpoint)
-			}
-
-			// Show process info (RFD 064)
-			if svc.ProcessId != 0 {
-				fmt.Printf("      PID:        %d\n", svc.ProcessId)
-			}
-			if svc.BinaryPath != "" {
-				fmt.Printf("      Binary:     %s\n", svc.BinaryPath)
-			}
-
-			// Show error if unhealthy.
-			if svc.Status == "unhealthy" && svc.Error != "" {
-				fmt.Printf("      Error:      %s\n", svc.Error)
-			}
-
-			// Show last check time.
-			if svc.LastCheck != nil {
-				elapsed := time.Since(svc.LastCheck.AsTime())
-				var timingStr string
-				if elapsed < time.Minute {
-					timingStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
-				} else if elapsed < time.Hour {
-					timingStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
-				} else {
-					timingStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
-				}
-				fmt.Printf("      Last check: %s\n", timingStr)
-			}
-		}
-		fmt.Println()
-	}
-}
-
 // formatRuntimeType formats runtime type for display.
 func formatRuntimeType(rt agentv1.RuntimeContext) string {
 	switch rt {
@@ -447,13 +381,9 @@ func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
 }
 
 // outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
-func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string) error {
+func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
-	}
-
-	if len(services) > 0 {
-		output["services"] = services
 	}
 
 	if meshTelemetry != nil {
@@ -483,9 +413,9 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, ser
 }
 
 // outputAgentStatusTableWithCert outputs agent status with cert info in human-readable format.
-func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry) error {
+func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry) error {
 	// Output standard status info first.
-	if err := outputAgentStatusTable(ctx, services); err != nil {
+	if err := outputAgentStatusTable(ctx); err != nil {
 		return err
 	}
 

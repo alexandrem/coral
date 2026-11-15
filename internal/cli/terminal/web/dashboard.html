@@ -47,6 +47,14 @@
   /* JSON fallback */
   .json-block{font-size:11px;color:#7d8590;white-space:pre-wrap;overflow-x:auto;max-height:300px}
   .empty{padding:40px 16px;text-align:center;color:#7d8590;font-size:12px}
+  /* Click-to-ask (RFD 094 future work: browser-to-terminal interaction) */
+  tbody tr.clickable{cursor:pointer}
+  tbody tr.clickable:hover{background:#1c2128}
+  .bar-row.clickable{cursor:pointer}
+  .bar-row.clickable:hover .bar-track{outline:1px solid #1f6feb}
+  .ts-point{cursor:pointer;opacity:.85}
+  .ts-point:hover{opacity:1}
+  #status.sent{background:#1a2440;color:#79c0ff}
 </style>
 </head>
 <body>
@@ -58,6 +66,7 @@
 <script>
 const COLORS=['#1f6feb','#3fb950','#d29922','#f85149','#a371f7','#79c0ff','#56d364','#ffa657'];
 let sortState={};
+let ws=null;
 
 function getPort(){
   const p=new URLSearchParams(location.search).get('port');
@@ -65,7 +74,7 @@ function getPort(){
 }
 
 function connect(){
-  const ws=new WebSocket(`ws://localhost:${getPort()}/ws`);
+  ws=new WebSocket(`ws://localhost:${getPort()}/ws`);
   const statusEl=document.getElementById('status');
 
   ws.onopen=()=>{
@@ -81,6 +90,20 @@ function connect(){
   ws.onmessage=e=>{
     try{addPanel(JSON.parse(e.data));}catch(_){}
   };
+}
+
+// sendFollowup submits a natural-language follow-up question, generated from
+// a clicked data point, back to the terminal over the WebSocket's reserved
+// client→server direction. The terminal pre-fills its input box with it
+// rather than auto-submitting, so the user can review or edit first.
+function sendFollowup(question){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  ws.send(JSON.stringify({type:'followup',question}));
+  const statusEl=document.getElementById('status');
+  const prevText=statusEl.textContent,prevCls=statusEl.className;
+  statusEl.textContent='sent to terminal ✓';
+  statusEl.className='sent';
+  setTimeout(()=>{statusEl.textContent=prevText;statusEl.className=prevCls;},1500);
 }
 
 function addPanel(event){
@@ -101,6 +124,46 @@ function addPanel(event){
     </div>
     <div class="panel-body">${renderSpec(event.spec,event.id)}</div>`;
   panels.insertBefore(panel,panels.firstChild);
+  attachInteractions(panel,event.spec,title);
+}
+
+// attachInteractions wires click handlers onto the just-inserted panel so a
+// row/bar/point click sends a generated follow-up question to the terminal.
+// Listeners are attached post-insertion (rather than inline onclick strings)
+// so payload values never need to be escaped into HTML attributes.
+function attachInteractions(panel,spec,title){
+  const p=spec.payload;
+  if(!p)return;
+
+  if(spec.type==='table'&&p.columns&&p.rows){
+    panel.querySelectorAll('tbody tr').forEach((tr,i)=>{
+      const row=p.rows[i];
+      if(!row)return;
+      tr.classList.add('clickable');
+      tr.addEventListener('click',()=>{
+        const desc=p.columns.map((c,ci)=>`${c}=${row[ci]}`).join(', ');
+        sendFollowup(`Tell me more about this ${title} row: ${desc}`);
+      });
+    });
+  } else if(spec.type==='bar'&&p.labels&&p.values){
+    panel.querySelectorAll('.bar-row').forEach((row,i)=>{
+      row.classList.add('clickable');
+      row.addEventListener('click',()=>{
+        const lbl=p.labels[i],val=p.values[i],unit=p.unit||'';
+        sendFollowup(`Why is ${lbl} at ${val}${unit}? (from ${title})`);
+      });
+    });
+  } else if(spec.type==='timeseries'&&p.series){
+    panel.querySelectorAll('.ts-point').forEach(pt=>{
+      pt.addEventListener('click',()=>{
+        const s=p.series[Number(pt.dataset.series)];
+        const point=s&&s.points[Number(pt.dataset.index)];
+        if(!s||!point)return;
+        const when=new Date(point.ts).toLocaleTimeString();
+        sendFollowup(`What happened to ${s.label} around ${when}? (from ${title})`);
+      });
+    });
+  }
 }
 
 function renderSpec(spec,id){
@@ -197,11 +260,15 @@ function renderTimeseries(p){
   [minV,maxV].forEach(v=>{
     svg+=`<text class="ts-label" x="${PAD.l-4}" y="${sy(v)+4}" text-anchor="end">${round(v)}</text>`;
   });
-  // Series lines.
+  // Series lines and per-point click targets.
   p.series.forEach((s,i)=>{
     if(!s.points.length)return;
     const pts=s.points.map(pt=>`${sx(pt.ts)},${sy(pt.value)}`).join(' ');
     svg+=`<polyline class="ts-line" points="${pts}" stroke="${COLORS[i%COLORS.length]}"/>`;
+    s.points.forEach((pt,j)=>{
+      svg+=`<circle class="ts-point" data-series="${i}" data-index="${j}" `+
+           `cx="${sx(pt.ts)}" cy="${sy(pt.value)}" r="3" fill="${COLORS[i%COLORS.length]}"/>`;
+    });
   });
   svg+='</svg>';
   const legend=p.series.map((s,i)=>

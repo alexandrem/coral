@@ -4,10 +4,12 @@ package startup
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/pkg/version"
@@ -109,8 +111,7 @@ type AgentServerBuilder struct {
 	logger           logging.Logger
 	configFile       string
 	colonyIDOverride string
-	connectServices  []string
-	monitorAll       bool
+	noMonitorAll     bool
 	ctx              context.Context
 
 	// Phase results.
@@ -127,22 +128,21 @@ type AgentServerBuilder struct {
 	agentInstance     *agent.Agent
 }
 
-// NewAgentServerBuilder creates a new agent server builder.
+// NewAgentServerBuilder creates a new agent server builder. noMonitorAll
+// corresponds to the --no-monitor-all opt-out flag (RFD 103).
 func NewAgentServerBuilder(
 	ctx context.Context,
 	logger logging.Logger,
 	configFile string,
 	colonyIDOverride string,
-	connectServices []string,
-	monitorAll bool,
+	noMonitorAll bool,
 ) *AgentServerBuilder {
 	return &AgentServerBuilder{
 		ctx:              ctx,
 		logger:           logger,
 		configFile:       configFile,
 		colonyIDOverride: colonyIDOverride,
-		connectServices:  connectServices,
-		monitorAll:       monitorAll,
+		noMonitorAll:     noMonitorAll,
 	}
 }
 
@@ -155,7 +155,7 @@ func (b *AgentServerBuilder) Validate() error {
 	}
 
 	// Phase 1b: Config validation.
-	configValidator := NewConfigValidator(b.logger, b.configFile, b.colonyIDOverride, b.connectServices, b.monitorAll)
+	configValidator := NewConfigValidator(b.logger, b.configFile, b.colonyIDOverride, b.noMonitorAll)
 	configResult, err := configValidator.Validate()
 	if err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
@@ -168,12 +168,18 @@ func (b *AgentServerBuilder) Validate() error {
 	return nil
 }
 
-// InitializeBootstrap performs certificate bootstrap (RFD 048).
-// This should be called after Validate() and before InitializeNetwork().
+// InitializeBootstrap performs certificate bootstrap (RFD 048/RFD 109).
+// Network identity and runtime detection must already be initialized so a
+// rendezvous fallback can perform compound mesh enrollment.
 // Bootstrap is required - agents must have CA fingerprint configured.
 func (b *AgentServerBuilder) InitializeBootstrap() error {
-	if b.configResult == nil {
-		return fmt.Errorf("must call Validate() before InitializeBootstrap()")
+	if b.configResult == nil || b.networkResult == nil || b.runtimeService == nil {
+		return fmt.Errorf("must initialize network and runtime before InitializeBootstrap()")
+	}
+
+	serviceInfos := make([]*meshv1.ServiceInfo, len(b.configResult.ServiceSpecs))
+	for i, spec := range b.configResult.ServiceSpecs {
+		serviceInfos[i] = spec.ToProto()
 	}
 
 	bootstrapPhase := NewBootstrapPhase(
@@ -181,6 +187,11 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 		b.configResult.AgentConfig,
 		b.configResult.Config.ColonyID,
 		b.agentID,
+		b.networkResult.AgentKeys,
+		serviceInfos,
+		b.runtimeService.GetCachedContext(),
+		version.Version,
+		b.networkResult.AgentObservedEndpoint,
 	)
 
 	// Check if bootstrap is configured.
@@ -195,6 +206,33 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 	}
 
 	b.bootstrapResult = result
+	return nil
+}
+
+// InitializeRuntime starts runtime detection before bootstrap so RFD 109 can
+// include the same runtime context ordinary registration sends.
+func (b *AgentServerBuilder) InitializeRuntime() error {
+	if b.configResult == nil {
+		return fmt.Errorf("must call Validate() before InitializeRuntime()")
+	}
+	if b.runtimeService != nil {
+		return nil
+	}
+
+	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+		Context:         b.ctx,
+		AgentID:         b.agentID,
+		Logger:          b.logger,
+		Version:         version.Version,
+		RefreshInterval: 5 * time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create runtime service: %w", err)
+	}
+	if err := runtimeService.Start(); err != nil {
+		return fmt.Errorf("failed to start runtime service: %w", err)
+	}
+	b.runtimeService = runtimeService
 	return nil
 }
 
@@ -231,7 +269,6 @@ func (b *AgentServerBuilder) InitializeStorage() error {
 		b.logger,
 		b.configResult.AgentConfig,
 		b.configResult.ServiceSpecs,
-		b.monitorAll,
 		b.agentID,
 	)
 
@@ -246,26 +283,9 @@ func (b *AgentServerBuilder) InitializeStorage() error {
 
 // CreateAgentInstance creates the agent instance and runtime service.
 func (b *AgentServerBuilder) CreateAgentInstance() error {
-	if b.configResult == nil || b.storageResult == nil {
-		return fmt.Errorf("must call Validate() and InitializeStorage() before CreateAgentInstance()")
+	if b.configResult == nil || b.storageResult == nil || b.runtimeService == nil {
+		return fmt.Errorf("must initialize runtime and storage before CreateAgentInstance()")
 	}
-
-	// Create runtime service early (RFD 018).
-	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
-		Context:         b.ctx,
-		AgentID:         b.agentID,
-		Logger:          b.logger,
-		Version:         version.Version,
-		RefreshInterval: 5 * time.Minute,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create runtime service: %w", err)
-	}
-
-	if err := runtimeService.Start(); err != nil {
-		return fmt.Errorf("failed to start runtime service: %w", err)
-	}
-	b.runtimeService = runtimeService
 
 	// Create agent instance.
 	serviceInfos := make([]*meshv1.ServiceInfo, len(b.configResult.ServiceSpecs))
@@ -312,6 +332,57 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 	)
 	b.connectionManager = connMgr
 
+	// RFD 109 already registered the Agent while the NAT-local Colony held
+	// the reverse rendezvous connection. Configure the returned assignment
+	// with an empty peer endpoint and skip ordinary HTTP registration, which
+	// cannot reach a loopback/mesh-only Colony before WireGuard is up.
+	if b.bootstrapResult != nil && b.bootstrapResult.Registration != nil {
+		registration := b.bootstrapResult.Registration
+		if err := connMgr.ApplyBootstrapRegistration(registration); err != nil {
+			return fmt.Errorf("invalid compound bootstrap registration: %w", err)
+		}
+
+		// InitializeNetwork tolerates an early Discovery miss, while bootstrap
+		// retries its own lookup. Keep retrying here if bootstrap outlived that
+		// miss; configuring the dynamic Colony peer still needs its public key
+		// and mesh addresses. A temporarily absent Colony must not terminate an
+		// otherwise enrolled Agent.
+		if b.networkResult.ColonyInfo == nil {
+			colonyInfo, err := connMgr.WaitForDiscovery(b.ctx)
+			if err != nil {
+				return fmt.Errorf("stopped while waiting to refresh colony information after compound bootstrap: %w", err)
+			}
+			b.networkResult.ColonyInfo = colonyInfo
+		}
+
+		networkInitializer := NewNetworkInitializer(
+			b.logger,
+			b.configResult.Config,
+			b.configResult.AgentConfig,
+			b.configResult.ServiceSpecs,
+			b.agentID,
+		)
+		// A restarted Agent must initiate using current Discovery information.
+		// The Colony may retain its old NAT mapping and handshake state. Only
+		// initial compound enrollment relies on a Colony-initiated handshake.
+		colonyEndpoint := b.bootstrapResult.colonyPeerEndpoint(connMgr)
+		if err := networkInitializer.ConfigureMesh(
+			b.networkResult,
+			registration.AssignedIp,
+			registration.MeshSubnet,
+			colonyEndpoint,
+		); err != nil {
+			return fmt.Errorf("failed to configure mesh from compound bootstrap registration: %w", err)
+		}
+
+		b.logger.Info().
+			Str("agent_id", b.agentID).
+			Str("mesh_ip", registration.AssignedIp).
+			Bool("mesh_enrollment_restored", b.bootstrapResult.MeshEnrollmentRestored).
+			Msg("Applied mesh enrollment; skipped ordinary colony registration")
+		return nil
+	}
+
 	// Attempt initial registration with colony.
 	meshIPStr, meshSubnetStr, err := connMgr.AttemptRegistration()
 	if err != nil {
@@ -319,6 +390,15 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 			Err(err).
 			Msg("Failed initial registration with colony - will retry in background")
 		return nil // Continue, reconnection loop will handle retries
+	}
+
+	// Commit the enrollment checkpoint for ordinary (non-rendezvous)
+	// registration too, so a restart after this point reuses the same
+	// WireGuard identity and mesh assignment instead of re-registering.
+	if b.bootstrapResult != nil && b.bootstrapResult.CertManager != nil {
+		if err := b.commitOrdinaryEnrollment(meshIPStr, meshSubnetStr); err != nil {
+			b.logger.Warn().Err(err).Msg("Failed to commit enrollment checkpoint after colony registration")
+		}
 	}
 
 	// Configure mesh network.
@@ -364,6 +444,56 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 	}
 
 	return nil
+}
+
+// colonyPeerEndpoint selects a live endpoint on restart. Initial rendezvous
+// enrollment and Colonies advertising only loopback or mesh addresses rely on
+// the Colony's handshake and WireGuard roaming.
+func (result *BootstrapResult) colonyPeerEndpoint(cm *ConnectionManager) string {
+	if !result.MeshEnrollmentRestored {
+		return ""
+	}
+	endpoint := cm.GetColonyEndpoint()
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return ""
+	}
+	info := cm.GetColonyInfo()
+	ip := net.ParseIP(host)
+	if host == "localhost" || (ip != nil && (ip.IsLoopback() || ip.IsUnspecified() ||
+		ip.Equal(net.ParseIP(info.MeshIPv4)) || ip.Equal(net.ParseIP(info.MeshIPv6)))) {
+		cm.SetCurrentEndpoint("")
+		return ""
+	}
+	return endpoint
+}
+
+// commitOrdinaryEnrollment persists the enrollment checkpoint after an
+// ordinary (non-RFD-109-rendezvous) colony registration succeeds, mirroring
+// the commit BootstrapPhase performs for compound enrollment.
+func (b *AgentServerBuilder) commitOrdinaryEnrollment(meshIP, meshSubnet string) error {
+	certManager := b.bootstrapResult.CertManager
+	info := certManager.GetCertificateInfo()
+	if info == nil {
+		return fmt.Errorf("no certificate info available to commit enrollment checkpoint")
+	}
+
+	certSHA256, err := certSHA256Hex(certManager.GetCertPath())
+	if err != nil {
+		return fmt.Errorf("failed to hash certificate: %w", err)
+	}
+
+	store := enrollmentstate.NewStore(certManager.GetCertsDir(), b.logger)
+	_, err = store.CommitEnrollment(
+		b.agentID,
+		b.configResult.Config.ColonyID,
+		b.networkResult.AgentKeys.PublicKey,
+		meshIP,
+		meshSubnet,
+		certSHA256,
+		info.SerialNumber,
+	)
+	return err
 }
 
 // RegisterServices creates and registers all services.

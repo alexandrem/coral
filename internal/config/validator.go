@@ -38,9 +38,9 @@ func (e *MultiValidationError) Error() string {
 	}
 
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("validation failed with %d errors:\n", len(e.Errors)))
+	fmt.Fprintf(&builder, "validation failed with %d errors:\n", len(e.Errors))
 	for i, err := range e.Errors {
-		builder.WriteString(fmt.Sprintf("  %d. %s\n", i+1, err.Error()))
+		fmt.Fprintf(&builder, "  %d. %s\n", i+1, err.Error())
 	}
 	return builder.String()
 }

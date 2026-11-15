@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -16,12 +17,15 @@ import (
 
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
+	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/debug"
+	"github.com/coral-mesh/coral/internal/colony/enrollment"
 	"github.com/coral-mesh/coral/internal/colony/httpapi"
 	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	colonyrendezvous "github.com/coral-mesh/coral/internal/colony/rendezvous"
 	"github.com/coral-mesh/coral/internal/colony/server"
 	colonywg "github.com/coral-mesh/coral/internal/colony/wireguard"
 	"github.com/coral-mesh/coral/internal/config"
@@ -47,6 +51,77 @@ func (r *registryAgentLookup) GetAgent(agentID string) (string, error) {
 		return "", fmt.Errorf("agent %s has no mesh IP", agentID)
 	}
 	return entry.MeshIPv4, nil
+}
+
+// startRendezvousDialer starts the Colony-side PSK-encrypted rendezvous
+// long-poll + dial-back loop (RFD 108). It issues a dedicated server
+// certificate from the colony CA so the Colony can present its identity as
+// the TLS server even on connections it dialed out itself.
+func startRendezvousDialer(
+	ctx context.Context,
+	colonyID string,
+	discoveryClient *discovery.Client,
+	caManager *ca.Manager,
+	colonyHandler http.Handler,
+	logger logging.Logger,
+) {
+	rzLogger := logger.With().Str("component", "rendezvous").Logger()
+
+	certPEM, keyPEM, err := caManager.IssueServerCertificate([]string{"localhost", colonyID})
+	if err != nil {
+		rzLogger.Warn().
+			Str("event", "rendezvous_startup_failed").
+			Err(err).
+			Msg("Failed to issue rendezvous TLS certificate, rendezvous bootstrap disabled")
+		return
+	}
+	serverIntPEM := caManager.GetServerIntermediateCertPEM()
+	rootCAPEM := caManager.GetRootCertPEM()
+	fullChainPEM := append(certPEM, serverIntPEM...)
+	fullChainPEM = append(fullChainPEM, rootCAPEM...)
+
+	cert, err := tls.X509KeyPair(fullChainPEM, keyPEM)
+	if err != nil {
+		rzLogger.Warn().
+			Str("event", "rendezvous_startup_failed").
+			Err(err).
+			Msg("Failed to load rendezvous TLS certificate, rendezvous bootstrap disabled")
+		return
+	}
+
+	dialer := colonyrendezvous.NewDialer(colonyrendezvous.Config{
+		MeshID: colonyID,
+		Client: discoveryClient,
+		PSKs:   caManager,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS13,
+		},
+		Handler: colonyHandler,
+		Logger:  rzLogger,
+	})
+	dialer.Start(ctx)
+	rzLogger.Info().
+		Str("event", "rendezvous_dialer_started").
+		Str("colony_id", colonyID).
+		Msg("PSK-encrypted rendezvous dial-back loop started (RFD 108)")
+}
+
+// blockBootstrapAndRegister wraps a ColonyService handler so the
+// BootstrapAndRegister procedure (RFD 109) 404s, while every other
+// procedure is forwarded unchanged. RFD 109 requires that procedure be
+// reachable only over an RFD 108 rendezvous dial-back connection, never on
+// the ordinary mesh or public listener — those pass the request straight
+// through without the dialer's nonce check, so BootstrapAndRegister must
+// never be routed to the underlying handler from here.
+func blockBootstrapAndRegister(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/BootstrapAndRegister") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
@@ -148,6 +223,42 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		return stats, wgDevice.ListPeers()
 	})
 
+	// Wire up RFD 109 rendezvous compound enrollment. Requires the same
+	// components ordinary MeshService.Register needs (WireGuard device,
+	// Discovery client); without Discovery there is no way to resolve an
+	// Agent's UDP endpoint, so enrollment stays unavailable rather than
+	// half-configured.
+	if discoveryClient != nil && caManager != nil {
+		enrollmentStore, err := enrollment.NewStore(db.DB())
+		if err != nil {
+			logger.Warn().
+				Str("event", "rendezvous_enrollment_startup_failed").
+				Err(err).
+				Msg("Failed to initialize rendezvous enrollment store, RFD 109 enrollment disabled")
+		} else if keyStore, err := enrollment.NewKeyStore(db.DB()); err != nil {
+			logger.Warn().
+				Str("event", "rendezvous_enrollment_startup_failed").
+				Err(err).
+				Msg("Failed to initialize agent WireGuard key store, RFD 109 enrollment disabled")
+		} else {
+			enroller := enrollment.NewEnroller(
+				caManager, wgDevice, agentRegistry, discoveryClient, enrollmentStore, keyStore, cfg,
+				logger.With().Str("component", "rendezvous-enrollment").Logger(),
+			)
+			colonySvc.SetEnroller(enroller)
+			if err := enroller.RestorePeers(ctx); err != nil {
+				logger.Warn().
+					Str("event", "rendezvous_peer_restore_failed").
+					Err(err).
+					Msg("Failed to restore completed rendezvous WireGuard peers")
+			}
+			go enroller.StartPeerRestoreLoop(ctx)
+			logger.Info().
+				Str("event", "rendezvous_enrollment_ready").
+				Msg("RFD 109 compound rendezvous enrollment initialized")
+		}
+	}
+
 	// Load colony config early (needed by function registry, MCP, and other components).
 	mcpLoader, mcpErr := config.NewLoader()
 	if mcpErr != nil {
@@ -205,10 +316,17 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
 	debugPath, debugHandler := colonyv1connect.NewColonyDebugServiceHandler(debugOrchestrator)
 
+	// BootstrapAndRegister (RFD 109) is permitted only on the restricted RFD
+	// 108 rendezvous dial-back connection; the ordinary mesh/public listener
+	// must 404 it even though colonySvc implements the full ColonyService
+	// interface. Only the raw colonyHandler (below) is ever handed to the
+	// rendezvous dialer.
+	restrictedColonyHandler := blockBootstrapAndRegister(colonyHandler)
+
 	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.Handle(meshPath, meshHandler)
-	mux.Handle(colonyPath, colonyHandler)
+	mux.Handle(colonyPath, restrictedColonyHandler)
 	mux.Handle(debugPath, debugHandler)
 
 	// Add DuckDB HTTP handler for remote query (RFD 046).
@@ -308,6 +426,16 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		}
 	}()
 
+	// Start the PSK-encrypted rendezvous dial-back loop (RFD 108). This lets
+	// this Colony bootstrap trust with a dialable Agent even when the
+	// Colony itself has no inbound connectivity (e.g. a workstation behind
+	// NAT). It is independent of whether the public HTTPS endpoint below is
+	// enabled — the Colony doesn't need any inbound path to use it, only a
+	// certificate to present once it dials out.
+	if discoveryClient != nil && caManager != nil {
+		startRendezvousDialer(ctx, cfg.ColonyID, discoveryClient, caManager, colonyHandler, logger)
+	}
+
 	// Start public endpoint server if enabled (RFD 031).
 	var tokenStore *auth.TokenStore
 	if colonyConfig.PublicEndpoint.Enabled {
@@ -359,7 +487,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		publicConfig := httpapi.Config{
 			PublicConfig:            colonyConfig.PublicEndpoint,
 			ColonyPath:              colonyPath,
-			ColonyHandler:           colonyHandler,
+			ColonyHandler:           restrictedColonyHandler,
 			DebugPath:               debugPath,
 			DebugHandler:            debugHandler,
 			MCPServer:               nil, // Tool dispatch moved to proxy layer (RFD 100).

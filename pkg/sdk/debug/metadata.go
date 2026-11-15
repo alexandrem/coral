@@ -450,6 +450,7 @@ func (p *FunctionMetadataProvider) GetBinaryHash() (string, error) {
 
 // computeBinaryHash calculates the SHA256 hash of the binary file.
 func (p *FunctionMetadataProvider) computeBinaryHash() (string, error) {
+	//nolint:gosec // G703: binaryPath was verified when the provider was constructed.
 	f, err := os.Open(p.binaryPath)
 	if err != nil {
 		return "", err

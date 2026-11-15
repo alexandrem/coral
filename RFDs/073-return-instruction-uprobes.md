@@ -678,7 +678,7 @@ size metadata is available from the SDK.
 - ✅ `TestUprobeConcurrentGoroutines` verifies that concurrent goroutine calls
   are tracked without BPF map cross-contamination.
 - ✅ Helper assertions: `AssertReturnEventDuration`, `CountEventsByType`.
-- ✅ `docs/LIVE_DEBUGGING.md` updated with RET-instruction uprobes section and
+- ✅ `docs/user/live-debugging.md` updated with RET-instruction uprobes section and
   Limitations table.
 - ✅ `RecursiveSum` function and `/trigger-recursive` endpoint added to sdk-app
   fixture for recursion testing.

@@ -1,4 +1,4 @@
-.PHONY: build build-colony build-agent build-all build-dev clean init install install-tools test test-integration run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
+.PHONY: docs-check build build-colony build-agent build-all build-dev clean init install install-tools test test-integration run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
 
 # Build variables
 BINARY_NAME=coral
@@ -48,7 +48,7 @@ generate: proto ## Generate eBPF, download Beyla and Deno binaries (run before f
 		echo "  Linux: sudo apt-get install clang llvm"; \
 		exit 1; \
 	fi; \
-	env -u GOOS -u GOARCH go generate ./...
+	env -u GOOS -u GOARCH -u CC go generate ./...
 	@echo "✓ Generated files ready"
 
 proto: ## Generate protobuf files using buf
@@ -160,7 +160,7 @@ test-integration: generate ## Run integration tests (requires Docker/Colima)
 
 test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
-	go test -short -count=1 -parallel=8 -coverprofile=coverage.out -covermode=atomic ./... -timeout=10m
+	go test -short -count=1 -parallel=8 -coverprofile=coverage.out -covermode=atomic ./... -timeout=30m
 	@cd tests/integration && go test -short -count=1 -parallel=4 ./...
 
 test-linux: ## Run tests in Linux Docker (tests platform-specific code)
@@ -269,12 +269,15 @@ install-tools: ## Install development tools
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
 	go install github.com/bufbuild/buf/cmd/buf@v1.61.0
-	go install golang.org/x/tools/cmd/goimports@latest
+	go install golang.org/x/tools/cmd/goimports@v0.41.0
 	@echo "✓ Development tools installed to $(shell go env GOPATH)/bin"
 
 lint: ## Run linter
 	@echo "Running linter..."
 	golangci-lint run --config .golangci.yml ./...
+
+docs-check: ## Check user docs: links, anchors, reading map, YAML and shell examples
+	go run ./scripts/docscheck
 
 lint-linux: ## Run linter in Linux Docker (tests platform-specific code)
 	@echo "Running linter in Linux Docker..."

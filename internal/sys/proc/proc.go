@@ -5,12 +5,14 @@ package proc
 import (
 	"bufio"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // FindPidByPort finds the PID of the process listening on the given port.
@@ -83,47 +85,145 @@ func findSocketInode(port int, procPath string) (string, error) {
 	return "", nil
 }
 
-// findPidByInode scans /proc/[pid]/fd/ to find the process owning the socket inode.
-func findPidByInode(inode string) (int32, error) {
-	socketLink := "socket:[" + inode + "]"
+// socketOwner keeps a descriptor path so cached ownership can be revalidated.
+type socketOwner struct {
+	pid    int32
+	fdPath string
+}
 
-	// Iterate over all PIDs in /proc
+// socketOwnerCache shares one procfs traversal across nearby port lookups.
+// Misses are cached too, so unowned sockets do not trigger repeated scans.
+// New sockets become visible after the one-second snapshot expires.
+type socketOwnerCache struct {
+	mu        sync.Mutex
+	procRoot  string
+	now       func() time.Time
+	expiresAt time.Time
+	owners    map[string]socketOwner
+}
+
+var portSocketOwners = socketOwnerCache{procRoot: "/proc", now: time.Now}
+
+// findPidByInode finds the socket owner using a shared, short-lived procfs snapshot.
+func findPidByInode(inode string) (int32, error) {
+	return portSocketOwners.lookup(inode)
+}
+
+func (c *socketOwnerCache) lookup(inode string) (int32, error) {
+	// Serialize refreshes so simultaneous service checks share the same scan.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.owners == nil || !c.now().Before(c.expiresAt) {
+		owners, err := scanSocketOwners(c.procRoot)
+		if err != nil {
+			return 0, err
+		}
+		c.owners = owners
+		c.expiresAt = c.now().Add(time.Second)
+	}
+
+	owner, ok := c.owners[inode]
+	if !ok {
+		return 0, nil
+	}
+	// A process may exit or close/reuse its fd before the snapshot expires.
+	// One readlink verifies ownership without crawling any directories.
+	link, err := os.Readlink(owner.fdPath)
+	if err != nil || link != "socket:["+inode+"]" {
+		delete(c.owners, inode)
+		return 0, nil
+	}
+	return owner.pid, nil
+}
+
+// scanSocketOwners builds an inode-to-owner index in a single procfs traversal.
+func scanSocketOwners(procRoot string) (map[string]socketOwner, error) {
+	pids, err := listPids(procRoot)
+	if err != nil {
+		return nil, err
+	}
+	owners := make(map[string]socketOwner)
+	for _, pid := range pids {
+		fdDir := filepath.Join(procRoot, strconv.Itoa(pid), "fd")
+		fds, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue // Process exited or permissions deny access.
+		}
+		for _, fd := range fds {
+			fdPath := filepath.Join(fdDir, fd.Name())
+			// Readlink directly: stat adds a syscall for every descriptor.
+			link, err := os.Readlink(fdPath)
+			if err != nil || !strings.HasPrefix(link, "socket:[") || !strings.HasSuffix(link, "]") {
+				continue
+			}
+			inode := link[len("socket:[") : len(link)-1]
+			if inode == "" {
+				continue
+			}
+			// Preserve the first (lowest PID) owner for shared sockets.
+			if _, exists := owners[inode]; !exists {
+				owners[inode] = socketOwner{pid: int32(pid), fdPath: fdPath}
+			}
+		}
+	}
+	return owners, nil
+}
+
+// FindPidByExePattern finds the PID of the first running process whose name
+// matches the given regex pattern (RFD 111). Each candidate PID (in
+// ascending order, from ListPids) is matched against /proc/<pid>/comm
+// first; if that doesn't match, it falls back to /proc/<pid>/cmdline. This
+// lets a pattern target either the bare executable name (e.g. "python") or
+// its full invocation (e.g. "python.*consumer.py"). Returns 0 with no error
+// if no process matches.
+func FindPidByExePattern(pattern string) (int32, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return 0, fmt.Errorf("invalid exe pattern %q: %w", pattern, err)
+	}
+
 	pids, err := ListPids()
 	if err != nil {
 		return 0, err
 	}
 
 	for _, pid := range pids {
-		pidStr := strconv.Itoa(pid)
-		fdDir := filepath.Join("/proc", pidStr, "fd")
-		fds, err := os.ReadDir(fdDir)
-		if err != nil {
-			continue // Can't read fd dir (permission denied, etc.)
+		if comm, ok := readComm(pid); ok && re.MatchString(comm) {
+			//nolint:gosec // G109: PID conversion is safe, sourced from ListPids.
+			return int32(pid), nil
 		}
-
-		for _, fd := range fds {
-			info, err := fd.Info()
-			if err != nil {
-				continue
-			}
-			// Optimization: check if it's a symlink
-			if info.Mode()&fs.ModeSymlink == 0 {
-				continue
-			}
-
-			linkPath, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
-			if err != nil {
-				continue
-			}
-
-			if linkPath == socketLink {
-				//nolint:gosec // G109: PID conversion is safe, validated by Atoi
-				return int32(pid), nil
-			}
+		if cmdline, ok := readCmdline(pid); ok && re.MatchString(cmdline) {
+			//nolint:gosec // G109: PID conversion is safe, sourced from ListPids.
+			return int32(pid), nil
 		}
 	}
 
-	return 0, nil
+	return 0, nil // Not found.
+}
+
+// readComm reads the process name from /proc/<pid>/comm. Returns false if
+// the process has exited or the file is unreadable.
+func readComm(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(data)), true
+}
+
+// readCmdline reads the full command line from /proc/<pid>/cmdline, joining
+// the NUL-separated arguments with spaces. Returns false if the process has
+// exited or the file is unreadable.
+func readCmdline(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return "", false
+	}
+	args := strings.Split(strings.Trim(string(data), "\x00"), "\x00")
+	return strings.Join(args, " "), true
 }
 
 // GetKernelVersion reads the kernel version from /proc/version.
@@ -189,9 +289,13 @@ func InNamespacePath(pid int, path string) string {
 // ListPids returns a list of all running process IDs from /proc.
 // Pids are sorted in ascending order.
 func ListPids() ([]int, error) {
-	entries, err := os.ReadDir("/proc")
+	return listPids("/proc")
+}
+
+func listPids(procRoot string) ([]int, error) {
+	entries, err := os.ReadDir(procRoot)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc: %w", err)
+		return nil, fmt.Errorf("failed to read %s: %w", procRoot, err)
 	}
 
 	var pids []int

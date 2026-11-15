@@ -402,11 +402,10 @@ func handleChain(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Inject the current SDK span context into the outgoing request headers.
-		// This allows the downstream service (cpu-app) to participate in the same trace.
-		// Even if Beyla's eBPF uprobe fails to read this header on some kernels,
-		// the OTel SDK span (now routed to Beyla storage) serves as the parent atlas.
-		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+		// Do NOT inject OTel SDK traceparent header into outgoing request headers.
+		// Making a plain HTTP call lets Beyla's eBPF interceptor own traceparent
+		// propagation end-to-end: Beyla injects its own span_id on the outgoing side,
+		// allowing downstream (cpu-app) SERVER spans to record it as parent_span_id.
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)

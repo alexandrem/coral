@@ -576,23 +576,22 @@ func (r *OTLPReceiver) handleHTTPMetrics(w http.ResponseWriter, req *http.Reques
 	_, _ = w.Write(respBytes) // TODO: errcheck
 }
 
-// QueryMetrics retrieves recent metrics from the in-memory buffer.
-func (r *OTLPReceiver) QueryMetrics(ctx context.Context) []pmetric.Metrics {
-	r.metricsMu.RLock()
-	defer r.metricsMu.RUnlock()
-
-	// Return a copy of the metrics buffer.
-	result := make([]pmetric.Metrics, len(r.metricsBuffer))
-	copy(result, r.metricsBuffer)
-
-	return result
-}
-
-// ClearMetrics clears the metrics buffer after they've been consumed.
-func (r *OTLPReceiver) ClearMetrics() {
+// DrainMetrics returns all buffered metric batches and empties the buffer in
+// a single critical section, so each batch is handed out exactly once and
+// batches exported while the caller processes the result are kept for the
+// next drain.
+func (r *OTLPReceiver) DrainMetrics() []pmetric.Metrics {
 	r.metricsMu.Lock()
 	defer r.metricsMu.Unlock()
+
+	if len(r.metricsBuffer) == 0 {
+		return nil
+	}
+
+	result := r.metricsBuffer
 	r.metricsBuffer = make([]pmetric.Metrics, 0, 100)
+
+	return result
 }
 
 // copyMetricData copies metric data from protobuf to pdata format.

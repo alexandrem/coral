@@ -10,14 +10,13 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/enrollment"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/storage"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -58,6 +57,7 @@ type Server struct {
 	logger           zerolog.Logger
 	meshInfoProvider MeshInfoProvider
 	wgStatsProvider  WGStatsProvider
+	enroller         *enrollment.Enroller // RFD 109 - rendezvous compound enrollment.
 }
 
 // New creates a new colony server.
@@ -80,6 +80,13 @@ func (s *Server) SetMeshInfoProvider(provider MeshInfoProvider) {
 // SetWGStatsProvider sets the callback for accessing WireGuard device stats and peer configs.
 func (s *Server) SetWGStatsProvider(provider WGStatsProvider) {
 	s.wgStatsProvider = provider
+}
+
+// SetEnroller attaches the RFD 109 rendezvous enrollment processor. Only
+// set when the Colony has WireGuard and Discovery components available
+// (the same components MeshService.Register needs).
+func (s *Server) SetEnroller(enroller *enrollment.Enroller) {
+	s.enroller = enroller
 }
 
 // SetEbpfService sets the eBPF query service instance.
@@ -207,40 +214,7 @@ func (s *Server) ListAgents(
 				RuntimeContext: e.RuntimeContext, // RFD 018: Runtime context
 			}
 
-			// If agent is healthy/degraded, try to query real-time services.
-			if status == registry.StatusHealthy || status == registry.StatusDegraded {
-				// Create agent client.
-				// Agent listens on DefaultAgentPort for mesh traffic.
-				client := colony.GetAgentClient(e)
-
-				// Short timeout for real-time query.
-				queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)
-				defer cancel()
-
-				resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-				if err == nil {
-					// Update services from real-time response.
-					realTimeServices := make([]*meshv1.ServiceInfo, 0, len(resp.Msg.Services))
-					for _, svcStatus := range resp.Msg.Services {
-						realTimeServices = append(realTimeServices, &meshv1.ServiceInfo{
-							Name:           svcStatus.Name,
-							Port:           svcStatus.Port,
-							HealthEndpoint: svcStatus.HealthEndpoint,
-							ServiceType:    svcStatus.ServiceType,
-							Labels:         svcStatus.Labels,
-							ProcessId:      svcStatus.ProcessId,
-							BinaryPath:     svcStatus.BinaryPath,
-							BinaryHash:     svcStatus.BinaryHash,
-						})
-					}
-					agent.Services = realTimeServices
-				} else {
-					s.logger.Debug().
-						Err(err).
-						Str("agent_id", e.AgentID).
-						Msg("Failed to query agent services in real-time, using registry fallback")
-				}
-			}
+			refreshAgentServices(ctx, agent, colony.GetAgentClient(e))
 
 			agents[index] = agent
 		}()
@@ -470,7 +444,7 @@ func (s *Server) CallTool(
 	req *connect.Request[colonyv1.CallToolRequest],
 ) (*connect.Response[colonyv1.CallToolResponse], error) {
 	return connect.NewResponse(&colonyv1.CallToolResponse{
-		Error:   "tool dispatch has moved to the proxy layer (RFD 100): use coral colony mcp proxy",
+		Error:   "tool dispatch has moved to the proxy layer (RFD 100): use coral mcp proxy",
 		Success: false,
 	}), nil
 }
@@ -502,15 +476,22 @@ func (s *Server) RequestCertificate(
 ) (*connect.Response[colonyv1.RequestCertificateResponse], error) {
 	// Validate request.
 	if req.Msg.Jwt == "" {
-		s.logger.Warn().Msg("Certificate request rejected: jwt is required")
+		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "missing_jwt").
+			Msg("Certificate request rejected: jwt is required")
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("jwt is required"))
 	}
 	if len(req.Msg.Csr) == 0 {
-		s.logger.Warn().Msg("Certificate request rejected: csr is required")
+		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "missing_csr").
+			Msg("Certificate request rejected: csr is required")
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("csr is required"))
 	}
 
 	s.logger.Info().
+		Str("event", "bootstrap_certificate_request_received").
 		Int("csr_size", len(req.Msg.Csr)).
 		Msg("Certificate request received")
 
@@ -518,6 +499,8 @@ func (s *Server) RequestCertificate(
 	claims, err := s.caManager.ValidateReferralTicket(req.Msg.Jwt)
 	if err != nil {
 		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "invalid_referral_ticket").
 			Err(err).
 			Msg("Invalid referral ticket")
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid referral ticket: %w", err))
@@ -526,6 +509,8 @@ func (s *Server) RequestCertificate(
 	// Verify colony match.
 	if claims.ColonyID != s.config.ColonyID {
 		s.logger.Warn().
+			Str("event", "bootstrap_certificate_request_rejected").
+			Str("reason", "colony_id_mismatch").
 			Str("ticket_colony_id", claims.ColonyID).
 			Str("server_colony_id", s.config.ColonyID).
 			Msg("Colony ID mismatch")
@@ -536,12 +521,16 @@ func (s *Server) RequestCertificate(
 	if claims.Intent != "renew" {
 		if req.Msg.BootstrapPsk == "" {
 			s.logger.Warn().
+				Str("event", "bootstrap_certificate_request_rejected").
+				Str("reason", "missing_bootstrap_psk").
 				Str("agent_id", claims.AgentID).
 				Msg("Certificate request rejected: bootstrap PSK required")
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("bootstrap PSK is required"))
 		}
 		if err := s.caManager.ValidateBootstrapPSK(ctx, req.Msg.BootstrapPsk); err != nil {
 			s.logger.Warn().
+				Str("event", "bootstrap_certificate_request_rejected").
+				Str("reason", "invalid_bootstrap_psk").
 				Err(err).
 				Str("agent_id", claims.AgentID).
 				Msg("Certificate request rejected: invalid bootstrap PSK")
@@ -553,6 +542,7 @@ func (s *Server) RequestCertificate(
 	certPEM, caChain, expiresAt, err := s.caManager.IssueCertificate(claims.AgentID, claims.ColonyID, req.Msg.Csr)
 	if err != nil {
 		s.logger.Error().
+			Str("event", "bootstrap_certificate_issuance_failed").
 			Err(err).
 			Str("agent_id", claims.AgentID).
 			Msg("Failed to issue certificate")
@@ -570,10 +560,69 @@ func (s *Server) RequestCertificate(
 		authMethod = "mtls"
 	}
 	s.logger.Info().
+		Str("event", "bootstrap_certificate_issued").
 		Str("agent_id", claims.AgentID).
 		Str("auth_method", authMethod).
 		Time("expires_at", expiresAt).
 		Msg("Certificate issued successfully")
+
+	return connect.NewResponse(resp), nil
+}
+
+// BootstrapAndRegister handles compound certificate issuance + mesh
+// registration over an RFD 108 rendezvous dial-back connection (RFD 109).
+// It is a thin adapter: identity, ticket/PSK, and peer-mutation logic all
+// live in enrollment.Enroller, which is transaction-capable and reused
+// verbatim on retry/replay. Only reachable when Coral-Rendezvous-Record-Id
+// is set — which only the rendezvous dialer does, and only after its own
+// nonce check succeeds (see internal/colony/rendezvous/dialer.go). The
+// ordinary public/mesh listener must never route this procedure through to
+// here (see internal/cli/colony/server.go's mux wiring).
+func (s *Server) BootstrapAndRegister(
+	ctx context.Context,
+	req *connect.Request[colonyv1.BootstrapAndRegisterRequest],
+) (*connect.Response[colonyv1.BootstrapAndRegisterResponse], error) {
+	if s.enroller == nil {
+		s.logger.Warn().
+			Str("event", "rendezvous_bootstrap_register_rejected").
+			Str("reason", "enrollment_unavailable").
+			Msg("rendezvous: BootstrapAndRegister rejected because enrollment is unavailable")
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("rendezvous enrollment is not available on this colony"))
+	}
+
+	recordID := req.Header().Get(constants.RendezvousRecordIDHeader)
+	if recordID == "" {
+		s.logger.Warn().
+			Str("event", "rendezvous_bootstrap_register_rejected").
+			Str("reason", "not_rendezvous_connection").
+			Msg("rendezvous: BootstrapAndRegister rejected outside a rendezvous connection")
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("BootstrapAndRegister is only available over an RFD 108 rendezvous connection"))
+	}
+	s.logger.Info().
+		Str("event", "rendezvous_bootstrap_register_received").
+		Str("record_id", recordID).
+		Msg("rendezvous: BootstrapAndRegister request received")
+
+	var peerAddr string
+	if req.Peer().Addr != "" {
+		peerAddr = req.Peer().Addr
+	}
+
+	resp, err := s.enroller.BootstrapAndRegister(ctx, recordID, peerAddr, req.Msg)
+	if err != nil {
+		s.logger.Warn().
+			Str("event", "rendezvous_bootstrap_register_failed").
+			Err(err).
+			Str("record_id", recordID).
+			Msg("rendezvous: BootstrapAndRegister failed")
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	s.logger.Info().
+		Str("event", "rendezvous_bootstrap_register_completed").
+		Str("record_id", recordID).
+		Str("agent_id", req.Msg.GetRegistration().GetAgentId()).
+		Str("mesh_ip", resp.GetRegistration().GetAssignedIp()).
+		Msg("rendezvous: BootstrapAndRegister completed")
 
 	return connect.NewResponse(resp), nil
 }

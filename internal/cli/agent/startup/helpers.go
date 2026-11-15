@@ -51,7 +51,7 @@ func RegisterAgentWithDiscovery(
 	agentPubKey string,
 	observedEndpoint *discovery.Endpoint,
 	logger logging.Logger,
-) error {
+) (*discovery.Endpoint, error) {
 	// Create discovery client
 	client := discovery.NewClient(cfg.DiscoveryURL)
 
@@ -68,7 +68,10 @@ func RegisterAgentWithDiscovery(
 		Metadata:         make(map[string]string),
 	})
 	if err != nil {
-		return fmt.Errorf("agent registration with discovery failed: %w", err)
+		return nil, fmt.Errorf("agent registration with discovery failed: %w", err)
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("agent registration with discovery was rejected")
 	}
 
 	logger.Info().
@@ -78,7 +81,7 @@ func RegisterAgentWithDiscovery(
 		Interface("observed_endpoint", resp.ObservedEndpoint).
 		Msg("Agent registered with discovery service")
 
-	return nil
+	return resp.ObservedEndpoint, nil
 }
 
 // SetupAgentWireGuard creates and configures the agent's WireGuard device.

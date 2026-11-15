@@ -235,6 +235,31 @@ func newAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 	}, nil
 }
 
+// SwitchModel replaces the agent's active LLM provider for subsequent turns,
+// without resetting conversation history. modelSpec follows the same
+// "provider:model-id" format as --model (or bare "coral"). Returns the
+// display model name (provider prefix stripped) for the UI to show.
+func (a *Agent) SwitchModel(modelSpec string) (string, error) {
+	providerName, modelID := parseModelString(modelSpec)
+	if providerName == "" {
+		return "", fmt.Errorf("invalid model format %q, expected provider:model-id (or bare \"coral\")", modelSpec)
+	}
+
+	provider, err := createProvider(context.Background(), providerName, modelID, a.config, a.debug)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize provider %q: %w", providerName, err)
+	}
+
+	a.provider = provider
+	a.modelName = modelID
+
+	display := modelID
+	if display == "" {
+		display = providerName
+	}
+	return display, nil
+}
+
 // ResetConversation clears the in-memory conversation history for the given ID.
 // The next query on this conversationID will start a fresh context.
 func (a *Agent) ResetConversation(conversationID string) {
@@ -266,9 +291,9 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 
 // connectToColonyMCP connects to the Colony's MCP server via stdio subprocess.
 func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig, debug bool) (*client.Client, error) {
-	// Command to launch: coral colony mcp proxy --colony <colony-id>
+	// Command to launch: coral mcp proxy --colony <colony-id>
 	command := "coral"
-	args := []string{"colony", "mcp", "proxy", "--colony", colonyCfg.ColonyID}
+	args := []string{"mcp", "proxy", "--colony", colonyCfg.ColonyID}
 	env := os.Environ() // Use current environment
 
 	if debug {
@@ -396,7 +421,7 @@ RULES:
 1. Use coral_cli with args like ["query", "traces", "--service", "api", "--since", "10m"].
 2. Do NOT include "coral" in args — it is prepended automatically.
 3. --format json is appended automatically — do not include it.
-4. Call coral_cli ["colony", "service", "list"] first to discover available services.
+4. Call coral_cli ["services"] first to discover available services.
 5. Time ranges: convert natural language ("last hour" → "1h", "30 min" → "30m").
 
 `

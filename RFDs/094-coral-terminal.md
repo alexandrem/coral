@@ -585,13 +585,15 @@ authors who prefer a pure-terminal experience. The design depends on the
 scripting runtime supporting interactive output mode, which is not in scope
 for RFD 093.
 
-**Browser-to-terminal interaction** (Future)
+**Browser-to-terminal interaction** ✅ Implemented
 
-The WebSocket protocol reserves the client→server direction. A future RFD
-could use it to allow the user to click a data point in the browser and
-have the terminal automatically ask a follow-up question about that data
-point (e.g., click a latency spike → terminal sends "show traces for
-payment-api around 14:31").
+The WebSocket protocol's reserved client→server direction is now used:
+clicking a table row, bar, or timeseries point in the browser dashboard
+sends a generated follow-up question back to `coral terminal`
+(`Server.Followups()` in `internal/cli/terminal/server.go`), which pre-fills
+— but does not auto-submit — the main pane's input with it, so a human
+stays in the loop before the question reaches the LLM (e.g., clicking a
+latency spike pre-fills "What happened to payment-api around 14:31?").
 
 **Community skill renderer registry** (Future — depends on RFD 093 skills
 marketplace)

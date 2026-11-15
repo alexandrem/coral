@@ -6,13 +6,75 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
+
+func TestOpenShellStreamConnectionFailure(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := openShellStream(ctx, server.URL, "test-user", 80, 24)
+	require.Error(t, err)
+	assert.Nil(t, stream)
+	assert.Contains(t, err.Error(), "failed to start shell:")
+	assert.Contains(t, err.Error(), "dial tcp")
+	assert.NotContains(t, err.Error(), "write envelope: EOF")
+}
+
+func TestOpenShellStream(t *testing.T) {
+	handler := &mockShellHandler{start: make(chan *agentv1.ShellStart, 1)}
+	path, rpcHandler := agentv1connect.NewAgentServiceHandler(handler)
+	mux := http.NewServeMux()
+	mux.Handle(path, rpcHandler)
+	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := openShellStream(ctx, server.URL, "test-user", 120, 40)
+	require.NoError(t, err)
+	defer func() { _ = stream.CloseResponse() }()
+	defer func() { _ = stream.CloseRequest() }()
+
+	resp, err := stream.Receive()
+	require.NoError(t, err)
+	assert.Equal(t, "test-session", resp.GetExit().GetSessionId())
+	start := <-handler.start
+	assert.Equal(t, "/bin/bash", start.Shell)
+	assert.Equal(t, "test-user", start.UserId)
+	assert.Equal(t, uint32(120), start.Size.Cols)
+	assert.Equal(t, uint32(40), start.Size.Rows)
+}
+
+type mockShellHandler struct {
+	agentv1connect.UnimplementedAgentServiceHandler
+	start chan *agentv1.ShellStart
+}
+
+func (h *mockShellHandler) Shell(ctx context.Context, stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse]) error {
+	req, err := stream.Receive()
+	if err != nil {
+		return err
+	}
+	h.start <- req.GetStart()
+	return stream.Send(&agentv1.ShellResponse{
+		Payload: &agentv1.ShellResponse_Exit{Exit: &agentv1.ShellExit{SessionId: "test-session"}},
+	})
+}
 
 // TestResolveAgentID tests agent ID to mesh IP resolution via colony registry (RFD 044).
 func TestResolveAgentID(t *testing.T) {

@@ -422,7 +422,18 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 	}
 
 	if err := d.beylaTracesTable.BatchUpsert(ctx, items); err != nil {
-		return fmt.Errorf("failed to batch upsert trace spans (incoming: %d, items: %d, seq: %d-%d): %w", len(spans), len(items), minSeq, maxSeq, err)
+		d.logger.Warn().Err(err).Int("items", len(items)).Msg("Batch upsert failed for trace spans, falling back to item-by-item insertion")
+		inserted := 0
+		for _, item := range items {
+			if singleErr := d.beylaTracesTable.Upsert(ctx, item); singleErr != nil {
+				d.logger.Warn().Err(singleErr).Str("trace_id", item.TraceID).Str("span_id", item.SpanID).Msg("Failed to insert individual trace span")
+			} else {
+				inserted++
+			}
+		}
+		if inserted == 0 && len(items) > 0 {
+			return fmt.Errorf("failed to batch upsert trace spans (incoming: %d, items: %d, seq: %d-%d): %w", len(spans), len(items), minSeq, maxSeq, err)
+		}
 	}
 
 	d.logger.Info().

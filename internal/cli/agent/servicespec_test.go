@@ -340,6 +340,27 @@ func TestValidateServiceSpecs(t *testing.T) {
 			specs:   nil,
 			wantErr: true,
 		},
+		{
+			name: "valid exe-pattern only service",
+			specs: []*types.ServiceSpec{
+				{Name: "worker", ExePattern: "python.*consumer.py", Labels: make(map[string]string)},
+			},
+			wantErr: false,
+		},
+		{
+			name: "both port and exe-pattern set",
+			specs: []*types.ServiceSpec{
+				{Name: "worker", Port: 8080, ExePattern: "python.*consumer.py", Labels: make(map[string]string)},
+			},
+			wantErr: true,
+		},
+		{
+			name: "neither port nor exe-pattern set",
+			specs: []*types.ServiceSpec{
+				{Name: "worker", Labels: make(map[string]string)},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -347,6 +368,73 @@ func TestValidateServiceSpecs(t *testing.T) {
 			err := types.ValidateServiceSpecs(tt.specs)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("types.ValidateServiceSpecs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseServiceSpecsWithLegacySupport(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		port           int
+		health         string
+		exePattern     string
+		wantErr        bool
+		wantExePattern string
+		wantPort       int32
+	}{
+		{
+			name:     "legacy port only",
+			args:     []string{"api"},
+			port:     8080,
+			wantPort: 8080,
+			wantErr:  false,
+		},
+		{
+			name:           "legacy exe-pattern only",
+			args:           []string{"worker"},
+			exePattern:     "python.*consumer.py",
+			wantExePattern: "python.*consumer.py",
+			wantErr:        false,
+		},
+		{
+			name:    "legacy neither port nor exe-pattern",
+			args:    []string{"worker"},
+			wantErr: true,
+		},
+		{
+			name:       "legacy both port and exe-pattern",
+			args:       []string{"worker"},
+			port:       8080,
+			exePattern: "python.*consumer.py",
+			wantErr:    true,
+		},
+		{
+			name:       "colon syntax with exe-pattern flag rejected",
+			args:       []string{"worker:8080"},
+			exePattern: "python.*consumer.py",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseServiceSpecsWithLegacySupport(tt.args, tt.port, tt.health, tt.exePattern)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseServiceSpecsWithLegacySupport() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d specs, want 1", len(got))
+			}
+			if got[0].ExePattern != tt.wantExePattern {
+				t.Errorf("ExePattern = %v, want %v", got[0].ExePattern, tt.wantExePattern)
+			}
+			if got[0].Port != tt.wantPort {
+				t.Errorf("Port = %v, want %v", got[0].Port, tt.wantPort)
 			}
 		})
 	}

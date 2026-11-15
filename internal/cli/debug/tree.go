@@ -45,15 +45,15 @@ func RenderCallTree(results *colonypb.GetDebugResultsResponse) string {
 	}
 
 	var buf strings.Builder
-	buf.WriteString(fmt.Sprintf("\n📊 Call Tree for %s\n", results.Function))
+	fmt.Fprintf(&buf, "\n📊 Call Tree for %s\n", results.Function)
 	buf.WriteString(strings.Repeat("=", 60) + "\n\n")
 
 	// Process Info (RFD 064)
 	if results.ProcessId != 0 {
-		buf.WriteString(fmt.Sprintf("Process ID:   %d\n", results.ProcessId))
+		fmt.Fprintf(&buf, "Process ID:   %d\n", results.ProcessId)
 	}
 	if results.BinaryPath != "" {
-		buf.WriteString(fmt.Sprintf("Binary Path:  %s\n", results.BinaryPath))
+		fmt.Fprintf(&buf, "Binary Path:  %s\n", results.BinaryPath)
 	}
 	if results.ProcessId != 0 || results.BinaryPath != "" {
 		buf.WriteString("\n")
@@ -61,14 +61,14 @@ func RenderCallTree(results *colonypb.GetDebugResultsResponse) string {
 
 	// Summary statistics
 	if results.Statistics != nil {
-		buf.WriteString(fmt.Sprintf("Total invocations: %d\n",
-			results.CallTree.GetTotalInvocations()))
-		buf.WriteString(fmt.Sprintf("P50: %s | P95: %s | P99: %s | Max: %s\n\n",
+		fmt.Fprintf(&buf, "Total invocations: %d\n",
+			results.CallTree.GetTotalInvocations())
+		fmt.Fprintf(&buf, "P50: %s | P95: %s | P99: %s | Max: %s\n\n",
 			helpers.FormatDuration(results.Statistics.DurationP50.AsDuration()),
 			helpers.FormatDuration(results.Statistics.DurationP95.AsDuration()),
 			helpers.FormatDuration(results.Statistics.DurationP99.AsDuration()),
 			helpers.FormatDuration(results.Statistics.DurationMax.AsDuration()),
-		))
+		)
 	}
 
 	// Render call tree using helpers
@@ -87,11 +87,11 @@ func RenderCallTree(results *colonypb.GetDebugResultsResponse) string {
 			if i >= 5 {
 				break
 			}
-			buf.WriteString(fmt.Sprintf("  %d. %s at %s\n",
+			fmt.Fprintf(&buf, "  %d. %s at %s\n",
 				i+1,
 				helpers.FormatDuration(outlier.Duration.AsDuration()),
 				outlier.Timestamp.AsTime().Format(time.RFC3339),
-			))
+			)
 		}
 	}
 

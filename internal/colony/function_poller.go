@@ -296,7 +296,7 @@ func computeFunctionListHash(functions []*agentv1.FunctionInfo) string {
 		builder.WriteString("|")
 		builder.WriteString(fn.FilePath)
 		builder.WriteString("|")
-		builder.WriteString(fmt.Sprintf("%d|%d|%t\n", fn.LineNumber, fn.Offset, fn.HasDwarf))
+		fmt.Fprintf(&builder, "%d|%d|%t\n", fn.LineNumber, fn.Offset, fn.HasDwarf)
 	}
 
 	// Compute SHA256 hash.

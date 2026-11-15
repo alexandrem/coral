@@ -116,6 +116,23 @@ func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceNam
 	return c.DiscoverAndCacheWithPID(ctx, serviceName, binaryPath, sdkAddr, binaryHash, 0)
 }
 
+// EnsureIndexed discovers and caches functions for a service only when
+// needed — no cached entry exists yet, or the binary hash has changed —
+// rather than unconditionally re-discovering (RFD 104). This is the entry
+// point for lazy indexing: callers invoke it on first explicit need (a debug
+// session start or a function query) instead of eagerly at service
+// discovery time.
+func (c *FunctionCache) EnsureIndexed(ctx context.Context, serviceName, binaryPath, sdkAddr string) error {
+	needsUpdate, err := c.NeedsUpdate(ctx, serviceName, binaryPath)
+	if err != nil {
+		return fmt.Errorf("check function cache: %w", err)
+	}
+	if !needsUpdate {
+		return nil
+	}
+	return c.DiscoverAndCache(ctx, serviceName, binaryPath, sdkAddr)
+}
+
 // DiscoverAndCacheWithPID discovers functions with optional PID for binary scanner fallback.
 // PID enables agentless binary scanning (RFD 065) when SDK is not available.
 func (c *FunctionCache) DiscoverAndCacheWithPID(ctx context.Context, serviceName, binaryPath, sdkAddr, binaryHash string, pid uint32) error {

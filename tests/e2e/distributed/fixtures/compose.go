@@ -20,7 +20,8 @@ const (
 	localCPUAppEndpoint     = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
 	localOTELAppEndpoint    = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, exposed as 8082.
 	localSDKAppEndpoint     = "127.0.0.1:3001"
-	localMemoryAppEndpoint  = "127.0.0.1:8083" // memory-app on port 8080 in agent-1 namespace, exposed as 8083.
+	localMemoryAppEndpoint  = "127.0.0.1:8083"  // memory-app on port 8080 in agent-1 namespace, exposed as 8083.
+	localNetnsAppEndpoint   = "127.0.0.1:18085" // netns-app on port 8080 in its own network namespace (RFD 112), exposed as 18085.
 
 	colonyBinary = "/usr/local/bin/coral-colony"
 	agentBinary  = "/usr/local/bin/coral-agent"
@@ -54,6 +55,7 @@ type ComposeFixture struct {
 	OTELAppEndpoint   string
 	SDKAppEndpoint    string
 	MemoryAppEndpoint string
+	NetnsAppEndpoint  string // RFD 112: app in its own network namespace.
 }
 
 // NewComposeFixture creates a fixture that connects to docker-compose services.
@@ -80,6 +82,7 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 		OTELAppEndpoint:   localOTELAppEndpoint,
 		SDKAppEndpoint:    localSDKAppEndpoint,
 		MemoryAppEndpoint: localMemoryAppEndpoint,
+		NetnsAppEndpoint:  localNetnsAppEndpoint,
 	}
 
 	// Wait for all services to be healthy
@@ -132,6 +135,11 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 	// Wait for memory app
 	if err := helpers.WaitForHTTPEndpoint(ctx, "http://"+f.MemoryAppEndpoint+"/health", 30*time.Second); err != nil {
 		return fmt.Errorf("memory-app not ready: %w", err)
+	}
+
+	// Wait for netns app (RFD 112).
+	if err := helpers.WaitForHTTPEndpoint(ctx, "http://"+f.NetnsAppEndpoint+"/health", 30*time.Second); err != nil {
+		return fmt.Errorf("netns-app not ready: %w", err)
 	}
 
 	// Wait for colony and agents via their /status endpoints
@@ -228,6 +236,11 @@ func (f *ComposeFixture) GetDiscoveryEndpoint(ctx context.Context) (string, erro
 	return f.DiscoveryEndpoint, nil
 }
 
+// UsesLocalDiscovery reports whether the fixture uses the local discovery overlay.
+func (f *ComposeFixture) UsesLocalDiscovery() bool {
+	return f.DiscoveryEndpoint == localDiscoveryEndpoint
+}
+
 // GetColonyEndpoint returns the colony gRPC endpoint.
 func (f *ComposeFixture) GetColonyEndpoint(ctx context.Context) (string, error) {
 	return f.ColonyEndpoint, nil
@@ -265,6 +278,12 @@ func (f *ComposeFixture) GetMemoryAppEndpoint(ctx context.Context) (string, erro
 	return f.MemoryAppEndpoint, nil
 }
 
+// GetNetnsAppEndpoint returns the netns-app HTTP endpoint (RFD 112): an app
+// sharing agent-0's PID namespace but running in its own network namespace.
+func (f *ComposeFixture) GetNetnsAppEndpoint(ctx context.Context) (string, error) {
+	return f.NetnsAppEndpoint, nil
+}
+
 // RestartService restarts a specific service using docker-compose.
 func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string) error {
 	// Use docker restart directly with the container name rather than
@@ -286,6 +305,18 @@ func (f *ComposeFixture) GetBeylaConfig(ctx context.Context, agentName string) (
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to read beyla config from %s: %w\nOutput: %s", containerName, err, string(output))
+	}
+	return string(output), nil
+}
+
+// GetContainerLogs returns the full stdout and stderr log of a compose service
+// container.
+func (f *ComposeFixture) GetContainerLogs(ctx context.Context, serviceName string) (string, error) {
+	containerName := fmt.Sprintf("coral-e2e-%s-1", serviceName)
+	cmd := exec.CommandContext(ctx, "docker", "logs", containerName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to read logs from %s: %w", containerName, err)
 	}
 	return string(output), nil
 }

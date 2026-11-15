@@ -722,7 +722,7 @@ environment-aware OTLP endpoint discovery.
 
 ```bash
 # App startup: Query discovery service
-curl https://discovery.coral.io/v1/otlp-endpoint \
+curl https://discovery.coralmesh.dev/v1/otlp-endpoint \
   -H "Authorization: Bearer ${CORAL_BOOTSTRAP_TOKEN}"
 
 # Response for VM/native environment:

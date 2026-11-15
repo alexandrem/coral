@@ -83,6 +83,24 @@ func (h *ServiceHandler) ConnectService(
 	ctx context.Context,
 	req *connect.Request[agentv1.ConnectServiceRequest],
 ) (*connect.Response[agentv1.ConnectServiceResponse], error) {
+	// Exactly one of port or exe_pattern must be set (RFD 111): a service is
+	// identified either by the socket it listens on or by its executable
+	// path, never both, never neither.
+	hasPort := req.Msg.Port != 0
+	hasPattern := req.Msg.ExePattern != ""
+	if hasPort && hasPattern {
+		return connect.NewResponse(&agentv1.ConnectServiceResponse{
+			Success: false,
+			Error:   fmt.Sprintf("service %q cannot specify both a port and exe_pattern", req.Msg.Name),
+		}), nil
+	}
+	if !hasPort && !hasPattern {
+		return connect.NewResponse(&agentv1.ConnectServiceResponse{
+			Success: false,
+			Error:   fmt.Sprintf("service %q needs either a port or exe_pattern", req.Msg.Name),
+		}), nil
+	}
+
 	// Convert request to ServiceInfo.
 	serviceInfo := &meshv1.ServiceInfo{
 		Name:           req.Msg.Name,
@@ -90,6 +108,7 @@ func (h *ServiceHandler) ConnectService(
 		HealthEndpoint: req.Msg.HealthEndpoint,
 		ServiceType:    req.Msg.ServiceType,
 		Labels:         req.Msg.Labels,
+		ExePattern:     req.Msg.ExePattern,
 	}
 
 	// Connect to service. Treat AlreadyExists as a soft error so that
@@ -129,11 +148,11 @@ func (h *ServiceHandler) ConnectService(
 
 	if caps != nil {
 		h.agent.mu.RLock()
-		monitor, exists := h.agent.monitors[req.Msg.Name]
+		entry, exists := h.agent.findByNameLocked(req.Msg.Name)
 		h.agent.mu.RUnlock()
 
-		if exists {
-			monitor.SetSdkCapabilities(caps)
+		if exists && entry.Monitor != nil {
+			entry.Monitor.SetSdkCapabilities(caps)
 		}
 	}
 
@@ -171,40 +190,63 @@ func (h *ServiceHandler) ListServices(
 	ctx context.Context,
 	req *connect.Request[agentv1.ListServicesRequest],
 ) (*connect.Response[agentv1.ListServicesResponse], error) {
-	statuses := h.agent.GetServiceStatuses()
-
-	// Convert to protobuf response.
-	serviceStatuses := make([]*agentv1.ServiceStatus, 0, len(statuses))
-	for name, status := range statuses {
-		// Get the service info from the monitor.
-		h.agent.mu.RLock()
-		monitor, exists := h.agent.monitors[name]
-		h.agent.mu.RUnlock()
-
-		if !exists {
+	// Snapshot the unified service map so both auto-observed and watched
+	// entries are represented. The agent lock protects entry membership and
+	// metadata; ServiceMonitor.GetStatus takes its own lock for monitor state.
+	h.agent.mu.RLock()
+	serviceStatuses := make([]*agentv1.ServiceStatus, 0, len(h.agent.services))
+	for _, entry := range h.agent.services {
+		namingSource := serviceNamingSource(entry.NamingSource)
+		if req.Msg.SourceFilter != nil && namingSource != req.Msg.GetSourceFilter() {
 			continue
 		}
 
-		serviceInfo := monitor.service
+		serviceStatus := &agentv1.ServiceStatus{
+			Name:              entry.Name(),
+			Port:              entry.Port,
+			AutoName:          entry.AutoName,
+			AuthoritativeName: entry.AuthoritativeName,
+			NamingSource:      namingSource,
+			HasMonitor:        entry.Monitor != nil,
+			ObservationTier:   uint32(entry.Tier),
+			ProcessId:         entry.PID,
+			BinaryPath:        entry.BinaryPath,
+			BinaryHash:        entry.BinaryHash,
+			ExePattern:        entry.ExePattern,
+		}
 
-		serviceStatuses = append(serviceStatuses, &agentv1.ServiceStatus{
-			Name:           serviceInfo.Name,
-			Port:           serviceInfo.Port,
-			HealthEndpoint: serviceInfo.HealthEndpoint,
-			ServiceType:    serviceInfo.ServiceType,
-			Labels:         serviceInfo.Labels,
-			Status:         string(status.Status),
-			LastCheck:      timestamppb.New(status.LastCheck),
-			Error:          status.Error,
-			ProcessId:      status.ProcessID,
-			BinaryPath:     status.BinaryPath,
-			BinaryHash:     status.BinaryHash,
-		})
+		if entry.Monitor != nil {
+			serviceInfo := entry.Monitor.service
+			monitorStatus := entry.Monitor.GetStatus()
+			serviceStatus.HealthEndpoint = serviceInfo.HealthEndpoint
+			serviceStatus.ServiceType = serviceInfo.ServiceType
+			serviceStatus.Labels = serviceInfo.Labels
+			serviceStatus.Status = string(monitorStatus.Status)
+			serviceStatus.LastCheck = timestamppb.New(monitorStatus.LastCheck)
+			serviceStatus.Error = monitorStatus.Error
+			serviceStatus.ProcessId = monitorStatus.ProcessID
+			serviceStatus.BinaryPath = monitorStatus.BinaryPath
+			serviceStatus.BinaryHash = monitorStatus.BinaryHash
+		}
+
+		serviceStatuses = append(serviceStatuses, serviceStatus)
 	}
+	h.agent.mu.RUnlock()
 
 	return connect.NewResponse(&agentv1.ListServicesResponse{
 		Services: serviceStatuses,
 	}), nil
+}
+
+func serviceNamingSource(source NamingSource) agentv1.ServiceNamingSource {
+	switch source {
+	case NamingSourceAuto:
+		return agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTO
+	case NamingSourceAuthoritative:
+		return agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE
+	default:
+		return agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_UNSPECIFIED
+	}
 }
 
 // QueryTelemetry retrieves filtered telemetry spans from the agent's local storage.
@@ -510,23 +552,27 @@ func (h *ServiceHandler) GetFunctions(
 
 	var allFunctions []*agentv1.FunctionInfo
 
-	// Get all monitored services.
+	// Get all watched (Tier 1) services.
 	h.agent.mu.RLock()
-	monitors := make(map[string]*ServiceMonitor)
-	for name, monitor := range h.agent.monitors {
+	entries := make(map[string]*ServiceEntry)
+	for _, entry := range h.agent.services {
+		if entry.Monitor == nil {
+			continue
+		}
+		name := entry.Name()
 		// Filter by service name if specified.
 		if req.Msg.ServiceName != "" && name != req.Msg.ServiceName {
 			continue
 		}
-		monitors[name] = monitor
+		entries[name] = entry
 	}
 	h.agent.mu.RUnlock()
 
 	// Get cached functions for each service.
-	for serviceName := range monitors {
-		// Check if cache needs update (binary hash changed).
-		// This is a lightweight check that happens every time.
-		h.tryUpdateCacheIfNeeded(ctx, serviceName)
+	for serviceName, entry := range entries {
+		// Ensure functions are indexed for this service, discovering lazily
+		// on first need rather than eagerly at connect time (RFD 104).
+		h.ensureIndexedAsync(entry)
 
 		// Get cached functions.
 		functions, err := h.functionCache.GetCachedFunctions(ctx, serviceName)
@@ -543,7 +589,7 @@ func (h *ServiceHandler) GetFunctions(
 
 	h.agent.logger.Debug().
 		Int("function_count", len(allFunctions)).
-		Int("service_count", len(monitors)).
+		Int("service_count", len(entries)).
 		Msg("Returned cached functions")
 
 	return connect.NewResponse(&agentv1.GetFunctionsResponse{
@@ -552,51 +598,28 @@ func (h *ServiceHandler) GetFunctions(
 	}), nil
 }
 
-// tryUpdateCacheIfNeeded checks if the cache needs updating and triggers discovery if so.
-// This is called during GetFunctions to ensure cache is up-to-date.
-func (h *ServiceHandler) tryUpdateCacheIfNeeded(ctx context.Context, serviceName string) {
-	h.agent.mu.RLock()
-	monitor, exists := h.agent.monitors[serviceName]
-	h.agent.mu.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	status := monitor.GetStatus()
+// ensureIndexedAsync triggers FunctionCache.EnsureIndexed for entry's binary
+// without blocking the caller (RFD 104). It is a no-op if the binary path
+// isn't known yet.
+func (h *ServiceHandler) ensureIndexedAsync(entry *ServiceEntry) {
+	status := entry.Monitor.GetStatus()
 	if status.BinaryPath == "" {
 		return
 	}
 
-	// Check if cache needs update (non-blocking check).
-	needsUpdate, err := h.functionCache.NeedsUpdate(ctx, serviceName, status.BinaryPath)
-	if err != nil {
-		h.agent.logger.Warn().
-			Err(err).
-			Str("service", serviceName).
-			Msg("Failed to check if cache needs update")
-		return
+	serviceName := entry.Name()
+
+	sdkAddr := ""
+	if caps := entry.Monitor.GetSdkCapabilities(); caps != nil && caps.SdkEnabled {
+		sdkAddr = caps.SdkAddr
 	}
 
-	if needsUpdate {
-		h.agent.logger.Info().
-			Str("service", serviceName).
-			Msg("Binary hash changed, triggering function re-discovery")
-
-		// Get SDK address if available.
-		sdkAddr := ""
-		if monitor.sdkCapabilities != nil && monitor.sdkCapabilities.SdkEnabled {
-			sdkAddr = monitor.sdkCapabilities.SdkAddr
+	go func() {
+		if err := h.functionCache.EnsureIndexed(context.Background(), serviceName, status.BinaryPath, sdkAddr); err != nil {
+			h.agent.logger.Error().
+				Err(err).
+				Str("service", serviceName).
+				Msg("Failed to ensure functions indexed")
 		}
-
-		// Trigger async discovery (don't block the RPC).
-		go func() {
-			if err := h.functionCache.DiscoverAndCache(context.Background(), serviceName, status.BinaryPath, sdkAddr); err != nil {
-				h.agent.logger.Error().
-					Err(err).
-					Str("service", serviceName).
-					Msg("Failed to discover and cache functions")
-			}
-		}()
-	}
+	}()
 }

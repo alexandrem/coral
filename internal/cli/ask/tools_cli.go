@@ -88,6 +88,14 @@ func scriptWriteParams(args []string) (name, content string) {
 	return
 }
 
+// coralExecutable resolves the path to the coral binary to exec for CLI
+// dispatch tool calls, so the subprocess runs the same build as the running
+// process. It is a package variable (rather than a direct os.Executable()
+// call) so tests can override it: under `go test`, os.Executable() resolves
+// to the compiled test binary, and executing that with arbitrary args would
+// re-run the whole test suite as a subprocess — recursively, without bound.
+var coralExecutable = os.Executable
+
 // executeCLITool runs coral <args> --format json as a subprocess (RFD 100).
 // Non-zero exits are returned as MCP tool errors so the LLM can handle them.
 // Go errors are only returned for unexpected failures (e.g., exec.LookPath).
@@ -98,7 +106,7 @@ func executeCLITool(ctx context.Context, args []string, debug bool) (*mcp.CallTo
 	args = appendFormatJSON(args)
 
 	// Use the current executable so the subprocess runs the same coral build.
-	coralBin, err := os.Executable()
+	coralBin, err := coralExecutable()
 	if err != nil {
 		coralBin = "coral"
 	}

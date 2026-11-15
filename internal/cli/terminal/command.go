@@ -149,6 +149,7 @@ func runTerminal(cmd *cobra.Command, colonyID, modelOverride string, debug, auto
 	if err != nil {
 		return fmt.Errorf("failed to create conversation model: %w", err)
 	}
+	askModel.SetHistory(ask.LoadInputHistory(), ask.AppendInputHistory)
 
 	// Register /browser handler so the user can type it in the conversation input.
 	if srv != nil {

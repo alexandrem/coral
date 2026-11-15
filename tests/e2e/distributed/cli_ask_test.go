@@ -79,7 +79,7 @@ func (s *CLIAskSuite) TestAskWithTools() {
 
 	// Create a mock script that simulates tool usage (post-RFD 100).
 	// 1. User asks to list services
-	// 2. Assistant calls coral_cli with ["colony", "service", "list"]
+	// 2. Assistant calls coral_cli with ["services"]
 	// 3. System returns tool result
 	// 4. Assistant interprets result
 	script := llm.MockScript{

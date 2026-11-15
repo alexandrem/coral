@@ -109,6 +109,43 @@ func TestServer_Dashboard_ServedAtRoot(t *testing.T) {
 	assert.Contains(t, resp.Header.Get("Content-Type"), "text/html")
 }
 
+func TestServer_Followups_ReceivesClickQuestion(t *testing.T) {
+	srv, err := terminal.StartServer()
+	require.NoError(t, err)
+	defer srv.Stop()
+
+	conn := dialWS(t, srv.Port())
+	require.NoError(t, conn.WriteJSON(map[string]string{
+		"type":     "followup",
+		"question": "What happened to api around 14:31?",
+	}))
+
+	select {
+	case q := <-srv.Followups():
+		assert.Equal(t, "What happened to api around 14:31?", q)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for followup question")
+	}
+}
+
+func TestServer_Followups_IgnoresBlankAndOtherMessageTypes(t *testing.T) {
+	srv, err := terminal.StartServer()
+	require.NoError(t, err)
+	defer srv.Stop()
+
+	conn := dialWS(t, srv.Port())
+	require.NoError(t, conn.WriteJSON(map[string]string{"type": "ping"}))
+	require.NoError(t, conn.WriteJSON(map[string]string{"type": "followup", "question": "   "}))
+	require.NoError(t, conn.WriteJSON(map[string]string{"type": "followup", "question": "real one"}))
+
+	select {
+	case q := <-srv.Followups():
+		assert.Equal(t, "real one", q, "the ping and blank-question messages should be skipped")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for followup question")
+	}
+}
+
 func TestServer_WebSocket_RejectsNonLocalhost(t *testing.T) {
 	srv, err := terminal.StartServer()
 	require.NoError(t, err)

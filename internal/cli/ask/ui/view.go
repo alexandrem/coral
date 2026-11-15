@@ -49,17 +49,17 @@ func (m Model) View() string {
 	case stateQuerying:
 		if m.currentCommand != "" {
 			// CLI dispatch mode: show the full command string (RFD 100).
-			b.WriteString(fmt.Sprintf("\n%s %s $ %s\n",
+			fmt.Fprintf(&b, "\n%s %s $ %s\n",
 				m.spinner.View(),
 				toolStyle.Render("⚙"),
-				m.currentCommand))
+				m.currentCommand)
 		} else if m.currentTool != "" {
-			b.WriteString(fmt.Sprintf("\n%s %s Executing tool: %s...\n",
+			fmt.Fprintf(&b, "\n%s %s Executing tool: %s...\n",
 				m.spinner.View(),
 				toolStyle.Render("⚙"),
-				m.currentTool))
+				m.currentTool)
 		} else {
-			b.WriteString(fmt.Sprintf("\n%s Thinking...\n", m.spinner.View()))
+			fmt.Fprintf(&b, "\n%s Thinking...\n", m.spinner.View())
 		}
 
 	case stateStreaming:
@@ -91,11 +91,22 @@ func (m Model) View() string {
 
 	// Render input line.
 	b.WriteString("\n")
-	b.WriteString(m.input.View())
+	if m.currentState == stateHistorySearch {
+		match := ""
+		if m.searchMatchIdx >= 0 {
+			match = m.history[m.searchMatchIdx]
+		}
+		fmt.Fprintf(&b, "(reverse-i-search)`%s': %s", m.searchQuery, match)
+	} else {
+		b.WriteString(m.input.View())
+	}
 
 	// Render help hint.
-	if m.currentState == stateIdle {
-		b.WriteString(hintStyle.Render("\n[Ctrl+C to cancel, /help for commands, /exit to quit]"))
+	switch m.currentState {
+	case stateIdle:
+		b.WriteString(hintStyle.Render("\n[Ctrl+C to cancel, Ctrl+R history search, /help for commands, /exit to quit]"))
+	case stateHistorySearch:
+		b.WriteString(hintStyle.Render("\n[Ctrl+R older match, Enter to use, Esc to cancel]"))
 	}
 
 	return b.String()

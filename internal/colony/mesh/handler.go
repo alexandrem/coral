@@ -128,7 +128,7 @@ func (h *Handler) Register(
 			}
 
 			// Select the best observed endpoint from the list.
-			selectedEp, matchType := selectBestAgentEndpoint(agentInfo.ObservedEndpoints, peerHost, h.logger, req.Msg.AgentId)
+			selectedEp, matchType := SelectBestAgentEndpoint(agentInfo.ObservedEndpoints, peerHost, h.logger, req.Msg.AgentId)
 
 			// Build endpoint string and log selection.
 			if selectedEp != nil {
@@ -282,14 +282,14 @@ func (h *Handler) Heartbeat(
 	}), nil
 }
 
-// selectBestAgentEndpoint selects the best WireGuard endpoint for an agent from a list of observed endpoints.
+// SelectBestAgentEndpoint selects the best WireGuard endpoint for an agent from a list of observed endpoints.
 // Strategy:
 //  1. Skip localhost/127.0.0.1 endpoints (would be self-referential from colony's perspective)
 //  2. Prefer an endpoint matching the peer's source IP (how they connected to us)
 //  3. Otherwise use the first non-localhost endpoint
 //
 // Returns the selected endpoint and a match type ("matching" or "first"), or (nil, "") if no valid endpoint found.
-func selectBestAgentEndpoint(
+func SelectBestAgentEndpoint(
 	observedEndpoints []*discovery.Endpoint,
 	peerHost string,
 	logger logging.Logger,

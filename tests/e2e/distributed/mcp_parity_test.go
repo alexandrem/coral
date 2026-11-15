@@ -119,7 +119,7 @@ func (s *MCPParitySuite) TestParityListServices() {
 
 	// 1. Query via coral_cli MCP tool (replaces coral_list_services).
 	mcpResp, err := proxy.CallTool("coral_cli", map[string]interface{}{
-		"args": []interface{}{"colony", "service", "list"},
+		"args": []interface{}{"services"},
 	}, 101)
 	s.Require().NoError(err, "MCP coral_cli colony service list should succeed")
 	s.Require().NotEmpty(mcpResp.Content, "MCP should have content")
@@ -276,7 +276,7 @@ func (s *MCPParitySuite) TestParityShellExec() {
 
 	// Test coral_cli with colony service list as a parity check (same data both ways).
 	mcpResp, err := proxy.CallTool("coral_cli", map[string]interface{}{
-		"args": []interface{}{"colony", "service", "list"},
+		"args": []interface{}{"services"},
 	}, 105)
 	s.Require().NoError(err, "coral_cli colony service list should succeed")
 	s.Require().NotEmpty(mcpResp.Content, "MCP should have content")

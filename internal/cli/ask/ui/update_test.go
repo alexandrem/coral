@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +15,10 @@ import (
 type spyAgent struct {
 	resetCalled         bool
 	resetConversationID string
+
+	switchModelSpec string
+	switchModelName string
+	switchModelErr  error
 }
 
 func (s *spyAgent) AskWithChannel(_ any, _, _ string, _ bool, _ chan<- any) (any, error) {
@@ -23,6 +28,17 @@ func (s *spyAgent) AskWithChannel(_ any, _, _ string, _ bool, _ chan<- any) (any
 func (s *spyAgent) ResetConversation(conversationID string) {
 	s.resetCalled = true
 	s.resetConversationID = conversationID
+}
+
+func (s *spyAgent) SwitchModel(modelSpec string) (string, error) {
+	s.switchModelSpec = modelSpec
+	if s.switchModelErr != nil {
+		return "", s.switchModelErr
+	}
+	if s.switchModelName != "" {
+		return s.switchModelName, nil
+	}
+	return modelSpec, nil
 }
 
 func newTestModel(t *testing.T, agent Agent, history []Message) Model {
@@ -219,4 +235,52 @@ func TestScriptReview_RejectResumesQuery(t *testing.T) {
 	assert.Equal(t, stateQuerying, result.currentState)
 	assert.Equal(t, ch, result.eventChan, "eventChan should be restored")
 	assert.NotNil(t, cmd, "a listen cmd should be returned")
+}
+
+// TestModelCommand_NoArgShowsCurrent verifies that a bare /model reports the
+// current model as a system message without calling SwitchModel.
+func TestModelCommand_NoArgShowsCurrent(t *testing.T) {
+	agent := &spyAgent{}
+	m := newTestModel(t, agent, nil)
+
+	m.input.SetValue("/model")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := updated.(Model)
+
+	require.Len(t, result.conversation, 1)
+	assert.Equal(t, "system", result.conversation[0].Role)
+	assert.Contains(t, result.conversation[0].Content, "test-model")
+	assert.Empty(t, agent.switchModelSpec, "no-arg /model should not call SwitchModel")
+}
+
+// TestModelCommand_SwitchesModel verifies that /model <spec> calls
+// SwitchModel and updates the displayed model name.
+func TestModelCommand_SwitchesModel(t *testing.T) {
+	agent := &spyAgent{switchModelName: "claude-opus-4-6"}
+	m := newTestModel(t, agent, nil)
+
+	m.input.SetValue("/model anthropic:claude-opus-4-6")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := updated.(Model)
+
+	assert.Equal(t, "anthropic:claude-opus-4-6", agent.switchModelSpec)
+	assert.Equal(t, "claude-opus-4-6", result.modelName)
+	require.Len(t, result.conversation, 1)
+	assert.Contains(t, result.conversation[0].Content, "claude-opus-4-6")
+}
+
+// TestModelCommand_ErrorSetsErrorState verifies that a failed SwitchModel
+// call surfaces as an error rather than silently keeping the old model.
+func TestModelCommand_ErrorSetsErrorState(t *testing.T) {
+	agent := &spyAgent{switchModelErr: errors.New("unknown provider")}
+	m := newTestModel(t, agent, nil)
+	originalModel := m.modelName
+
+	m.input.SetValue("/model nope:nope")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := updated.(Model)
+
+	assert.Equal(t, stateError, result.currentState)
+	require.NotNil(t, result.lastError)
+	assert.Equal(t, originalModel, result.modelName, "model name should be unchanged on failure")
 }

@@ -26,6 +26,10 @@ func (a *agentAdapter) ResetConversation(conversationID string) {
 	a.agent.ResetConversation(conversationID)
 }
 
+func (a *agentAdapter) SwitchModel(modelSpec string) (string, error) {
+	return a.agent.SwitchModel(modelSpec)
+}
+
 func (a *agentAdapter) AskWithChannel(ctx any, question, conversationID string, dryRun bool, ch chan<- any) (any, error) {
 	// Create a typed channel for AgentEvent.
 	eventChan := make(chan AgentEvent, 100)
@@ -200,6 +204,7 @@ func runInteractive(
 	if err != nil {
 		return fmt.Errorf("failed to create UI model: %w", err)
 	}
+	model.SetHistory(LoadInputHistory(), AppendInputHistory)
 
 	// Run Bubbletea program.
 	p := tea.NewProgram(model, tea.WithAltScreen())

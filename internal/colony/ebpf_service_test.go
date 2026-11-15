@@ -1166,6 +1166,63 @@ func TestQueryUnifiedSummary_DataMerging(t *testing.T) {
 		assert.Equal(t, "OTLP", sourceMap["otlp-service"])
 	})
 
+	t.Run("multiple OTLP summaries across buckets for same service", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "hybrid-service",
+					HTTPMethod:      "POST",
+					HTTPRoute:       "/api/checkout",
+					HTTPStatusCode:  500,
+					Count:           10,
+					LatencyBucketMs: 100.0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				// Newest bucket (server span): 20 spans, 10 errors
+				{
+					ServiceName: "hybrid-service",
+					SpanKind:    "server",
+					TotalSpans:  20,
+					ErrorCount:  10,
+					P95Ms:       150.0,
+				},
+				// Newest bucket (internal spans): 80 spans, 10 errors
+				{
+					ServiceName: "hybrid-service",
+					SpanKind:    "internal",
+					TotalSpans:  80,
+					ErrorCount:  10,
+					P95Ms:       80.0,
+				},
+				// Older bucket (0 errors from prior traffic)
+				{
+					ServiceName: "hybrid-service",
+					SpanKind:    "server",
+					TotalSpans:  100,
+					ErrorCount:  0,
+					P95Ms:       50.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "hybrid-service", startTime, endTime)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+
+		result := results[0]
+		assert.Equal(t, "hybrid-service", result.ServiceName)
+		assert.Equal(t, "eBPF+OTLP", result.Source)
+		// Total spans: 10 (ebpf) + 20 + 80 + 100 (otlp) = 210
+		assert.Equal(t, int64(210), result.RequestCount)
+		// Total errors: 10 (ebpf) + 10 + 10 + 0 (otlp) = 30 errors -> 30/210 * 100 = 14.28% -> Critical
+		assert.InDelta(t, 14.28, result.ErrorRate, 0.1)
+		assert.Equal(t, ServiceStatusCritical, result.Status)
+	})
+
 	t.Run("status calculation with high error rate", func(t *testing.T) {
 		mockDB := &mockDatabase{
 			httpMetrics: []*database.BeylaHTTPMetricResult{

@@ -256,7 +256,7 @@ beyla:
 - [ ] Add unit tests: pattern matching, cardinality tracking
 - [ ] Add integration test: send custom metrics via OTLP, verify storage
 - [ ] Add E2E test: simulate RCA scenario with context metrics
-- [ ] Update `docs/OTLP_INGESTION.md` with RCA context metrics section
+- [ ] Update `docs/user/instrumentation.md` with RCA context metrics section
 - [ ] Add example: instrumenting app with RCA context metrics
 - [ ] Document troubleshooting: cardinality limits, rejected metrics
 

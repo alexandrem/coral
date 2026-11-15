@@ -28,6 +28,11 @@ type ServiceSpec struct {
 	HealthEndpoint string
 	ServiceType    string
 	Labels         map[string]string
+
+	// ExePattern identifies a portless process by executable pattern (RFD
+	// 111) instead of a listening port. Mutually exclusive with Port:
+	// exactly one of the two must be set.
+	ExePattern string
 }
 
 // ParseServiceSpec parses a service specification string.
@@ -114,6 +119,7 @@ func (s *ServiceSpec) ToProto() *meshv1.ServiceInfo {
 		HealthEndpoint: s.HealthEndpoint,
 		ServiceType:    s.ServiceType,
 		Labels:         s.Labels,
+		ExePattern:     s.ExePattern,
 	}
 }
 
@@ -150,10 +156,26 @@ func ValidateServiceSpecs(specs []*ServiceSpec) error {
 		return fmt.Errorf("at least one service is required")
 	}
 
+	// Exactly one of port or exe_pattern must be set per spec (RFD 111): a
+	// service is identified either by the socket it listens on or by its
+	// executable path, never both, never neither.
+	for _, spec := range specs {
+		hasPort := spec.Port != 0
+		hasPattern := spec.ExePattern != ""
+		if hasPort && hasPattern {
+			return fmt.Errorf("service %q cannot specify both a port and --exe-pattern", spec.Name)
+		}
+		if !hasPort && !hasPattern {
+			return fmt.Errorf("service %q needs either a port or --exe-pattern", spec.Name)
+		}
+	}
+
 	// Check for port collisions (warning only, not an error)
 	seenPorts := make(map[int32][]string)
 	for _, spec := range specs {
-		seenPorts[spec.Port] = append(seenPorts[spec.Port], spec.Name)
+		if spec.Port != 0 {
+			seenPorts[spec.Port] = append(seenPorts[spec.Port], spec.Name)
+		}
 	}
 
 	// Note: We don't error on port collisions as they may be intentional

@@ -5,6 +5,7 @@ name: coral-e2e
 services:
   # Colony overrides - fast polling for tests
   colony:
+    image: coral-colony:e2e
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_PUBLIC_ENDPOINT=colony:51820
@@ -29,17 +30,27 @@ services:
 
   # Agent 0 overrides - fast heartbeat + fast memory profiling
   agent-0:
+    image: coral-agent:e2e
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
       - CORAL_HEARTBEAT_INTERVAL=5s
       - CORAL_MEMORY_PROFILING_INTERVAL=5s
-    volumes:
-      # Mount explicit per-service config so Beyla gets named rules for cpu-app
-      # (port 8080) and otel-app (port 8090). Without this, --monitor-all uses a
-      # single open_ports: "1-65535" catch-all that groups all processes under one
-      # service name, breaking topology materialisation's service_name inequality check.
-      - ./tests/e2e/distributed/fixtures/agent-0-config.yaml:/etc/coral/agent.yaml:ro
+      # Poll providers quickly so newly started cpu-app/otel-app/worker-app
+      # containers are picked up well within the test timeouts below.
+      - CORAL_BEYLA_DISCOVERY_SYNC_INTERVAL=5s
+      # 100% sampling for both OTel SDK spans (otel-app) and Beyla eBPF spans,
+      # so tests never flake on a span being sampled out. Beyla already
+      # defaults to 100%; the general telemetry default is 10%, so it's set
+      # explicitly here (previously came from the removed agent-0-config.yaml).
+      - CORAL_SAMPLE_RATE=1.0
+    # No per-service config file mount here on purpose: agent-0 runs with
+    # only --monitor-all (see docker-compose.yml), so Beyla's per-process
+    # naming comes entirely from DiscoveryManager (RFD 102) — ProcFSProvider
+    # for cpu-app/otel-app's listening ports and EnvVarProvider (via
+    # OTEL_SERVICE_NAME) for worker-app's client-only process below. This
+    # replaces the old workaround of mounting a static per-service config
+    # file to avoid MonitorAll's single-name open_ports: "1-65535" catch-all.
     healthcheck:
       interval: 30s
       timeout: 10s
@@ -48,6 +59,7 @@ services:
 
   # Agent 1 overrides - fast heartbeat + memory-app ports + fast memory profiling
   agent-1:
+    image: coral-agent:e2e
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
@@ -97,6 +109,51 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Worker App - client-only process with no listening socket, only outbound
+  # HTTP calls (RFD 102 test fixture). Sets OTEL_SERVICE_NAME so
+  # EnvVarProvider can name it; ProcFSProvider's process walk marks it
+  # IsClientOnly=true since it never appears in the socket table. Beyla must
+  # instrument it via an exe_path rule rather than open_ports.
+  # Runs in agent-0's network AND PID namespace so DiscoveryManager's /proc
+  # scan (from within agent-0) can see it.
+  worker-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/worker-app/Dockerfile
+    environment:
+      - OTEL_SERVICE_NAME=e2e-worker-app
+      - WORKER_TARGET_URL=http://localhost:8090/health
+    network_mode: "service:agent-0"
+    pid: "service:agent-0"
+    depends_on:
+      otel-app:
+        condition: service_healthy
+
+  # Netns App - RFD 112 fixture: shares agent-0's PID namespace (so agent-0
+  # sees its PID via /proc) but keeps its own network namespace (no
+  # network_mode override) — the ordinary-Docker-Compose-app scenario RFD
+  # 112 makes discoverable. Its listening socket is invisible to a plain
+  # /proc/net/tcp scan from agent-0's own namespace; only a namespace-aware
+  # ProcFSProvider (scanning /proc/<pid>/net/tcp via this PID specifically)
+  # finds it. No Docker socket or network_mode: host is used here or in
+  # agent-0's config, matching the RFD's non-goals.
+  netns-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/netns-app/Dockerfile
+    pid: "service:agent-0"
+    ports:
+      - "18085:8080"
+    depends_on:
+      agent-0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 3

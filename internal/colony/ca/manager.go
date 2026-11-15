@@ -90,6 +90,11 @@ func NewManager(db *sql.DB, logger zerolog.Logger, cfg Config) (*Manager, error)
 		return nil, fmt.Errorf("failed to ensure PSK table: %w", err)
 	}
 
+	// Ensure consumed_referral_tickets table exists (RFD 109).
+	if err := m.ensureConsumedTicketsTable(); err != nil {
+		return nil, fmt.Errorf("failed to ensure consumed referral tickets table: %w", err)
+	}
+
 	return m, nil
 }
 
@@ -322,6 +327,24 @@ func (m *Manager) loadCA() error {
 // This is a stateless validation per RFD 049.
 func (m *Manager) ValidateReferralTicket(tokenString string) (*ReferralClaims, error) {
 	return m.policy.ValidateReferralTicket(tokenString)
+}
+
+// ValidateCSRIdentity validates a CSR's signature and confirms its subject
+// CN matches the expected agentID/colonyID, without issuing a certificate.
+// Used by RFD 109's compound enrollment to check ticket/CSR/RegisterRequest
+// identity consistency before touching the mesh allocator or WireGuard
+// device, ahead of the point where IssueCertificate would otherwise perform
+// the same check.
+func (m *Manager) ValidateCSRIdentity(csrPEM []byte, agentID, colonyID string) error {
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return fmt.Errorf("failed to decode CSR PEM")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse CSR: %w", err)
+	}
+	return m.policy.ValidateAgentCSR(csr, agentID, colonyID)
 }
 
 // IssueCertificate issues a new client certificate for an agent.
@@ -776,6 +799,54 @@ func (m *Manager) ensurePSKTable() error {
 	return nil
 }
 
+// ensureConsumedTicketsTable creates the consumed_referral_tickets table if
+// it does not exist. RFD 048 documents referral tickets as single-use via
+// jti, but ValidateReferralTicket is stateless; this table is what actually
+// enforces single-use, closing that gap for RFD 109's enrollment flow.
+func (m *Manager) ensureConsumedTicketsTable() error {
+	_, err := m.db.Exec(`CREATE TABLE IF NOT EXISTS consumed_referral_tickets (
+		jti TEXT PRIMARY KEY,
+		consumed_at TIMESTAMP NOT NULL,
+		expires_at TIMESTAMP NOT NULL
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create consumed_referral_tickets table: %w", err)
+	}
+	return nil
+}
+
+// ConsumeReferralTicketJTI records a referral ticket's jti as consumed,
+// returning an error if it was already consumed (single-use enforcement,
+// RFD 048/109). Callers must validate the ticket's signature and expiry
+// before calling this, and must not issue a certificate unless this
+// succeeds.
+func (m *Manager) ConsumeReferralTicketJTI(ctx context.Context, jti string, expiresAt time.Time) error {
+	if jti == "" {
+		return fmt.Errorf("referral ticket has no jti")
+	}
+	_, err := m.db.ExecContext(ctx,
+		`INSERT INTO consumed_referral_tickets (jti, consumed_at, expires_at) VALUES (?, ?, ?)`,
+		jti, time.Now(), expiresAt)
+	if err != nil {
+		return fmt.Errorf("referral ticket already consumed (jti=%s): %w", jti, err)
+	}
+	return nil
+}
+
+// IsReferralTicketConsumed reports whether a referral ticket's jti has
+// already been consumed. Used during RFD 109 crash recovery to determine
+// whether a certificate was already issued for a given ticket before
+// deciding whether to reissue.
+func (m *Manager) IsReferralTicketConsumed(ctx context.Context, jti string) (bool, error) {
+	var count int
+	err := m.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM consumed_referral_tickets WHERE jti = ?`, jti).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check consumed referral ticket: %w", err)
+	}
+	return count > 0, nil
+}
+
 // BootstrapPSK represents a stored bootstrap PSK record (RFD 088).
 type BootstrapPSK struct {
 	ID              string     `duckdb:"id,pk,immutable"`
@@ -901,6 +972,59 @@ func (m *Manager) ValidateBootstrapPSK(ctx context.Context, psk string) error {
 		return fmt.Errorf("invalid bootstrap PSK")
 	}
 	return nil
+}
+
+// ListValidPSKs returns all currently valid Bootstrap PSKs (decrypted) —
+// the active PSK and, during a rotation grace period, the prior PSK too.
+// Used by the RFD 108 rendezvous dialer, which must derive candidate
+// decryption keys the same way RFD 088 already dual-accepts PSKs on
+// RequestCertificate during a grace period.
+func (m *Manager) ListValidPSKs(ctx context.Context) ([]string, error) {
+	// Lazy cleanup of expired grace PSKs, matching ValidateBootstrapPSK.
+	_, _ = m.db.ExecContext(ctx,
+		`UPDATE bootstrap_psks SET status = 'revoked', revoked_at = ?
+		 WHERE status = 'grace' AND grace_expires_at IS NOT NULL AND grace_expires_at < ?`,
+		time.Now(), time.Now())
+
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT encrypted_psk, encryption_nonce FROM bootstrap_psks
+		 WHERE status IN ('active', 'grace')
+		 AND (grace_expires_at IS NULL OR grace_expires_at > ?)`,
+		time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query PSKs: %w", err)
+	}
+	defer safe.Close(rows, m.logger, "failed to close rows")
+
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	encKey, err := DeriveEncryptionKey(rootKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	var psks []string
+	for rows.Next() {
+		var ciphertext, nonce []byte
+		if err := rows.Scan(&ciphertext, &nonce); err != nil {
+			return nil, fmt.Errorf("failed to scan PSK row: %w", err)
+		}
+		stored, err := DecryptPSK(ciphertext, nonce, encKey)
+		if err != nil {
+			continue // Skip corrupted entries.
+		}
+		psks = append(psks, stored)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating PSK rows: %w", err)
+	}
+	if len(psks) == 0 {
+		return nil, fmt.Errorf("no valid bootstrap PSKs found")
+	}
+	return psks, nil
 }
 
 // RotatePSK generates a new PSK and moves the current active PSK to grace status.

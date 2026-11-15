@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -87,13 +88,16 @@ func (p *MemoryProfilePoller) PollOnce(ctx context.Context) error {
 	}
 	pendingCheckpoints := make(map[string]checkpointUpdate)
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		samples, sessionID, maxSeqID, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
 
-		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
+		summaries := aggregateMemoryProfileSamples(ctx, p.db, p.logger, agent.AgentID, samples)
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		allSummaries = append(allSummaries, summaries...)
 
 		if maxSeqID > 0 {
@@ -200,7 +204,7 @@ func (p *MemoryProfilePoller) pollAgent(ctx context.Context, agent *registry.Ent
 				timestamps[i] = s.Timestamp.AsTime().UnixMilli()
 			}
 		}
-		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().
 				Str("agent", agent.AgentID).
 				Uint64("gap_start", gap.StartSeqID).
@@ -213,8 +217,13 @@ func (p *MemoryProfilePoller) pollAgent(ctx context.Context, agent *registry.Ent
 	return resp.Msg.Samples, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
-// aggregateSamples aggregates memory profile samples into 1-minute buckets.
-func (p *MemoryProfilePoller) aggregateSamples(ctx context.Context,
+// aggregateMemoryProfileSamples aggregates memory profile samples into 1-minute buckets.
+// Samples with the same stack (within the same minute bucket) are merged by summing allocations.
+// It is shared by MemoryProfilePoller and GapRecoveryService.
+func aggregateMemoryProfileSamples(
+	ctx context.Context,
+	db *database.Database,
+	logger zerolog.Logger,
 	agentID string,
 	samples []*agentv1.MemoryProfileSample,
 ) []database.MemoryProfileSummary {
@@ -240,9 +249,9 @@ func (p *MemoryProfilePoller) aggregateSamples(ctx context.Context,
 	for _, sample := range samples {
 		bucketTime := sample.Timestamp.AsTime().Truncate(time.Minute)
 
-		frameIDs, err := p.db.EncodeStackFrames(ctx, sample.StackFrames)
+		frameIDs, err := db.EncodeStackFrames(ctx, sample.StackFrames)
 		if err != nil {
-			p.logger.Warn().
+			logger.Warn().
 				Err(err).
 				Int("stack_depth", len(sample.StackFrames)).
 				Msg("Failed to encode stack frames, skipping memory sample")

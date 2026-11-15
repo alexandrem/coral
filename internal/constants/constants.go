@@ -38,6 +38,11 @@ var (
 	// DefaultWireGuardPort is the default WireGuard peering port for colonies.
 	DefaultWireGuardPort = 41580
 
+	// DefaultAgentWireGuardPort is the default UDP listen port for Agents.
+	// A fixed port lets STUN run before WireGuard binds and ensures the Agent
+	// can publish a usable endpoint for RFD 109 rendezvous enrollment.
+	DefaultAgentWireGuardPort = 51820
+
 	DefaultWireGuardKeepaliveSeconds = 25
 
 	// DefaultWireGuardMTU is default MTU for WireGuard (1500 - 80 overhead).
@@ -104,6 +109,12 @@ const (
 
 	// DefaultServiceCheckTimeout is the default timeout for agent health checks.
 	DefaultServiceCheckTimeout = 2 * time.Second
+
+	// DefaultMissedLivenessThreshold is the number of consecutive missed
+	// process-liveness checks (RFD 111) before a portless service is marked
+	// unhealthy. Debounces brief PID-table races rather than flapping on
+	// the first miss.
+	DefaultMissedLivenessThreshold = 2
 
 	// DefaultColonyServiceQueryTimeout is for querying service metadata.
 	DefaultColonyServiceQueryTimeout = 5 * time.Second
@@ -333,4 +344,64 @@ const (
 
 	// DefaultColonyDebugQueryMaxRecords is the default limit for debug queries.
 	DefaultColonyDebugQueryMaxRecords = 5000
+)
+
+// PSK-Encrypted Rendezvous Bootstrap Configuration (RFD 108).
+const (
+	// DefaultAgentBootstrapPort is the default port for the Agent's single-use,
+	// short-lived TLS listener used during rendezvous bootstrap.
+	DefaultAgentBootstrapPort = 8444
+
+	// DefaultRendezvousRecordTTL is the default TTL Discovery assigns to a
+	// published rendezvous record.
+	DefaultRendezvousRecordTTL = 90 * time.Second
+
+	// DefaultRendezvousRepublishInterval is how often the Agent republishes
+	// its rendezvous record while waiting for the Colony to dial back.
+	DefaultRendezvousRepublishInterval = 30 * time.Second
+
+	// DefaultRendezvousWaitBudget is the total time the Agent waits for a
+	// dial-back before failing the rendezvous bootstrap attempt.
+	DefaultRendezvousWaitBudget = 120 * time.Second
+
+	// DefaultRendezvousPollWaitSeconds is the long-poll wait the Colony
+	// requests on each PollBootstrapRendezvous call.
+	DefaultRendezvousPollWaitSeconds = 25
+
+	// DefaultRendezvousHandshakeDeadline bounds how long the Agent's accept
+	// loop waits for a TLS handshake on an inbound connection before
+	// discarding it.
+	DefaultRendezvousHandshakeDeadline = 5 * time.Second
+
+	// DefaultRendezvousMaxConcurrentHandshakes bounds the number of
+	// concurrently in-flight TLS handshakes the Agent's accept loop processes.
+	DefaultRendezvousMaxConcurrentHandshakes = 8
+
+	// DefaultRendezvousBackoffInitial is the initial per-record_id backoff the
+	// Colony applies before re-attempting a failed dial/decrypt.
+	DefaultRendezvousBackoffInitial = 2 * time.Second
+
+	// DefaultRendezvousBackoffMax caps the exponential per-record_id backoff.
+	DefaultRendezvousBackoffMax = 15 * time.Second
+
+	// RendezvousHKDFInfo is the HKDF info string used to derive the rendezvous
+	// AEAD key from the Bootstrap PSK, distinct from any other PSK-derived key.
+	RendezvousHKDFInfo = "coral-bootstrap-rendezvous-v1"
+
+	// RendezvousNonceHeader is the HTTP header carrying the rendezvous session
+	// nonce on the RequestCertificate call made over a dial-back connection.
+	RendezvousNonceHeader = "Coral-Rendezvous-Nonce"
+
+	// RendezvousRecordIDHeader carries the RFD 108 rendezvous record_id the
+	// current dial-back connection was established for (RFD 109). Set only
+	// by the Colony's own rendezvous dialer after it has already validated
+	// Coral-Rendezvous-Nonce for that record — never trust this header on a
+	// request that did not arrive through the rendezvous dial-back handler.
+	RendezvousRecordIDHeader = "Coral-Rendezvous-Record-Id"
+
+	// CapabilityBootstrapAndRegister is the RegisterRequest.capabilities
+	// value an Agent advertises once it supports RFD 109's compound
+	// BootstrapAndRegister RPC, gating that feature independently of
+	// protocol_version (see RFD 109 Resolved Design Decisions).
+	CapabilityBootstrapAndRegister = "bootstrap_and_register"
 )

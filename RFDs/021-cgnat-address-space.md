@@ -300,7 +300,7 @@ CORAL_MESH_SUBNET=10.42.0.0/16 coral colony start
   loading
 - `internal/cli/colony/colony.go` - Updated help text with `CORAL_MESH_SUBNET`
   documentation
-- `docs/CONFIG.md` - Comprehensive configuration guide with network deep dive
+- `docs/user/configuration-reference.md` - Comprehensive configuration guide with network deep dive
 - All test files updated to use CGNAT addresses
 
 **Integration Status:**
@@ -313,7 +313,7 @@ CORAL_MESH_SUBNET=10.42.0.0/16 coral colony start
 
 **Documentation:**
 
-- ✅ [Configuration Guide](../docs/CONFIG.md) - Complete reference for all config
+- ✅ [Configuration Guide](../docs/user/configuration-reference.md) - Complete reference for all config
   options
 - ✅ RFD 021 implementation plan completed
 - ✅ Environment variable documentation in CLI help

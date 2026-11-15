@@ -223,7 +223,10 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 	return nil
 }
 
-// RemovePeer removes a WireGuard peer by public key.
+// RemovePeer removes a WireGuard peer by public key. It is a no-op,
+// returning nil, if the peer is already absent — RFD 109's phased
+// peer-replacement relies on this to make a crash-and-retry of the
+// remove-old-peer sub-phase idempotent.
 func (d *Device) RemovePeer(publicKey string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -233,7 +236,7 @@ func (d *Device) RemovePeer(publicKey string) error {
 	}
 
 	if _, ok := d.peers[publicKey]; !ok {
-		return fmt.Errorf("peer not found: %s", publicKey)
+		return nil
 	}
 
 	// Remove from peers map
@@ -248,6 +251,35 @@ func (d *Device) RemovePeer(publicKey string) error {
 	}
 
 	return nil
+}
+
+// TriggerHandshake initiates an immediate WireGuard handshake with the peer
+// identified by publicKey, rather than waiting for the next keepalive
+// interval. Used after RFD 109 rendezvous enrollment, where the Colony (not
+// the Agent) must initiate the first handshake since it is the NAT'd party.
+func (d *Device) TriggerHandshake(publicKey string) error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if d.wgDevice == nil {
+		return fmt.Errorf("device not started")
+	}
+
+	keyBytes, err := base64.StdEncoding.DecodeString(publicKey)
+	if err != nil {
+		return fmt.Errorf("invalid public key: %w", err)
+	}
+	if len(keyBytes) != 32 {
+		return fmt.Errorf("invalid public key length: expected 32 bytes, got %d", len(keyBytes))
+	}
+	var noiseKey device.NoisePublicKey
+	copy(noiseKey[:], keyBytes)
+
+	peer := d.wgDevice.LookupPeer(noiseKey)
+	if peer == nil {
+		return fmt.Errorf("peer not found: %s", publicKey)
+	}
+	return peer.SendHandshakeInitiation(false)
 }
 
 // GetPeer returns the configuration for a peer by public key.
@@ -444,10 +476,10 @@ func (d *Device) configure() error {
 
 	// Build UAPI configuration
 	uapiConfig := strings.Builder{}
-	uapiConfig.WriteString(fmt.Sprintf("private_key=%s\n", privateKeyHex))
+	fmt.Fprintf(&uapiConfig, "private_key=%s\n", privateKeyHex)
 
 	if d.cfg.Port > 0 {
-		uapiConfig.WriteString(fmt.Sprintf("listen_port=%d\n", d.cfg.Port))
+		fmt.Fprintf(&uapiConfig, "listen_port=%d\n", d.cfg.Port)
 	}
 
 	// Apply configuration
@@ -470,21 +502,21 @@ func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) string {
 	}
 	pubKeyHex := fmt.Sprintf("%x", pubKeyBytes)
 
-	uapiConfig.WriteString(fmt.Sprintf("public_key=%s\n", pubKeyHex))
+	fmt.Fprintf(&uapiConfig, "public_key=%s\n", pubKeyHex)
 
 	// Add endpoint if provided
 	if peerConfig.Endpoint != "" {
-		uapiConfig.WriteString(fmt.Sprintf("endpoint=%s\n", peerConfig.Endpoint))
+		fmt.Fprintf(&uapiConfig, "endpoint=%s\n", peerConfig.Endpoint)
 	}
 
 	// Add allowed IPs
 	for _, allowedIP := range peerConfig.AllowedIPs {
-		uapiConfig.WriteString(fmt.Sprintf("allowed_ip=%s\n", allowedIP))
+		fmt.Fprintf(&uapiConfig, "allowed_ip=%s\n", allowedIP)
 	}
 
 	// Add persistent keepalive
 	if peerConfig.PersistentKeepalive > 0 {
-		uapiConfig.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive))
+		fmt.Fprintf(&uapiConfig, "persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive)
 	}
 
 	return uapiConfig.String()
@@ -519,27 +551,27 @@ func wrapPermissionError(err error) error {
 	}
 
 	var helpMsg strings.Builder
-	helpMsg.WriteString(fmt.Sprintf("Failed to create TUN device: %v\n\n", err))
+	fmt.Fprintf(&helpMsg, "Failed to create TUN device: %v\n\n", err)
 	helpMsg.WriteString("TUN device creation requires elevated privileges. Choose one of:\n\n")
 
 	if runtime.GOOS == "linux" {
 		helpMsg.WriteString("  1. Install capabilities (Linux only, recommended):\n")
-		helpMsg.WriteString(fmt.Sprintf("     sudo setcap cap_net_admin+ep %s\n\n", binaryPath))
+		fmt.Fprintf(&helpMsg, "     sudo setcap cap_net_admin+ep %s\n\n", binaryPath)
 		helpMsg.WriteString("  2. Run with sudo:\n")
 		helpMsg.WriteString("     sudo coral colony start\n\n")
 		helpMsg.WriteString("  3. Make binary setuid (use with caution):\n")
-		helpMsg.WriteString(fmt.Sprintf("     sudo chown root:root %s\n", binaryPath))
-		helpMsg.WriteString(fmt.Sprintf("     sudo chmod u+s %s\n\n", binaryPath))
+		fmt.Fprintf(&helpMsg, "     sudo chown root:root %s\n", binaryPath)
+		fmt.Fprintf(&helpMsg, "     sudo chmod u+s %s\n\n", binaryPath)
 	} else {
 		// macOS and other platforms.
 		helpMsg.WriteString("  1. Run with sudo:\n")
 		helpMsg.WriteString("     sudo coral colony start\n\n")
 		helpMsg.WriteString("  2. Make binary setuid (use with caution):\n")
-		helpMsg.WriteString(fmt.Sprintf("     sudo chown root:root %s\n", binaryPath))
-		helpMsg.WriteString(fmt.Sprintf("     sudo chmod u+s %s\n\n", binaryPath))
+		fmt.Fprintf(&helpMsg, "     sudo chown root:root %s\n", binaryPath)
+		fmt.Fprintf(&helpMsg, "     sudo chmod u+s %s\n\n", binaryPath)
 	}
 
-	helpMsg.WriteString("For more information, see: docs/INSTALLATION.md")
+	helpMsg.WriteString("For more information, see: docs/user/installation.md")
 
 	return fmt.Errorf("%s", helpMsg.String())
 }

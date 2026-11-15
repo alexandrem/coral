@@ -86,7 +86,7 @@ func StartMCPProxyWithEnv(ctx context.Context, colonyID string, cliEnv *CLITestE
 	coralBin := getCoralBinaryPath()
 
 	// Create command
-	cmd := exec.CommandContext(proxyCtx, coralBin, "colony", "mcp", "proxy", "--colony", colonyID)
+	cmd := exec.CommandContext(proxyCtx, coralBin, "mcp", "proxy", "--colony", colonyID)
 
 	// Set environment - start with parent env, then add test env vars
 	cmd.Env = os.Environ()

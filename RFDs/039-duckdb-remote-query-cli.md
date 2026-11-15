@@ -745,7 +745,7 @@ using standard SQL without requiring API changes or SSH access.
 **Integration Status:**
 
 All planned integration work is complete. Feature is production-ready and documented
-in `docs/CLI.md`.
+in `docs/user/README.md`.
 
 **Deployment Requirements:**
 

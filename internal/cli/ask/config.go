@@ -483,6 +483,7 @@ func testProviderConnectivity(providerName, apiKey string) error {
 
 	if url != "" {
 		client := &http.Client{Timeout: 10 * time.Second}
+		//nolint:gosec // G704: URL is selected exclusively from hard-coded provider endpoints.
 		resp, err := client.Get(url)
 		if err != nil {
 			return err

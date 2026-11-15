@@ -10,7 +10,7 @@
 #   --colony <id>         Colony ID to join
 #   --fingerprint <fp>    Colony Root CA Fingerprint (sha256:...)
 #   --psk <key>           Bootstrap Pre-Shared Key (coral-psk:...)
-#   --discovery <url>     Discovery service URL (default: https://discovery.coral.io)
+#   --discovery <url>     Discovery service URL (default: https://discovery.coralmesh.dev)
 #   --agent <id>          Agent ID (default: auto-generated from hostname)
 #   --version <ver>       Version tag to download (default: latest)
 #   --binary-path <path>  Use local binary instead of downloading
@@ -21,7 +21,7 @@ set -euo pipefail
 
 REPO_OWNER="coral-mesh"
 REPO_NAME="coral"
-DEFAULT_DISCOVERY="https://discovery.coral.io"
+DEFAULT_DISCOVERY="https://discovery.coralmesh.dev"
 
 COLONY_ID=""
 CA_FINGERPRINT=""

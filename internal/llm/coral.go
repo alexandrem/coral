@@ -182,7 +182,7 @@ func serializeMessages(messages []Message) string {
 		if msg.Role == "system" {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("[%s] %s\n", msg.Role, msg.Content))
+		fmt.Fprintf(&sb, "[%s] %s\n", msg.Role, msg.Content)
 	}
 	return sb.String()
 }
@@ -209,14 +209,14 @@ func inferSignalType(content string) string {
 func formatDiagnosticReport(resp diagnosticResponse) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("## %s\n", resp.Summary))
-	sb.WriteString(fmt.Sprintf("**Severity:** %s\n\n", resp.Severity))
+	fmt.Fprintf(&sb, "## %s\n", resp.Summary)
+	fmt.Fprintf(&sb, "**Severity:** %s\n\n", resp.Severity)
 	sb.WriteString(resp.Analysis)
 
 	if len(resp.Remediations) > 0 {
 		sb.WriteString("\n\n### Remediations\n")
 		for i, r := range resp.Remediations {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, r))
+			fmt.Fprintf(&sb, "%d. %s\n", i+1, r)
 		}
 	}
 

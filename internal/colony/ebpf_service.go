@@ -172,33 +172,59 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		return convertSummaryMapToSlice(summaryMap), nil
 	}
 
-	// 3. Merge OTLP data with eBPF data.
+	// 3. Aggregate and merge OTLP data with eBPF data.
+	type otlpAgg struct {
+		totalSpans int64
+		errorCount int64
+		p95Sum     float64
+		count      int
+	}
+	otlpByService := make(map[string]*otlpAgg)
 	for _, otlp := range telemetrySummaries {
 		if serviceName != "" && otlp.ServiceName != serviceName {
 			continue
 		}
 
-		existing, exists := summaryMap[otlp.ServiceName]
+		agg, exists := otlpByService[otlp.ServiceName]
+		if !exists {
+			agg = &otlpAgg{}
+			otlpByService[otlp.ServiceName] = agg
+		}
+		agg.totalSpans += int64(otlp.TotalSpans)
+		agg.errorCount += int64(otlp.ErrorCount)
+		if otlp.P95Ms > 0 {
+			agg.p95Sum += otlp.P95Ms
+			agg.count++
+		}
+	}
+
+	for svcName, otlp := range otlpByService {
+		avgP95 := float64(0)
+		if otlp.count > 0 {
+			avgP95 = otlp.p95Sum / float64(otlp.count)
+		}
+
+		existing, exists := summaryMap[svcName]
 		if exists {
 			// Service has both eBPF and OTLP data - merge.
 			existing.Source = "eBPF+OTLP"
 
-			// Add OTLP metrics.
-			otlpReqCount := int64(otlp.TotalSpans)
-			otlpErrorCount := int64(otlp.ErrorCount)
-
-			existing.RequestCount += otlpReqCount
+			existing.RequestCount += otlp.totalSpans
 
 			// Recalculate error rate with both sources.
-			totalErrors := float64(ebpfErrorCounts[otlp.ServiceName] + otlpErrorCount)
+			totalErrors := float64(ebpfErrorCounts[svcName] + otlp.errorCount)
 			totalRequests := float64(existing.RequestCount)
 			if totalRequests > 0 {
 				existing.ErrorRate = totalErrors / totalRequests * 100
 			}
 
 			// Average the P95 latencies (simplified merging).
-			if otlp.P95Ms > 0 {
-				existing.AvgLatencyMs = (existing.AvgLatencyMs + otlp.P95Ms) / 2
+			if avgP95 > 0 {
+				if existing.AvgLatencyMs > 0 {
+					existing.AvgLatencyMs = (existing.AvgLatencyMs + avgP95) / 2
+				} else {
+					existing.AvgLatencyMs = avgP95
+				}
 			}
 
 			// Re-evaluate status.
@@ -210,23 +236,23 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		} else {
 			// Service has only OTLP data.
 			errorRate := float64(0)
-			if otlp.TotalSpans > 0 {
-				errorRate = float64(otlp.ErrorCount) / float64(otlp.TotalSpans) * 100
+			if otlp.totalSpans > 0 {
+				errorRate = float64(otlp.errorCount) / float64(otlp.totalSpans) * 100
 			}
 
 			status := ServiceStatusHealthy
-			if errorRate > 5.0 || otlp.P95Ms > 2000 {
+			if errorRate > 5.0 || avgP95 > 2000 {
 				status = ServiceStatusCritical
-			} else if errorRate > 1.0 || otlp.P95Ms > 1000 {
+			} else if errorRate > 1.0 || avgP95 > 1000 {
 				status = ServiceStatusDegraded
 			}
 
-			summaryMap[otlp.ServiceName] = &UnifiedSummaryResult{
-				ServiceName:  otlp.ServiceName,
+			summaryMap[svcName] = &UnifiedSummaryResult{
+				ServiceName:  svcName,
 				Status:       status,
-				RequestCount: int64(otlp.TotalSpans),
+				RequestCount: otlp.totalSpans,
 				ErrorRate:    errorRate,
-				AvgLatencyMs: otlp.P95Ms,
+				AvgLatencyMs: avgP95,
 				Source:       "OTLP",
 			}
 		}

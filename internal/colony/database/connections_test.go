@@ -1,7 +1,10 @@
 package database
 
 import (
+	"bytes"
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,6 +162,89 @@ func TestMaterializeConnections_AggregatesMultipleCalls(t *testing.T) {
 		"SELECT connection_count FROM service_connections WHERE from_service = 'frontend'",
 	).Scan(&connCount))
 	assert.Equal(t, 3, connCount, "All three calls should be aggregated into one edge")
+}
+
+// edgeCount returns the stored connection_count for the from → to edge.
+func edgeCount(t *testing.T, db *Database, from, to string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.db.QueryRow(
+		"SELECT connection_count FROM service_connections WHERE from_service = ? AND to_service = ?",
+		from, to,
+	).Scan(&n))
+	return n
+}
+
+func TestMaterializeConnections_IdempotentOverOverlappingWindows(t *testing.T) {
+	db, cleanup := newTestDatabase(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	for i := range 3 {
+		suffix := string(rune('a' + i))
+		insertCrossServiceSpan(t, db,
+			"trace00000000000000000000000030"+suffix,
+			"parentspan00030"+suffix,
+			"childspan000030"+suffix,
+			"frontend", "backend",
+			-time.Duration(i+1)*time.Minute,
+		)
+	}
+
+	// Re-running over the same window (as GetServiceConnections does every TTL)
+	// must not add the same calls again.
+	since := time.Now().Add(-time.Hour)
+	for range 4 {
+		require.NoError(t, db.MaterializeConnections(ctx, since))
+	}
+	assert.Equal(t, 3, edgeCount(t, db, "frontend", "backend"),
+		"Repeated materialization over the same spans must not inflate the count")
+
+	// New traffic is reflected exactly once.
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000031",
+		"parentspan000031",
+		"childspan0000031",
+		"frontend", "backend",
+		0,
+	)
+	require.NoError(t, db.MaterializeConnections(ctx, since))
+	require.NoError(t, db.MaterializeConnections(ctx, since))
+	assert.Equal(t, 4, edgeCount(t, db, "frontend", "backend"))
+}
+
+func TestMaterializeConnections_EdgeOutsideWindowResetToZero(t *testing.T) {
+	db, cleanup := newTestDatabase(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000040",
+		"parentspan000040",
+		"childspan0000040",
+		"frontend", "backend",
+		-30*time.Minute,
+	)
+
+	require.NoError(t, db.MaterializeConnections(ctx, time.Now().Add(-time.Hour)))
+	assert.Equal(t, 1, edgeCount(t, db, "frontend", "backend"))
+
+	var firstBefore, lastBefore time.Time
+	require.NoError(t, db.db.QueryRow(
+		"SELECT first_observed, last_observed FROM service_connections WHERE from_service = 'frontend'",
+	).Scan(&firstBefore, &lastBefore))
+
+	// The window has moved past the only call: the edge is kept for topology,
+	// but it no longer reports calls from an earlier window.
+	require.NoError(t, db.MaterializeConnections(ctx, time.Now().Add(-10*time.Minute)))
+	assert.Equal(t, 0, edgeCount(t, db, "frontend", "backend"))
+
+	var firstAfter, lastAfter time.Time
+	require.NoError(t, db.db.QueryRow(
+		"SELECT first_observed, last_observed FROM service_connections WHERE from_service = 'frontend'",
+	).Scan(&firstAfter, &lastAfter))
+	assert.True(t, firstBefore.Equal(firstAfter), "first_observed must be preserved")
+	assert.True(t, lastBefore.Equal(lastAfter), "last_observed must be preserved")
 }
 
 func TestMaterializeConnections_MultipleDistinctEdges(t *testing.T) {
@@ -320,9 +406,7 @@ func TestGetServiceConnections_StaleCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// Manually expire the cache timestamp.
-	db.connectionsMu.Lock()
-	db.connectionsLastMaterialized = time.Time{}
-	db.connectionsMu.Unlock()
+	db.connectionsLastMaterialized.Store(0)
 
 	// Insert another edge — now that cache is expired, it should be picked up.
 	insertCrossServiceSpan(t, db,
@@ -336,4 +420,62 @@ func TestGetServiceConnections_StaleCache(t *testing.T) {
 	conns, err := db.GetServiceConnections(ctx, since)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(conns), 2, "Expired cache should re-materialize and include new edge")
+}
+
+func TestGetServiceConnections_ConcurrentStaleCallersMaterializeOnce(t *testing.T) {
+	var logs bytes.Buffer
+	db, err := New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.New(zerolog.SyncWriter(&logs)))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000060",
+		"parentspan000060",
+		"childspan0000060",
+		"herd-a", "herd-b",
+		0,
+	)
+
+	// Release all callers at once against a cold cache.
+	const callers = 16
+	since := time.Now().Add(-time.Hour)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, callers)
+	for i := range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = db.GetServiceConnections(context.Background(), since)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 1, strings.Count(logs.String(), "Materialization complete"),
+		"Concurrent callers on a stale cache must share a single materialization")
+}
+
+func TestGetServiceConnections_CancelledCallerDoesNotAbortRefresh(t *testing.T) {
+	db, cleanup := newTestDatabase(t)
+	defer cleanup()
+
+	insertCrossServiceSpan(t, db,
+		"trace000000000000000000000000070",
+		"parentspan000070",
+		"childspan0000070",
+		"cancel-a", "cancel-b",
+		0,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = db.GetServiceConnections(ctx, time.Now().Add(-time.Hour))
+
+	require.Eventually(t, func() bool { return !db.connectionsStale() }, 10*time.Second, 10*time.Millisecond,
+		"A refresh started by a cancelled caller must still complete")
 }

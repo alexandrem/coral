@@ -490,7 +490,7 @@ CORAL_COLONY_ID=my-app-prod-a3f2e1
 CORAL_CA_FINGERPRINT=sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
 
 # Optional (has defaults)
-CORAL_DISCOVERY_ENDPOINT=https://discovery.coral.io:8080
+CORAL_DISCOVERY_ENDPOINT=https://discovery.coralmesh.dev:8080
 ```
 
 ### Kubernetes Deployment
@@ -550,7 +550,7 @@ security:
 
     bootstrap:
         enabled: true  # Enable automatic bootstrap on first connect
-        discovery_url: https://discovery.coral.io:8080
+        discovery_url: https://discovery.coralmesh.dev:8080
         fallback_to_secret: true  # Fall back to colony_secret if bootstrap fails (migration only)
         retry_attempts: 3
         retry_delay: 5s
@@ -706,8 +706,8 @@ security:
 - [x] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)**
 - [x] Update agent deployment documentation
 - [x] Add troubleshooting guide for bootstrap failures
-- [x] Update docs/CLI.md and docs/CLI_REFERENCE.md
-- [x] Update docs/CONFIG.md
+- [x] Update docs/user/README.md and docs/CLI_REFERENCE.md
+- [x] Update docs/user/configuration-reference.md
 
 ## API Changes
 
@@ -1143,7 +1143,7 @@ coral agent debug-ca
 coral agent test-bootstrap --dry-run
 
 # Output:
-# ✓ Discovery reachable (https://discovery.coral.io:8080)
+# ✓ Discovery reachable (https://discovery.coralmesh.dev:8080)
 # ✓ Referral ticket obtained (expires in 60s)
 # ✓ Colony reachable (https://colony.example.com:9000)
 # ✓ Root CA fingerprint matches

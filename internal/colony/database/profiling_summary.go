@@ -482,7 +482,7 @@ func FormatCompactSummary(period string, totalSamples uint64, hotspots []Profili
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("   CPU Profiling (%s, %d samples):\n", period, totalSamples))
+	fmt.Fprintf(&b, "   CPU Profiling (%s, %d samples):\n", period, totalSamples)
 
 	// Hot path: use the hottest stack (first hotspot).
 	hotPath := simplifyAndTrimFrames(hotspots[0].Frames)
@@ -502,7 +502,7 @@ func FormatCompactSummary(period string, totalSamples uint64, hotspots []Profili
 		if len(h.Frames) > 0 {
 			name = ShortFunctionName(SimplifyFrame(h.Frames[0]))
 		}
-		b.WriteString(fmt.Sprintf("%s (%.1f%%)", name, h.Percentage))
+		fmt.Fprintf(&b, "%s (%.1f%%)", name, h.Percentage)
 	}
 	b.WriteString("\n")
 
@@ -524,7 +524,7 @@ func FormatCompactMemorySummary(period string, totalAllocBytes int64, hotspots [
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("   Memory Profiling (%s, %s allocated):\n", period, formatBytes(totalAllocBytes)))
+	fmt.Fprintf(&b, "   Memory Profiling (%s, %s allocated):\n", period, formatBytes(totalAllocBytes))
 
 	// Hot path: use the hottest stack (first hotspot).
 	hotPath := simplifyAndTrimFrames(hotspots[0].Frames)
@@ -544,7 +544,7 @@ func FormatCompactMemorySummary(period string, totalAllocBytes int64, hotspots [
 		if len(h.Frames) > 0 {
 			name = ShortFunctionName(SimplifyFrame(h.Frames[0]))
 		}
-		b.WriteString(fmt.Sprintf("%s (%.1f%%, %s)", name, h.Percentage, formatBytes(h.AllocBytes)))
+		fmt.Fprintf(&b, "%s (%.1f%%, %s)", name, h.Percentage, formatBytes(h.AllocBytes))
 	}
 	b.WriteString("\n")
 

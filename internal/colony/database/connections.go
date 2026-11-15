@@ -8,21 +8,28 @@ import (
 
 // ServiceConnection represents a discovered connection between services.
 type ServiceConnection struct {
-	FromService     string    `duckdb:"from_service,pk"`
-	ToService       string    `duckdb:"to_service,pk"`
-	Protocol        string    `duckdb:"protocol,pk"`
-	FirstObserved   time.Time `duckdb:"first_observed"`
-	LastObserved    time.Time `duckdb:"last_observed"`
-	ConnectionCount int       `duckdb:"connection_count"`
+	FromService   string    `duckdb:"from_service,pk"`
+	ToService     string    `duckdb:"to_service,pk"`
+	Protocol      string    `duckdb:"protocol,pk"`
+	FirstObserved time.Time `duckdb:"first_observed"`
+	LastObserved  time.Time `duckdb:"last_observed"`
+	// ConnectionCount is the number of calls observed in the most recent
+	// materialization window. It is zero for edges with no calls in that window.
+	ConnectionCount int `duckdb:"connection_count"`
 }
 
 // MaterializeConnections re-derives service connections from the beyla_traces table
 // and upserts the results into service_connections (RFD 092).
+//
+// The operation is idempotent: connection_count is recomputed from the spans in
+// [since, now] and replaces the stored value, so repeated runs over overlapping
+// windows do not inflate counts. Edges with no calls in the window are kept, with
+// their count reset to zero.
 func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) error {
 	d.connectionsMu.Lock()
 	defer d.connectionsMu.Unlock()
 
-	// default to last materialized time minus 1 minute for overlap if since is zero.
+	// Default to a 1-hour window if since is zero.
 	if since.IsZero() {
 		since = time.Now().Add(-1 * time.Hour)
 	}
@@ -31,18 +38,6 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 		Time("since", since).
 		Msg("Materializing service connections from Beyla traces")
 
-	// Verify we have spans to work with.
-	var count int
-	if err := d.db.QueryRowContext(ctx, "SELECT count(*) FROM beyla_traces WHERE start_time >= ?", since).Scan(&count); err != nil {
-		return fmt.Errorf("failed to check trace count: %w", err)
-	}
-	if count == 0 {
-		d.logger.Info().Msg("No recent traces found for materialization")
-		return nil
-	}
-
-	d.logger.Info().Int("trace_count", count).Msg("Processing traces for materialization")
-
 	// Performance optimization: Pre-filter potential parent spans to a window around 'since'.
 	// This avoids full table scans during the fuzzy matching strategies.
 	candidatesSince := since.Add(-60 * time.Second)
@@ -50,17 +45,17 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	query := `
 		WITH candidates AS (
 			-- All spans within the relevant window (since - 60s)
-			SELECT * FROM beyla_traces 
+			SELECT * FROM beyla_traces
 			WHERE start_time >= ?
 		),
 		child_spans AS (
 			-- Destination spans to be matched (since)
-			SELECT * FROM candidates 
+			SELECT * FROM candidates
 			WHERE start_time >= ?
 		),
 		matches AS (
 			-- STRATEGY 1: Direct parent_span_id link (Precise)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
 				LOWER(p.service_name) as from_service,
 				LOWER(c.service_name) as to_service,
@@ -74,10 +69,16 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			UNION ALL
 
 			-- STRATEGY 2: Trace ID match (Fallback when direct link missing but trace context present)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
-				LOWER(p.service_name) as from_service,
-				LOWER(c.service_name) as to_service,
+				CASE
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(p.service_name)
+					ELSE LOWER(c.service_name)
+				END as from_service,
+				CASE
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(c.service_name)
+					ELSE LOWER(p.service_name)
+				END as to_service,
 				c.start_time,
 				p.start_time as parent_time,
 				2 as priority
@@ -91,10 +92,16 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			UNION ALL
 
 			-- STRATEGY 3: Time-based correlation (Last resort fallback)
-			SELECT 
+			SELECT
 				c.span_id as child_id,
-				LOWER(p.service_name) as from_service,
-				LOWER(c.service_name) as to_service,
+				CASE
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(p.service_name)
+					ELSE LOWER(c.service_name)
+				END as from_service,
+				CASE
+					WHEN UPPER(p.span_kind) = 'CLIENT' OR p.start_time <= c.start_time THEN LOWER(c.service_name)
+					ELSE LOWER(p.service_name)
+				END as to_service,
 				c.start_time,
 				p.start_time as parent_time,
 				3 as priority
@@ -107,14 +114,14 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 			SELECT from_service, to_service, start_time
 			FROM matches
 			QUALIFY row_number() OVER (
-				PARTITION BY child_id 
+				PARTITION BY child_id
 				ORDER BY priority ASC, ABS(EXTRACT(EPOCH FROM start_time::TIMESTAMP) - EXTRACT(EPOCH FROM parent_time::TIMESTAMP)) ASC
 			) = 1
 		),
 		aggregated AS (
-			SELECT 
-				from_service, 
-				to_service, 
+			SELECT
+				from_service,
+				to_service,
 				'http' as protocol,
 				COUNT(*) as connection_count,
 				MIN(start_time) as first_observed,
@@ -126,13 +133,30 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 		SELECT from_service, to_service, protocol, connection_count, first_observed, last_observed
 		FROM aggregated
 		ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
-			connection_count = service_connections.connection_count + excluded.connection_count,
-			last_observed    = CASE WHEN EXCLUDED.last_observed > service_connections.last_observed THEN EXCLUDED.last_observed ELSE service_connections.last_observed END
+			connection_count = excluded.connection_count,
+			first_observed   = LEAST(service_connections.first_observed, excluded.first_observed),
+			last_observed    = GREATEST(service_connections.last_observed, excluded.last_observed)
 	`
 
-	res, err := d.db.ExecContext(ctx, query, candidatesSince, since)
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin materialization transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Reset all counts so that edges absent from the current window report zero
+	// rather than a stale value from an earlier window.
+	if _, err := tx.ExecContext(ctx, "UPDATE service_connections SET connection_count = 0 WHERE connection_count <> 0"); err != nil {
+		return fmt.Errorf("failed to reset connection counts: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, query, candidatesSince, since)
 	if err != nil {
 		return fmt.Errorf("failed to materialize connections: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit materialized connections: %w", err)
 	}
 
 	rows, _ := res.RowsAffected()
@@ -141,22 +165,15 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 	return nil
 }
 
+// connectionsRefreshTimeout bounds a shared connection materialization run, which
+// is detached from the cancellation of the request that started it.
+const connectionsRefreshTimeout = 30 * time.Second
+
 // GetServiceConnections returns materialized service connections, re-deriving them
 // from trace data when the cached data is stale (TTL 30 s) (RFD 092).
 func (d *Database) GetServiceConnections(ctx context.Context, since time.Time) ([]*ServiceConnection, error) {
-	d.connectionsMu.Lock()
-	needsMaterialization := time.Since(d.connectionsLastMaterialized) >= d.connectionsCacheTTL
-	d.connectionsMu.Unlock()
-
-	if needsMaterialization {
-		// MaterializeConnections will handle its own locking.
-		if err := d.MaterializeConnections(ctx, since); err != nil {
-			d.logger.Warn().Err(err).Msg("Failed to materialize service connections, serving stale data")
-		} else {
-			d.connectionsMu.Lock()
-			d.connectionsLastMaterialized = time.Now()
-			d.connectionsMu.Unlock()
-		}
+	if d.connectionsStale() {
+		d.refreshConnections(ctx, since)
 	}
 
 	const query = `
@@ -191,4 +208,43 @@ func (d *Database) GetServiceConnections(ctx context.Context, since time.Time) (
 	}
 
 	return results, nil
+}
+
+// connectionsStale reports whether the materialized connections are older than
+// the cache TTL.
+func (d *Database) connectionsStale() bool {
+	last := time.Unix(0, d.connectionsLastMaterialized.Load())
+	return time.Since(last) >= d.connectionsCacheTTL
+}
+
+// refreshConnections re-materializes service connections. Concurrent callers
+// share a single run, which uses the since of the caller that started it. The
+// run is detached from ctx so that one cancelled caller does not abort work the
+// others are waiting on; ctx only bounds how long this caller waits. Failures
+// are logged and callers fall back to the previously materialized data.
+func (d *Database) refreshConnections(ctx context.Context, since time.Time) {
+	ch := d.connectionsFlight.DoChan("materialize", func() (any, error) {
+		// A run may have completed between the caller's staleness check and
+		// joining the flight.
+		if !d.connectionsStale() {
+			return nil, nil
+		}
+
+		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), connectionsRefreshTimeout)
+		defer cancel()
+
+		if err := d.MaterializeConnections(runCtx, since); err != nil {
+			return nil, err
+		}
+		d.connectionsLastMaterialized.Store(time.Now().UnixNano())
+		return nil, nil
+	})
+
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			d.logger.Warn().Err(res.Err).Msg("Failed to materialize service connections, serving stale data")
+		}
+	case <-ctx.Done():
+	}
 }

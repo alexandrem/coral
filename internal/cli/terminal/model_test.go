@@ -20,6 +20,8 @@ func (s *stubAgent) AskWithChannel(_ any, _, _ string, _ bool, _ chan<- any) (an
 
 func (s *stubAgent) ResetConversation(_ string) {}
 
+func (s *stubAgent) SwitchModel(modelSpec string) (string, error) { return modelSpec, nil }
+
 func newTestModel(t *testing.T) tea.Model {
 	t.Helper()
 	askModel, err := ui.NewModel(
@@ -86,4 +88,21 @@ func TestTerminalModel_ViewRendersWithoutPanic(t *testing.T) {
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	assert.NotPanics(t, func() { _ = model.View() })
+}
+
+// TestTerminalModel_FollowupFillsMainInputAndFocuses verifies that a
+// browser-dashboard click question pre-fills the main pane's input and
+// switches focus to it, without auto-submitting the query.
+func TestTerminalModel_FollowupFillsMainInputAndFocuses(t *testing.T) {
+	model := newTestModel(t)
+
+	// Start focused on the sidebar so we can confirm the follow-up refocuses main.
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	require.Equal(t, 1, terminal.GetFocusForTest(model), "precondition: sidebar focused")
+
+	updated := terminal.PushFollowupForTest(model, "What happened to api around 14:31?")
+
+	assert.Equal(t, 0, terminal.GetFocusForTest(updated), "a follow-up should refocus the main pane")
+	assert.Contains(t, updated.View(), "What happened to api around 14:31?",
+		"the question should be pre-filled into the input, not auto-submitted")
 }

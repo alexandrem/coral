@@ -547,8 +547,10 @@ func (s *BeylaStorage) QueryHTTPMetricsBySeqID(ctx context.Context, startSeqID u
 			placeholders[i] = "?"
 			args = append(args, serviceNames[i])
 		}
+		// #nosec G202 -- placeholders are fixed question-mark parameters, never user input.
 		query += " AND service_name IN (" + placeholders[0]
 		for i := 1; i < len(placeholders); i++ {
+			// #nosec G202 -- placeholders are fixed question-mark parameters, never user input.
 			query += ", " + placeholders[i]
 		}
 		query += ")"
@@ -640,8 +642,10 @@ func (s *BeylaStorage) QueryGRPCMetricsBySeqID(ctx context.Context, startSeqID u
 			placeholders[i] = "?"
 			args = append(args, serviceNames[i])
 		}
+		// #nosec G202 -- placeholders are fixed question-mark parameters, never user input.
 		query += " AND service_name IN (" + placeholders[0]
 		for i := 1; i < len(placeholders); i++ {
+			// #nosec G202 -- placeholders are fixed question-mark parameters, never user input.
 			query += ", " + placeholders[i]
 		}
 		query += ")"
@@ -732,9 +736,10 @@ func (s *BeylaStorage) QuerySQLMetricsBySeqID(ctx context.Context, startSeqID ui
 			placeholders[i] = "?"
 			args = append(args, serviceNames[i])
 		}
+		// #nosec G202 -- placeholders are fixed question-mark parameters, never user input.
 		query += " AND service_name IN (" + placeholders[0]
 		for i := 1; i < len(placeholders); i++ {
-			query += ", " + placeholders[i]
+			query += ", " + placeholders[i] // #nosec G202 -- generated question-mark parameter.
 		}
 		query += ")"
 	}
@@ -823,9 +828,10 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 			placeholders[i] = "?"
 			args = append(args, serviceNames[i])
 		}
+		// #nosec G202 -- placeholders are fixed question-mark parameters, never user input.
 		query += " AND service_name IN (" + placeholders[0]
 		for i := 1; i < len(placeholders); i++ {
-			query += ", " + placeholders[i]
+			query += ", " + placeholders[i] // #nosec G202 -- generated question-mark parameter.
 		}
 		query += ")"
 	}

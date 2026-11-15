@@ -228,9 +228,9 @@ agent:
 - [ ] Integration test: agent with Vortex extension loaded exports
   `beyla_http_metrics_local`; result is a valid Vortex file.
 - [ ] Integration test: colony proxy correctly forwards `/vortex/*` requests.
-- [ ] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md` with `coral duckdb
+- [ ] Update `docs/user/README.md` and `docs/CLI_REFERENCE.md` with `coral duckdb
       export` command and flags.
-- [ ] Update `docs/STORAGE.md` with Vortex extension requirement and
+- [ ] Update `docs/architecture/data-ownership.md` with Vortex extension requirement and
   `agent.storage.vortex_enabled` config key.
 
 ## API Changes

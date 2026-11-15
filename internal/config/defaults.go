@@ -92,6 +92,7 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.Agent.Colony.AutoDiscover = true
 	cfg.Agent.NAT.STUNServers = []string{constants.DefaultSTUNServer}
 	cfg.Agent.HeartbeatInterval = constants.DefaultHeartbeatInterval
+	cfg.Agent.MonitorAll = true // RFD 103: default-on observation.
 
 	// Telemetry defaults
 	cfg.Telemetry.Disabled = false

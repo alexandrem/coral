@@ -1,7 +1,7 @@
 ---
 rfd: "105"
 title: "ServiceStatus Proto Extension"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "proto", "service-discovery" ]
 
 # RFD 105 - ServiceStatus Proto Extension
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -81,29 +81,29 @@ update `ListServices` to include all entries regardless of naming source.
 
 ### Phase 1: Proto changes
 
-- [ ] Add `ServiceNamingSource` enum to `agent.proto`
-- [ ] Extend `ServiceStatus` message with new fields (field numbers 12-16)
-- [ ] Add `source_filter` to `ListServicesRequest`
-- [ ] Run `make proto` to regenerate Go bindings
+- [x] Add `ServiceNamingSource` enum to `agent.proto`
+- [x] Extend `ServiceStatus` message with new fields (field numbers 12-16)
+- [x] Add `source_filter` to `ListServicesRequest`
+- [x] Run `make proto` to regenerate Go bindings
 
 ### Phase 2: Handler update
 
-- [ ] Update `ListServices` handler to iterate `agent.services`
-- [ ] Populate `auto_name`, `authoritative_name`, `naming_source`,
+- [x] Update `ListServices` handler to iterate `agent.services`
+- [x] Populate `auto_name`, `authoritative_name`, `naming_source`,
       `has_monitor`, `observation_tier` from each `ServiceEntry`
-- [ ] Set `name` to `authoritative_name ?? auto_name`
-- [ ] Apply `source_filter` when present
-- [ ] Remove dead code reading from old `monitors` map
+- [x] Set `name` to `authoritative_name ?? auto_name`
+- [x] Apply `source_filter` when present
+- [x] Remove dead code reading from old `monitors` map
 
 ### Phase 3: Testing
 
-- [ ] Unit test: `ListServices` returns auto-observed entry with
+- [x] Unit test: `ListServices` returns auto-observed entry with
       `naming_source = SERVICE_NAMING_SOURCE_AUTO`
-- [ ] Unit test: after `ConnectService`, entry has
+- [x] Unit test: after `ConnectService`, entry has
       `naming_source = SERVICE_NAMING_SOURCE_AUTHORITATIVE`
-- [ ] Unit test: `source_filter = AUTO` returns only auto entries
-- [ ] Unit test: `source_filter = AUTHORITATIVE` returns only watched entries
-- [ ] Integration test: start agent, observe two ports, call `ListServices`
+- [x] Unit test: `source_filter = AUTO` returns only auto entries
+- [x] Unit test: `source_filter = AUTHORITATIVE` returns only watched entries
+- [x] Integration test: start agent, observe two ports, call `ListServices`
       over gRPC; assert both entries present with correct fields
 
 ## API Changes
@@ -177,7 +177,7 @@ See Phase 3 above.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
 ## Future Work
 

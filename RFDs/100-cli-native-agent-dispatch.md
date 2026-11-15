@@ -28,7 +28,7 @@ replay.
 
 **Current behavior:**
 
-The TUI agent connects to the colony via `coral colony mcp proxy`, which
+The TUI agent connects to the colony via `coral mcp proxy`, which
 translates JSON-RPC tool calls over stdio into gRPC `CallToolRequest` RPCs to
 the colony MCP server. This means:
 
@@ -96,13 +96,13 @@ directly into postmortems or incident reports.
 
 ```
 Current (TUI via MCP):
-  TUI → Agent → MCP Client (stdio) → coral colony mcp proxy → gRPC → Colony → MCP Server → tool handler
+  TUI → Agent → MCP Client (stdio) → coral mcp proxy → gRPC → Colony → MCP Server → tool handler
 
 Phase 1-3 (TUI via CLI):
   TUI → Agent → coral_cli tool → subprocess: coral <cmd> --format json → gRPC → Colony
 
 Phase 5 (external clients via CLI, proxy intercepts):
-  Claude Desktop → MCP stdio → coral colony mcp proxy → [intercept coral_cli] → subprocess: coral <cmd> --format json → gRPC → Colony
+  Claude Desktop → MCP stdio → coral mcp proxy → [intercept coral_cli] → subprocess: coral <cmd> --format json → gRPC → Colony
 
 Final state (both paths, one tool):
   TUI          → Agent       → coral_cli tool    → subprocess: coral <cmd> --format json → gRPC → Colony
@@ -216,7 +216,7 @@ as the TUI does, without adding any dependency on the colony MCP server.
 - [x] **Remove the 21 per-operation MCP tool handlers** — deleted
       `internal/colony/mcp/` package entirely and `internal/colony/server/mcp_tools.go`.
       Colony `CallTool`/`ListTools` gRPC handlers now return "not supported".
-- [x] **Update `docs/MCP.md`** — replaced architecture diagram and added
+- [x] **Update `docs/user/ai-assistants.md`** — replaced architecture diagram and added
       `coral_cli` tool contract section; legacy per-operation tools noted as
       reference-only.
 
@@ -231,10 +231,10 @@ as the TUI does, without adding any dependency on the colony MCP server.
       creates in CLI mode without MCP connection and uses `coral_cli` tool.
 - [ ] E2E test in `tests/e2e/distributed`: verify TUI agent session log contains
       parseable CLI commands that produce the same output when run manually.
-- [x] Update `docs/CLI.md` with CLI dispatch mode explanation and configuration.
+- [x] Update `docs/user/README.md` with CLI dispatch mode explanation and configuration.
 - [x] Update `docs/CLI_REFERENCE.md` with `--format json` flag coverage for
       debug commands and CLI dispatch mode note.
-- [x] Update `docs/MCP.md` architecture section to reflect the two-track model
+- [x] Update `docs/user/ai-assistants.md` architecture section to reflect the two-track model
       (TUI via CLI dispatch, external clients via MCP proxy).
 
 ## API Changes
@@ -358,7 +358,7 @@ ask:
   return "not supported".
 - ✅ Integration tests: `TestCLIDispatchMode` and `TestCLIDispatchToolsContract`
   verify CLI dispatch creates correctly without MCP and registers `coral_cli`.
-- ✅ `docs/MCP.md`, `docs/CLI.md`, `docs/CLI_REFERENCE.md` updated.
+- ✅ `docs/user/ai-assistants.md`, `docs/user/README.md`, `docs/CLI_REFERENCE.md` updated.
 
 ## Future Work
 

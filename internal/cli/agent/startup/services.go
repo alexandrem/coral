@@ -111,7 +111,7 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 	}
 
 	// Create context for background operations.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancellation is retained in ServicesResult and called by AgentServer.Stop.
 	result.Context = ctx
 	result.CancelFunc = cancel
 
@@ -458,7 +458,12 @@ func (s *ServiceRegistry) createHTTPServers(
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
 	serviceHandler.SetSessionID(s.sessionID)
 	serviceHandler.SetMeshInfoProvider(s.gatherMeshNetworkInfo)
-	systemMetricsHandler.SetSessionID(s.sessionID)
+	// System metrics are optional: when the shared database is unavailable
+	// during bootstrap, no metrics handler is created. The service handler
+	// already responds gracefully to QuerySystemMetrics in that case.
+	if systemMetricsHandler != nil {
+		systemMetricsHandler.SetSessionID(s.sessionID)
+	}
 	path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 	// Create debug service handler (RFD 059).

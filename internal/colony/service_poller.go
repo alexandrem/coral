@@ -3,6 +3,7 @@ package colony
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -64,11 +65,15 @@ func (p *ServicePoller) Stop() error {
 func (p *ServicePoller) PollOnce(ctx context.Context) error {
 	totalServices := 0
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		services, err := p.queryAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
+
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 
 		// Register/update each service in the colony database.
 		for _, svc := range services {

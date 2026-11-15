@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -94,14 +95,17 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 	}
 	pendingCheckpoints := make(map[string]checkpointUpdate)
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		samples, sessionID, maxSeqID, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
 
 		// Aggregate samples into 1-minute buckets.
-		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
+		summaries := aggregateCPUProfileSamples(ctx, p.db, p.logger, agent.AgentID, samples)
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		allSummaries = append(allSummaries, summaries...)
 
 		// Track checkpoint for commit after storage.
@@ -212,7 +216,7 @@ func (p *CPUProfilePoller) pollAgent(ctx context.Context, agent *registry.Entry)
 				timestamps[i] = s.Timestamp.AsTime().UnixMilli()
 			}
 		}
-		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().
 				Str("agent", agent.AgentID).
 				Uint64("gap_start", gap.StartSeqID).
@@ -225,9 +229,13 @@ func (p *CPUProfilePoller) pollAgent(ctx context.Context, agent *registry.Entry)
 	return resp.Msg.Samples, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
-// aggregateSamples aggregates CPU profile samples into 1-minute buckets.
+// aggregateCPUProfileSamples aggregates CPU profile samples into 1-minute buckets.
 // Samples with the same stack (within the same minute bucket) are merged by summing sample counts.
-func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
+// It is shared by CPUProfilePoller and GapRecoveryService.
+func aggregateCPUProfileSamples(
+	ctx context.Context,
+	db *database.Database,
+	logger zerolog.Logger,
 	agentID string,
 	samples []*agentv1.CPUProfileSample,
 ) []database.CPUProfileSummary {
@@ -256,9 +264,9 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 		bucketTime := sample.Timestamp.AsTime().Truncate(time.Minute)
 
 		// Encode stack frames to integer IDs using colony's frame dictionary.
-		frameIDs, err := p.db.EncodeStackFrames(ctx, sample.StackFrames)
+		frameIDs, err := db.EncodeStackFrames(ctx, sample.StackFrames)
 		if err != nil {
-			p.logger.Warn().
+			logger.Warn().
 				Err(err).
 				Int("stack_depth", len(sample.StackFrames)).
 				Msg("Failed to encode stack frames, skipping sample")

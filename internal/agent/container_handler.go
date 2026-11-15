@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -15,18 +18,25 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/logging"
-	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 // ContainerHandler implements the container exec RPC methods for the agent (RFD 056).
 type ContainerHandler struct {
 	logger logging.Logger
+
+	// procRoot is the procfs mount point, overridable in tests.
+	procRoot string
+
+	// selfPID is the agent's own PID, never selected as a target.
+	selfPID int
 }
 
 // NewContainerHandler creates a new container handler.
 func NewContainerHandler(logger logging.Logger) *ContainerHandler {
 	return &ContainerHandler{
-		logger: logger,
+		logger:   logger,
+		procRoot: "/proc",
+		selfPID:  os.Getpid(),
 	}
 }
 
@@ -192,40 +202,208 @@ func (h *ContainerHandler) ContainerExec(
 	return connect.NewResponse(resp), nil
 }
 
-// detectContainerPID finds the main container process PID.
+// containerIDPattern matches the 64-hex container IDs that Docker,
+// containerd, CRI-O and Podman embed in cgroup paths, e.g.
+// "/docker/<id>", "/system.slice/docker-<id>.scope" or
+// "/kubepods/.../cri-containerd-<id>.scope".
+var containerIDPattern = regexp.MustCompile(`[0-9a-f]{64}`)
+
+// Container selector prefixes accepted in ContainerExecRequest.ContainerName.
+const (
+	selectorPID = "pid:"
+	selectorID  = "id:"
+)
+
+// detectContainerPID finds the PID whose namespaces a container exec enters.
 // Works in:
 // - Docker-compose sidecar: shared PID namespace with app container
 // - K8s sidecar: shareProcessNamespace: true
 // - K8s DaemonSet: hostPID: true (sees all node containers)
-func (h *ContainerHandler) detectContainerPID(containerName string) (int, error) {
-	// Scan /proc for numeric directories (PIDs).
-	allPids, err := proc.ListPids()
+//
+// The selector takes one of these forms:
+//   - "": the lowest visible PID other than the agent's own. That is the
+//     application in sidecar mode, where PID 1 is the application itself. In
+//     the host PID namespace the lowest PID is host init, so an empty
+//     selector is rejected there.
+//   - "pid:<n>": that PID, as seen from the agent's PID namespace.
+//   - "id:<hex>": the container whose ID, as found in /proc/<pid>/cgroup,
+//     starts with the given prefix.
+//   - anything else: an exact process name, matched against /proc/<pid>/comm.
+//
+// ID and name matches must resolve to a single container. In the host PID
+// namespace, a process sharing host init's mount namespace is never
+// selected, whatever the form.
+func (h *ContainerHandler) detectContainerPID(selector string) (int, error) {
+	// Kernel threads are only visible from the initial PID namespace, and
+	// PID 2 is always kthreadd there.
+	var hostMntNS string
+	if comm, ok := h.readComm(2); ok && comm == "kthreadd" {
+		var err error
+		hostMntNS, err = h.readNamespace(1, "mnt")
+		if err != nil {
+			return 0, fmt.Errorf("failed to read host mount namespace: %w", err)
+		}
+	}
+
+	selector = strings.TrimSpace(selector)
+	switch {
+	case selector == "":
+		if hostMntNS != "" {
+			return 0, fmt.Errorf("container selector required: agent shares the host PID namespace")
+		}
+		pids, err := h.listPids()
+		if err != nil {
+			return 0, err
+		}
+		for _, pid := range pids {
+			if pid != h.selfPID {
+				return pid, nil
+			}
+		}
+		return 0, fmt.Errorf("no container PID found")
+
+	case strings.HasPrefix(selector, selectorPID):
+		pid, err := strconv.Atoi(strings.TrimPrefix(selector, selectorPID))
+		if err != nil || pid <= 0 {
+			return 0, fmt.Errorf("invalid container selector %q: expected pid:<positive integer>", selector)
+		}
+		if pid == h.selfPID {
+			return 0, fmt.Errorf("container selector %q is the agent itself", selector)
+		}
+		mntNS, err := h.readNamespace(pid, "mnt")
+		if err != nil {
+			return 0, fmt.Errorf("process %d not accessible: %w", pid, err)
+		}
+		if mntNS == hostMntNS {
+			return 0, fmt.Errorf("process %d runs in the host mount namespace, not a container", pid)
+		}
+		return pid, nil
+
+	case strings.HasPrefix(selector, selectorID):
+		prefix := strings.ToLower(strings.TrimPrefix(selector, selectorID))
+		if prefix == "" || !isHex(prefix) {
+			return 0, fmt.Errorf("invalid container selector %q: expected id:<hex prefix>", selector)
+		}
+		return h.resolveUnique(selector, hostMntNS, func(pid int) string {
+			return h.matchContainerID(pid, prefix)
+		})
+
+	default:
+		return h.resolveUnique(selector, hostMntNS, func(pid int) string {
+			if comm, ok := h.readComm(pid); !ok || comm != selector {
+				return ""
+			}
+			// nsenter needs the same access, so an unreadable namespace
+			// cannot be a target anyway.
+			mntNS, _ := h.readNamespace(pid, "mnt")
+			return mntNS
+		})
+	}
+}
+
+// resolveUnique returns the lowest PID among the visible processes for which
+// match returns a non-empty container key. It fails when no process matches
+// or the matches span more than one container. With a non-empty hostMntNS,
+// processes in that mount namespace, or whose namespace is unreadable, are
+// skipped.
+func (h *ContainerHandler) resolveUnique(selector, hostMntNS string, match func(pid int) string) (int, error) {
+	pids, err := h.listPids()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read /proc: %w", err)
+		return 0, err
+	}
+
+	// Map each matched container key to its lowest PID.
+	matches := make(map[string]int)
+	for _, pid := range pids {
+		if pid == h.selfPID {
+			continue
+		}
+		key := match(pid)
+		if key == "" {
+			continue
+		}
+		if hostMntNS != "" {
+			mntNS, err := h.readNamespace(pid, "mnt")
+			if err != nil || mntNS == hostMntNS {
+				continue
+			}
+		}
+		if _, ok := matches[key]; !ok {
+			matches[key] = pid
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return 0, fmt.Errorf("container %q not found among visible processes", selector)
+	case 1:
+		for _, pid := range matches {
+			return pid, nil
+		}
+	}
+	return 0, fmt.Errorf("container %q is ambiguous: matches %d containers, use id:<container ID> or pid:<n>", selector, len(matches))
+}
+
+// listPids returns the PIDs under the handler's proc root in ascending order.
+func (h *ContainerHandler) listPids() ([]int, error) {
+	entries, err := os.ReadDir(h.procRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", h.procRoot, err)
 	}
 
 	var pids []int
-	for _, pid := range allPids {
-		// Skip our own process.
-		// Note: PID 1 is valid in shared PID namespace (sidecar mode).
-		if pid <= 0 || pid == os.Getpid() {
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
-
-		pids = append(pids, pid)
+		if pid, err := strconv.Atoi(entry.Name()); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
 	}
-
-	// Sort PIDs (lowest first).
 	sort.Ints(pids)
+	return pids, nil
+}
 
-	if len(pids) == 0 {
-		return 0, fmt.Errorf("no container PID found")
+// readComm returns the trimmed contents of <proc>/<pid>/comm.
+func (h *ContainerHandler) readComm(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from the proc root and a numeric PID.
+	data, err := os.ReadFile(filepath.Join(h.procRoot, strconv.Itoa(pid), "comm"))
+	if err != nil {
+		return "", false
 	}
+	return strings.TrimSpace(string(data)), true
+}
 
-	// Return lowest PID (container starts before agent in sidecar mode).
-	// In sidecar mode, the application container's main process will have
-	// a lower PID than the agent's process.
-	return pids[0], nil
+// readNamespace returns the <proc>/<pid>/ns/<ns> link target, such as
+// "mnt:[4026531841]", which identifies the namespace.
+func (h *ContainerHandler) readNamespace(pid int, ns string) (string, error) {
+	return os.Readlink(filepath.Join(h.procRoot, strconv.Itoa(pid), "ns", ns))
+}
+
+// matchContainerID returns the container ID in <proc>/<pid>/cgroup that
+// starts with prefix, or "" if there is none.
+func (h *ContainerHandler) matchContainerID(pid int, prefix string) string {
+	//nolint:gosec // G304: path is built from the proc root and a numeric PID.
+	data, err := os.ReadFile(filepath.Join(h.procRoot, strconv.Itoa(pid), "cgroup"))
+	if err != nil {
+		return ""
+	}
+	for _, id := range containerIDPattern.FindAllString(string(data), -1) {
+		if strings.HasPrefix(id, prefix) {
+			return id
+		}
+	}
+	return ""
+}
+
+// isHex reports whether s consists only of lowercase hex digits.
+func isHex(s string) bool {
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // buildNsenterCommand constructs the nsenter command arguments.

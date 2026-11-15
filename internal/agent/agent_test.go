@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
 	"github.com/rs/zerolog"
@@ -77,7 +79,7 @@ func TestNew(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, agent)
 		assert.Equal(t, "test-agent", agent.id)
-		assert.Equal(t, 0, len(agent.monitors))
+		assert.Equal(t, 0, len(agent.services))
 	})
 }
 
@@ -114,8 +116,8 @@ func TestAgent_GetStatus(t *testing.T) {
 
 	t.Run("all services healthy", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{Name: "service1", Port: 8080},
-			{Name: "service2", Port: 8081},
+			{Name: "service1", Port: 8080, HealthEndpoint: "/health"},
+			{Name: "service2", Port: 8081, HealthEndpoint: "/health"},
 		}
 
 		agent, err := New(Config{
@@ -127,10 +129,10 @@ func TestAgent_GetStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Manually set all monitors to healthy.
-		for _, monitor := range agent.monitors {
-			monitor.mu.Lock()
-			monitor.status = ServiceStatusHealthy
-			monitor.mu.Unlock()
+		for _, entry := range agent.services {
+			entry.Monitor.mu.Lock()
+			entry.Monitor.status = ServiceStatusHealthy
+			entry.Monitor.mu.Unlock()
 		}
 
 		status := agent.GetStatus()
@@ -139,8 +141,8 @@ func TestAgent_GetStatus(t *testing.T) {
 
 	t.Run("all services unhealthy", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{Name: "service1", Port: 8080},
-			{Name: "service2", Port: 8081},
+			{Name: "service1", Port: 8080, HealthEndpoint: "/health"},
+			{Name: "service2", Port: 8081, HealthEndpoint: "/health"},
 		}
 
 		agent, err := New(Config{
@@ -152,10 +154,10 @@ func TestAgent_GetStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Manually set all monitors to unhealthy.
-		for _, monitor := range agent.monitors {
-			monitor.mu.Lock()
-			monitor.status = ServiceStatusUnhealthy
-			monitor.mu.Unlock()
+		for _, entry := range agent.services {
+			entry.Monitor.mu.Lock()
+			entry.Monitor.status = ServiceStatusUnhealthy
+			entry.Monitor.mu.Unlock()
 		}
 
 		status := agent.GetStatus()
@@ -164,9 +166,9 @@ func TestAgent_GetStatus(t *testing.T) {
 
 	t.Run("some services unhealthy - degraded", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{Name: "service1", Port: 8080},
-			{Name: "service2", Port: 8081},
-			{Name: "service3", Port: 8082},
+			{Name: "service1", Port: 8080, HealthEndpoint: "/health"},
+			{Name: "service2", Port: 8081, HealthEndpoint: "/health"},
+			{Name: "service3", Port: 8082, HealthEndpoint: "/health"},
 		}
 
 		agent, err := New(Config{
@@ -178,17 +180,17 @@ func TestAgent_GetStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Set mixed statuses.
-		agent.monitors["service1"].mu.Lock()
-		agent.monitors["service1"].status = ServiceStatusHealthy
-		agent.monitors["service1"].mu.Unlock()
+		agent.services[serviceKey(8080, "")].Monitor.mu.Lock()
+		agent.services[serviceKey(8080, "")].Monitor.status = ServiceStatusHealthy
+		agent.services[serviceKey(8080, "")].Monitor.mu.Unlock()
 
-		agent.monitors["service2"].mu.Lock()
-		agent.monitors["service2"].status = ServiceStatusUnhealthy
-		agent.monitors["service2"].mu.Unlock()
+		agent.services[serviceKey(8081, "")].Monitor.mu.Lock()
+		agent.services[serviceKey(8081, "")].Monitor.status = ServiceStatusUnhealthy
+		agent.services[serviceKey(8081, "")].Monitor.mu.Unlock()
 
-		agent.monitors["service3"].mu.Lock()
-		agent.monitors["service3"].status = ServiceStatusHealthy
-		agent.monitors["service3"].mu.Unlock()
+		agent.services[serviceKey(8082, "")].Monitor.mu.Lock()
+		agent.services[serviceKey(8082, "")].Monitor.status = ServiceStatusHealthy
+		agent.services[serviceKey(8082, "")].Monitor.mu.Unlock()
 
 		status := agent.GetStatus()
 		assert.Equal(t, AgentStatusDegraded, status)
@@ -199,8 +201,8 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 	logger := zerolog.Nop()
 
 	services := []*meshv1.ServiceInfo{
-		{Name: "api", Port: 8080},
-		{Name: "frontend", Port: 3000},
+		{Name: "api", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "frontend", Port: 3000, HealthEndpoint: "/health"},
 	}
 
 	agent, err := New(Config{
@@ -213,15 +215,15 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 
 	// Set known statuses.
 	now := time.Now()
-	agent.monitors["api"].mu.Lock()
-	agent.monitors["api"].status = ServiceStatusHealthy
-	agent.monitors["api"].lastCheck = now
-	agent.monitors["api"].mu.Unlock()
+	agent.services[serviceKey(8080, "")].Monitor.mu.Lock()
+	agent.services[serviceKey(8080, "")].Monitor.status = ServiceStatusHealthy
+	agent.services[serviceKey(8080, "")].Monitor.lastCheck = now
+	agent.services[serviceKey(8080, "")].Monitor.mu.Unlock()
 
-	agent.monitors["frontend"].mu.Lock()
-	agent.monitors["frontend"].status = ServiceStatusUnhealthy
-	agent.monitors["frontend"].lastCheck = now
-	agent.monitors["frontend"].mu.Unlock()
+	agent.services[serviceKey(3000, "")].Monitor.mu.Lock()
+	agent.services[serviceKey(3000, "")].Monitor.status = ServiceStatusUnhealthy
+	agent.services[serviceKey(3000, "")].Monitor.lastCheck = now
+	agent.services[serviceKey(3000, "")].Monitor.mu.Unlock()
 
 	statuses := agent.GetServiceStatuses()
 
@@ -230,6 +232,256 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 	assert.Equal(t, ServiceStatusUnhealthy, statuses["frontend"].Status)
 	assert.False(t, statuses["api"].LastCheck.IsZero())
 	assert.False(t, statuses["frontend"].LastCheck.IsZero())
+}
+
+// TestServiceMap_AutoFromOTLP verifies that onBeylaServiceObserved (RFD 103
+// feedback) creates a Tier 0 ServiceEntry with no monitor and an
+// auto-derived name (RFD 104).
+func TestServiceMap_AutoFromOTLP(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	agent.onBeylaServiceObserved(3000, 12345, "node")
+
+	agent.mu.RLock()
+	entry, ok := agent.services[serviceKey(3000, "")]
+	agent.mu.RUnlock()
+
+	require.True(t, ok)
+	assert.Equal(t, NamingSourceAuto, entry.NamingSource)
+	assert.Equal(t, TierObserved, entry.Tier)
+	assert.Nil(t, entry.Monitor)
+	assert.NotEmpty(t, entry.AutoName)
+	assert.Equal(t, int32(12345), entry.PID)
+}
+
+// TestServiceMap_WatchWithHealthEnriches verifies that ConnectService with a
+// health endpoint promotes an existing auto-observed entry to Tier 1,
+// setting the authoritative name and starting a ServiceMonitor (RFD 104).
+func TestServiceMap_WatchWithHealthEnriches(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	agent.onBeylaServiceObserved(3000, 12345, "node")
+
+	err = agent.ConnectService(&meshv1.ServiceInfo{
+		Name:           "frontend",
+		Port:           3000,
+		HealthEndpoint: "/health",
+	})
+	require.NoError(t, err)
+
+	agent.mu.RLock()
+	entry := agent.services[serviceKey(3000, "")]
+	agent.mu.RUnlock()
+
+	assert.Equal(t, "frontend", entry.AuthoritativeName)
+	assert.Equal(t, NamingSourceAuthoritative, entry.NamingSource)
+	assert.Equal(t, TierWatched, entry.Tier)
+	assert.Equal(t, "frontend", entry.Name())
+	require.NotNil(t, entry.Monitor)
+
+	require.NoError(t, agent.DisconnectService("frontend"))
+}
+
+// TestServiceMap_WatchWithoutHealthNoMonitor verifies that ConnectService
+// without a health endpoint records an authoritative entry but does not
+// start a ServiceMonitor (RFD 104).
+func TestServiceMap_WatchWithoutHealthNoMonitor(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	err = agent.ConnectService(&meshv1.ServiceInfo{
+		Name: "redis",
+		Port: 6379,
+	})
+	require.NoError(t, err)
+
+	agent.mu.RLock()
+	entry := agent.services[serviceKey(6379, "")]
+	agent.mu.RUnlock()
+
+	assert.Equal(t, "redis", entry.AuthoritativeName)
+	assert.Equal(t, NamingSourceAuthoritative, entry.NamingSource)
+	assert.Equal(t, TierObserved, entry.Tier)
+	assert.Nil(t, entry.Monitor)
+}
+
+// TestServiceMap_ExePatternStartsMonitor verifies a portless connect (RFD
+// 111) gets a running ServiceMonitor even though it has no HealthEndpoint —
+// unlike a bare port-only connect, which stays Tier 0 (see
+// TestServiceMap_WatchWithoutHealthNoMonitor above). A portless service has
+// no other way to be liveness-checked.
+func TestServiceMap_ExePatternStartsMonitor(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	err = agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker",
+		ExePattern: "python.*consumer.py",
+	})
+	require.NoError(t, err)
+
+	agent.mu.RLock()
+	entry := agent.services[serviceKey(0, "worker")]
+	agent.mu.RUnlock()
+
+	assert.Equal(t, "worker", entry.AuthoritativeName)
+	assert.Equal(t, "python.*consumer.py", entry.ExePattern)
+	assert.Equal(t, TierWatched, entry.Tier)
+	require.NotNil(t, entry.Monitor)
+}
+
+// TestServiceMap_MultipleExePatternConnectsDontCollide verifies two
+// portless connects don't collide in the port-keyed service map (RFD 111
+// readiness gap: Port == 0 for every portless service).
+func TestServiceMap_MultipleExePatternConnectsDontCollide(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker-a",
+		ExePattern: "python.*a.py",
+	}))
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker-b",
+		ExePattern: "python.*b.py",
+	}))
+
+	assert.Equal(t, 2, agent.GetServiceCount())
+
+	agent.mu.RLock()
+	entryA, okA := agent.services[serviceKey(0, "worker-a")]
+	entryB, okB := agent.services[serviceKey(0, "worker-b")]
+	agent.mu.RUnlock()
+
+	require.True(t, okA)
+	require.True(t, okB)
+	assert.Equal(t, "worker-a", entryA.AuthoritativeName)
+	assert.Equal(t, "worker-b", entryB.AuthoritativeName)
+}
+
+// TestCollectDiscoveryCandidates_ExePattern verifies a portless connect
+// produces a client-only ProcessCandidate carrying the literal exe pattern
+// (RFD 111), not just the service name.
+func TestCollectDiscoveryCandidates_ExePattern(t *testing.T) {
+	logger := zerolog.Nop()
+
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:       "worker",
+		ExePattern: "python.*consumer.py",
+	}))
+
+	agent.mu.RLock()
+	candidates := agent.collectDiscoveryCandidatesLocked()
+	agent.mu.RUnlock()
+
+	require.Len(t, candidates, 1)
+	assert.Equal(t, "worker", candidates[0].Name)
+	assert.True(t, candidates[0].IsClientOnly)
+	assert.Equal(t, "python.*consumer.py", candidates[0].ExePathPattern)
+	assert.Empty(t, candidates[0].Ports)
+}
+
+func TestListServicesIncludesUnifiedServiceMapAndFiltersByNamingSource(t *testing.T) {
+	logger := zerolog.Nop()
+	agent, err := New(Config{
+		Context: context.Background(),
+		AgentID: "test-agent",
+		Logger:  logger,
+	})
+	require.NoError(t, err)
+
+	// One observed service is promoted to watched; the other remains Tier 0.
+	agent.onBeylaServiceObserved(3000, 12345, "node")
+	agent.onBeylaServiceObserved(6379, 23456, "redis-server")
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{
+		Name:           "frontend",
+		Port:           3000,
+		HealthEndpoint: "/health",
+	}))
+
+	handler := NewServiceHandler(agent, nil, nil, nil, nil, nil, nil)
+	all, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, all.Msg.Services, 2)
+
+	servicesByPort := make(map[int32]*agentv1.ServiceStatus, len(all.Msg.Services))
+	for _, service := range all.Msg.Services {
+		servicesByPort[service.Port] = service
+	}
+
+	auto := servicesByPort[6379]
+	require.NotNil(t, auto)
+	assert.NotEmpty(t, auto.Name)
+	assert.Equal(t, auto.AutoName, auto.Name)
+	assert.Empty(t, auto.AuthoritativeName)
+	assert.Equal(t, agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTO, auto.NamingSource)
+	assert.False(t, auto.HasMonitor)
+	assert.Zero(t, auto.ObservationTier)
+	assert.Empty(t, auto.Status)
+
+	watched := servicesByPort[3000]
+	require.NotNil(t, watched)
+	assert.Equal(t, "frontend", watched.Name)
+	assert.NotEmpty(t, watched.AutoName)
+	assert.Equal(t, "frontend", watched.AuthoritativeName)
+	assert.Equal(t, agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE, watched.NamingSource)
+	assert.True(t, watched.HasMonitor)
+	assert.EqualValues(t, TierWatched, watched.ObservationTier)
+
+	autoSource := agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTO
+	autoOnly, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{
+		SourceFilter: &autoSource,
+	}))
+	require.NoError(t, err)
+	require.Len(t, autoOnly.Msg.Services, 1)
+	assert.Equal(t, int32(6379), autoOnly.Msg.Services[0].Port)
+
+	authoritativeSource := agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE
+	authoritativeOnly, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{
+		SourceFilter: &authoritativeSource,
+	}))
+	require.NoError(t, err)
+	require.Len(t, authoritativeOnly.Msg.Services, 1)
+	assert.Equal(t, int32(3000), authoritativeOnly.Msg.Services[0].Port)
 }
 
 // TestAgent_BeylaIntegration tests Beyla integration with agent (RFD 032).

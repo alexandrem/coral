@@ -112,9 +112,9 @@ type ServicesConfig struct {
 
 // WireGuardConfig contains WireGuard mesh configuration.
 //
-// For production deployments, you must set the CORAL_PUBLIC_ENDPOINT environment
-// variable to your colony's publicly reachable address. This tells agents where
-// to establish the WireGuard tunnel.
+// At startup, Colony registers its STUN-observed WireGuard address with
+// Discovery so Agents can establish the tunnel without static configuration.
+// CORAL_PUBLIC_ENDPOINT overrides that address and disables STUN discovery.
 //
 // Example production setup:
 //
@@ -411,6 +411,23 @@ type BeylaConfig struct {
 type BeylaDiscoveryConfig struct {
 	Services          []BeylaServiceConfig `yaml:"services,omitempty"`
 	NetworkInterfaces []string             `yaml:"network_interfaces,omitempty"`
+
+	// SyncInterval controls how often DiscoveryManager polls its providers
+	// in MonitorAll mode (RFD 102). Defaults to 30s.
+	SyncInterval time.Duration `yaml:"discovery_sync_interval,omitempty" env:"CORAL_BEYLA_DISCOVERY_SYNC_INTERVAL"`
+
+	// Providers enables or disables the built-in discovery providers used
+	// in MonitorAll mode (RFD 102).
+	Providers BeylaDiscoveryProvidersConfig `yaml:"discovery_providers,omitempty"`
+}
+
+// BeylaDiscoveryProvidersConfig enables or disables the built-in
+// ProcessDiscoveryProvider implementations used in MonitorAll mode (RFD
+// 102). Each field accepts "enabled", "disabled", or "auto"; an empty value
+// defaults to "enabled".
+type BeylaDiscoveryProvidersConfig struct {
+	Procfs string `yaml:"procfs,omitempty"`
+	Envvar string `yaml:"envvar,omitempty"`
 }
 
 // BeylaServiceConfig defines a service to instrument.
@@ -530,6 +547,11 @@ type AgentConfig struct {
 		} `yaml:"nat,omitempty"`
 		Bootstrap         BootstrapConfig `yaml:"bootstrap,omitempty"` // RFD 048
 		HeartbeatInterval time.Duration   `yaml:"heartbeat_interval,omitempty" env:"CORAL_HEARTBEAT_INTERVAL"`
+
+		// MonitorAll enables Beyla eBPF auto-instrumentation of every
+		// process on the host by default (RFD 103). Set to false (or pass
+		// --no-monitor-all) on resource-constrained hosts.
+		MonitorAll bool `yaml:"monitor_all" env:"CORAL_MONITOR_ALL"`
 	} `yaml:"agent"`
 	Telemetry struct {
 		Disabled              bool   `yaml:"disabled" env:"CORAL_TELEMETRY_DISABLED"`
@@ -548,6 +570,10 @@ type AgentConfig struct {
 		Port           int    `yaml:"port"`
 		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
 		Type           string `yaml:"type,omitempty"`
+		// ExePattern identifies a portless process by executable pattern
+		// (RFD 111) instead of a listening port. Mutually exclusive with
+		// Port: exactly one of the two must be set.
+		ExePattern string `yaml:"exe_pattern,omitempty"`
 	} `yaml:"services"`
 	Beyla               BeylaConfig               `yaml:"beyla,omitempty"`
 	SystemMetrics       SystemMetricsConfig       `yaml:"system_metrics,omitempty"`
@@ -588,6 +614,24 @@ type BootstrapConfig struct {
 	// TotalTimeout is the total time allowed for bootstrap before giving up.
 	// Default: 30m.
 	TotalTimeout time.Duration `yaml:"total_timeout,omitempty" env:"CORAL_BOOTSTRAP_TIMEOUT"`
+
+	// BootstrapPublicEndpoint is this Agent's dialable ip:port, published via
+	// a PSK-encrypted rendezvous record so a NAT'd Colony (no inbound
+	// connectivity) can dial back and complete bootstrap (RFD 108). When
+	// unset, startup derives the endpoint from the Agent's STUN-observed
+	// public IP and BootstrapListenPort. Configure this explicitly when TCP
+	// port forwarding does not preserve that address/port.
+	BootstrapPublicEndpoint string `yaml:"bootstrap_public_endpoint,omitempty" env:"CORAL_BOOTSTRAP_PUBLIC_ENDPOINT"`
+
+	// VerifyBootstrapReachability opts into having Discovery synchronously
+	// TCP-probe BootstrapPublicEndpoint before accepting the rendezvous
+	// publish (RFD 108). An opt-in, quota-limited diagnostic, not a
+	// guarantee. Default: false.
+	VerifyBootstrapReachability bool `yaml:"verify_bootstrap_reachability,omitempty" env:"CORAL_VERIFY_BOOTSTRAP_REACHABILITY"`
+
+	// BootstrapListenPort overrides the local port the Agent's rendezvous
+	// listener binds to. Default: constants.DefaultAgentBootstrapPort (8444).
+	BootstrapListenPort int `yaml:"bootstrap_listen_port,omitempty" env:"CORAL_BOOTSTRAP_LISTEN_PORT"`
 }
 
 // DebugConfig contains debug session configuration (RFD 061).

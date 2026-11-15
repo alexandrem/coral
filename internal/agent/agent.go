@@ -12,10 +12,13 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/beyla/discovery"
 	"github.com/coral-mesh/coral/internal/agent/correlation"
 	"github.com/coral-mesh/coral/internal/agent/debug"
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
+	"github.com/coral-mesh/coral/internal/agent/naming"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 // AgentStatus represents the overall agent health status.
@@ -51,8 +54,9 @@ type memProfiler interface {
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
 	id                       string
-	monitors                 map[string]*ServiceMonitor
-	components               []Lifecycle // Ordered list of managed components; stopped in reverse.
+	services                 map[string]*ServiceEntry  // RFD 104/111: unified service map, keyed by serviceKey (port, or name for portless).
+	nameAdaptor              naming.ServiceNameAdaptor // RFD 104: derives names for auto-observed services.
+	components               []Lifecycle               // Ordered list of managed components; stopped in reverse.
 	ebpfManager              *ebpf.Manager
 	beylaManager             *beyla.Manager
 	debugManager             *debug.SessionManager
@@ -125,7 +129,8 @@ func New(config Config) (*Agent, error) {
 
 	agent := &Agent{
 		id:                config.AgentID,
-		monitors:          make(map[string]*ServiceMonitor),
+		services:          make(map[string]*ServiceEntry),
+		nameAdaptor:       naming.Chain{naming.NewProcessNameAdaptor()},
 		components:        components,
 		ebpfManager:       ebpfManager,
 		beylaManager:      beylaManager,
@@ -139,16 +144,25 @@ func New(config Config) (*Agent, error) {
 	// Wire correlation engine as the eBPF event subscriber (RFD 091).
 	ebpfManager.SetEventSubscriber(agent.routeEventsToCorrelation)
 
+	// Wire OTLP feedback so the agent learns about newly observed processes
+	// without polling (RFD 103).
+	if beylaManager != nil {
+		beylaManager.SetServiceObservedHandler(agent.onBeylaServiceObserved)
+	}
+
 	// Initialize SessionManager (RFD 061).
 	agent.debugManager = debug.NewSessionManager(config.DebugConfig, config.Logger, agent)
+	if config.FunctionCache != nil {
+		agent.debugManager.SetFunctionCache(config.FunctionCache)
+	}
 
-	// Create monitors for each service (if any provided).
+	// Register each explicitly configured service as an authoritative
+	// ServiceEntry (RFD 104). Monitors are constructed but not started here;
+	// Start() below starts them once the agent is fully assembled.
 	for _, service := range config.Services {
-		monitor := NewServiceMonitor(ctx, service, config.FunctionCache, config.Logger)
-		// Set callbacks for continuous profiling (RFD 072, RFD 077).
-		monitor.onProcessDiscovered = agent.onProcessDiscovered
-		monitor.onSDKDiscovered = agent.onSDKDiscovered
-		agent.monitors[service.Name] = monitor
+		if err := agent.connectServiceLocked(service, false); err != nil {
+			agent.logger.Warn().Err(err).Str("service", service.Name).Msg("Failed to register initial service")
+		}
 	}
 
 	return agent, nil
@@ -157,7 +171,7 @@ func New(config Config) (*Agent, error) {
 // Start begins monitoring all services.
 func (a *Agent) Start() error {
 	a.logger.Info().
-		Int("service_count", len(a.monitors)).
+		Int("service_count", len(a.services)).
 		Msg("Starting agent")
 
 	// Start managed components. Failures are logged but non-fatal; components
@@ -168,11 +182,14 @@ func (a *Agent) Start() error {
 		}
 	}
 
-	// Start all service monitors.
-	for name, monitor := range a.monitors {
-		a.logger.Debug().Str("service", name).Msg("Starting service monitor")
-		if err := monitor.Start(); err != nil {
-			a.logger.Error().Err(err).Str("service", name).Msg("Failed to start service monitor")
+	// Start all watched (Tier 1) service monitors.
+	for _, entry := range a.services {
+		if entry.Monitor == nil {
+			continue
+		}
+		a.logger.Debug().Str("service", entry.Name()).Msg("Starting service monitor")
+		if err := entry.Monitor.Start(); err != nil {
+			a.logger.Error().Err(err).Str("service", entry.Name()).Msg("Failed to start service monitor")
 		}
 	}
 
@@ -183,9 +200,12 @@ func (a *Agent) Start() error {
 func (a *Agent) Stop() error {
 	a.logger.Info().Msg("Stopping agent")
 
-	// Stop all service monitors first.
-	for _, monitor := range a.monitors {
-		if err := monitor.Stop(); err != nil {
+	// Stop all watched service monitors first.
+	for _, entry := range a.services {
+		if entry.Monitor == nil {
+			continue
+		}
+		if err := entry.Monitor.Stop(); err != nil {
 			a.logger.Error().Err(err).Msg("Failed to stop service monitor")
 		}
 	}
@@ -265,6 +285,50 @@ func (a *Agent) onSDKDiscovered(serviceName string, pid int32, sdkAddr string) {
 	memProfiler.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
 }
 
+// onBeylaServiceObserved is called the first time Beyla's OTLP ingest
+// reports a given port within this agent's session (RFD 103). It creates or
+// updates the port's ServiceEntry and, unless the port was already
+// authoritatively connected, derives a name via the ServiceNameAdaptor chain
+// (RFD 104).
+func (a *Agent) onBeylaServiceObserved(port int32, pid int32, observedName string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Beyla OTLP feedback only ever reports processes with a listening
+	// socket, so this path always uses a port-keyed entry.
+	key := serviceKey(port, "")
+	entry, exists := a.services[key]
+	if !exists {
+		entry = &ServiceEntry{Port: port}
+		a.services[key] = entry
+	}
+	entry.PID = pid
+
+	binaryPath := ""
+	if pid > 0 {
+		if path, err := proc.GetBinaryPath(int(pid)); err == nil {
+			binaryPath = path
+			entry.BinaryPath = path
+		}
+	}
+
+	if entry.NamingSource != NamingSourceAuthoritative {
+		if name, ok := a.nameAdaptor.Resolve(port, pid, binaryPath); ok {
+			entry.AutoName = name
+		} else if entry.AutoName == "" {
+			entry.AutoName = observedName
+		}
+		entry.NamingSource = NamingSourceAuto
+	}
+
+	a.logger.Debug().
+		Int32("port", port).
+		Int32("pid", pid).
+		Str("name", entry.Name()).
+		Str("naming_source", string(entry.NamingSource)).
+		Msg("Observed service via Beyla OTLP feedback")
+}
+
 // GetContext returns the agent's context.
 func (a *Agent) GetContext() context.Context {
 	return a.ctx
@@ -275,7 +339,8 @@ func (a *Agent) GetDebugManager() *debug.SessionManager {
 	return a.debugManager
 }
 
-// GetStatus returns the aggregated agent status.
+// GetStatus returns the aggregated agent status, based only on Tier 1
+// (watched) services — auto-observed services have no health signal.
 func (a *Agent) GetStatus() AgentStatus {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -283,10 +348,14 @@ func (a *Agent) GetStatus() AgentStatus {
 	healthyCount := 0
 	unhealthyCount := 0
 	unknownCount := 0
+	totalServices := 0
 
-	for _, monitor := range a.monitors {
-		statusInfo := monitor.GetStatus()
-		switch statusInfo.Status {
+	for _, entry := range a.services {
+		if entry.Monitor == nil {
+			continue
+		}
+		totalServices++
+		switch entry.Monitor.GetStatus().Status {
 		case ServiceStatusHealthy:
 			healthyCount++
 		case ServiceStatusUnhealthy:
@@ -295,8 +364,6 @@ func (a *Agent) GetStatus() AgentStatus {
 			unknownCount++
 		}
 	}
-
-	totalServices := len(a.monitors)
 
 	// Agent status logic:
 	// - Healthy: All services are healthy
@@ -314,25 +381,74 @@ func (a *Agent) GetStatus() AgentStatus {
 	return AgentStatusDegraded
 }
 
-// GetServiceStatuses returns the status of all monitored services.
+// GetServiceStatuses returns the status of all watched (Tier 1) services.
 func (a *Agent) GetServiceStatuses() map[string]ServiceStatusInfo {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
 	statuses := make(map[string]ServiceStatusInfo)
 
-	for name, monitor := range a.monitors {
-		statuses[name] = monitor.GetStatus()
+	for _, entry := range a.services {
+		if entry.Monitor == nil {
+			continue
+		}
+		statuses[entry.Name()] = entry.Monitor.GetStatus()
 	}
 
 	return statuses
 }
 
-// GetServiceCount returns the number of services being monitored.
+// GetServiceCount returns the number of services the agent knows about,
+// including auto-observed (Tier 0) services (RFD 104).
 func (a *Agent) GetServiceCount() int {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return len(a.monitors)
+	return len(a.services)
+}
+
+// connectServiceLocked creates or promotes the ServiceEntry for service to
+// authoritative naming, starting a ServiceMonitor when a health endpoint is
+// given (RFD 104). If startMonitor is true, the monitor is started
+// immediately (dynamic runtime connect); otherwise it is left for the
+// caller to start later (initial construction in New, before Agent.Start).
+// Caller must hold a.mu.
+func (a *Agent) connectServiceLocked(service *meshv1.ServiceInfo, startMonitor bool) error {
+	key := serviceKey(service.Port, service.Name)
+	entry, exists := a.services[key]
+	if exists && entry.NamingSource == NamingSourceAuthoritative {
+		return status.Errorf(codes.AlreadyExists, "service %s already connected", service.Name)
+	}
+	if !exists {
+		entry = &ServiceEntry{Port: service.Port}
+		a.services[key] = entry
+	}
+
+	entry.AuthoritativeName = service.Name
+	entry.NamingSource = NamingSourceAuthoritative
+	entry.ExePattern = service.ExePattern
+
+	// A monitor is started for any explicitly connected service that has a
+	// health endpoint (network health check) or an exe_pattern (RFD 111:
+	// process-liveness check, since a portless service can't be network
+	// checked). A bare port with neither stays Tier 0 (no active check).
+	if service.HealthEndpoint == "" && service.ExePattern == "" {
+		return nil
+	}
+
+	monitor := NewServiceMonitor(a.ctx, service, a.functionCache, a.logger)
+	// Set callbacks for continuous profiling (RFD 072, RFD 077); these only
+	// fire once a service reaches Tier 1 (has a monitor).
+	monitor.onProcessDiscovered = a.onProcessDiscovered
+	monitor.onSDKDiscovered = a.onSDKDiscovered
+	if startMonitor {
+		if err := monitor.Start(); err != nil {
+			return fmt.Errorf("failed to start monitor for service %s: %w", service.Name, err)
+		}
+	}
+
+	entry.Monitor = monitor
+	entry.Tier = TierWatched
+	return nil
 }
 
 // ConnectService dynamically adds a new service to monitor.
@@ -340,31 +456,19 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Check if service already exists.
-	if _, exists := a.monitors[service.Name]; exists {
-		return status.Errorf(codes.AlreadyExists, "service %s already connected", service.Name)
+	if err := a.connectServiceLocked(service, true); err != nil {
+		return err
 	}
-
-	// Create and start new monitor.
-	monitor := NewServiceMonitor(a.ctx, service, a.functionCache, a.logger)
-	// Set callbacks for continuous profiling (RFD 072, RFD 077).
-	monitor.onProcessDiscovered = a.onProcessDiscovered
-	monitor.onSDKDiscovered = a.onSDKDiscovered
-	if err := monitor.Start(); err != nil {
-		return fmt.Errorf("failed to start monitor for service %s: %w", service.Name, err)
-	}
-
-	a.monitors[service.Name] = monitor
 
 	a.logger.Info().
 		Str("service", service.Name).
 		Int32("port", service.Port).
 		Msg("Service connected")
 
-	// Update Beyla discovery with new port (RFD 053/110).
+	// Update Beyla discovery with the new service (RFD 053/102).
 	if a.beylaManager != nil {
-		portMap := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
+		candidates := a.collectDiscoveryCandidatesLocked()
+		if err := a.beylaManager.SetStaticCandidates(candidates); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service connect")
@@ -380,16 +484,18 @@ func (a *Agent) DisconnectService(serviceName string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	monitor, exists := a.monitors[serviceName]
+	entry, exists := a.findByNameLocked(serviceName)
 	if !exists {
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
 	// Stop monitoring.
-	if err := monitor.Stop(); err != nil {
-		a.logger.Error().Err(err).Str("service", serviceName).Msg("Failed to stop service monitor")
+	if entry.Monitor != nil {
+		if err := entry.Monitor.Stop(); err != nil {
+			a.logger.Error().Err(err).Str("service", serviceName).Msg("Failed to stop service monitor")
+		}
 	}
-	delete(a.monitors, serviceName)
+	delete(a.services, serviceKey(entry.Port, entry.Name()))
 
 	if a.continuousProfiler != nil {
 		a.continuousProfiler.RemoveService(serviceName)
@@ -402,10 +508,10 @@ func (a *Agent) DisconnectService(serviceName string) error {
 		Str("service", serviceName).
 		Msg("Service disconnected")
 
-	// Update Beyla discovery with remaining ports (RFD 053/110).
+	// Update Beyla discovery with the remaining services (RFD 053/102).
 	if a.beylaManager != nil {
-		portMap := a.collectPortsLocked()
-		if err := a.beylaManager.UpdateDiscovery(portMap); err != nil {
+		candidates := a.collectDiscoveryCandidatesLocked()
+		if err := a.beylaManager.SetStaticCandidates(candidates); err != nil {
 			a.logger.Error().
 				Err(err).
 				Msg("Failed to update Beyla discovery after service disconnect")
@@ -426,14 +532,54 @@ func (a *Agent) GetBeylaManager() *beyla.Manager {
 	return a.beylaManager
 }
 
-// collectPortsLocked collects all service port-to-name mappings from monitors (RFD 053/110).
-// Caller must hold a.mu lock.
-func (a *Agent) collectPortsLocked() map[int]string {
-	portMap := make(map[int]string)
-	for name, monitor := range a.monitors {
-		portMap[int(monitor.service.Port)] = name
+// findByNameLocked returns the ServiceEntry whose current name (authoritative
+// if set, else auto-derived) matches name. Caller must hold a.mu.
+func (a *Agent) findByNameLocked(name string) (*ServiceEntry, bool) {
+	for _, entry := range a.services {
+		if entry.Name() == name {
+			return entry, true
+		}
 	}
-	return portMap
+	return nil, false
+}
+
+// collectDiscoveryCandidatesLocked builds one discovery.ProcessCandidate per
+// authoritatively connected service, for Manager.SetStaticCandidates
+// (RFD 102). Auto-observed (Tier 0) services are excluded; they are already
+// found by Beyla's own discovery providers. Caller must hold a.mu lock.
+func (a *Agent) collectDiscoveryCandidatesLocked() []discovery.ProcessCandidate {
+	candidates := make([]discovery.ProcessCandidate, 0, len(a.services))
+	for _, entry := range a.services {
+		if entry.NamingSource != NamingSourceAuthoritative {
+			continue
+		}
+		if entry.ExePattern != "" {
+			candidates = append(candidates, discovery.ProcessCandidate{
+				Name:           entry.AuthoritativeName,
+				IsClientOnly:   true,
+				ExePathPattern: entry.ExePattern,
+			})
+			continue
+		}
+		candidates = append(candidates, discovery.ProcessCandidate{
+			Ports:        []int{int(entry.Port)},
+			Name:         entry.AuthoritativeName,
+			IsClientOnly: false,
+		})
+	}
+	return candidates
+}
+
+// serviceKey returns Agent.services' map key for a service. RFD 104 keys
+// the unified service map by port; RFD 111 extends it to portless
+// (exe_pattern) services, which have no port and so key by name instead —
+// a separate keyspace, so multiple exe_pattern connects never collide with
+// each other or with a port-based entry.
+func serviceKey(port int32, name string) string {
+	if port != 0 {
+		return fmt.Sprintf("port:%d", port)
+	}
+	return "exe:" + name
 }
 
 // Resolve resolves service name to address (ServiceResolver interface).
@@ -441,14 +587,14 @@ func (a *Agent) Resolve(serviceName string) (string, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	monitor, ok := a.monitors[serviceName]
+	entry, ok := a.findByNameLocked(serviceName)
 	if !ok {
 		return "", fmt.Errorf("service not found: %s", serviceName)
 	}
 
 	// TODO: Support remote pods (Node Agent mode)
-	// For now, assume sidecar mode (localhost)
-	return fmt.Sprintf("localhost:%d", monitor.service.Port), nil
+	// For now, assume sidecar mode (127.0.0.1)
+	return fmt.Sprintf("127.0.0.1:%d", entry.Port), nil
 }
 
 // ResolveSDK resolves service name to SDK debug address (ServiceResolver interface).
@@ -456,12 +602,12 @@ func (a *Agent) ResolveSDK(serviceName string) (string, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	monitor, ok := a.monitors[serviceName]
-	if !ok {
+	entry, ok := a.findByNameLocked(serviceName)
+	if !ok || entry.Monitor == nil {
 		return "", fmt.Errorf("service not found: %s", serviceName)
 	}
 
-	caps := monitor.GetSdkCapabilities()
+	caps := entry.Monitor.GetSdkCapabilities()
 	if caps == nil || caps.SdkAddr == "" {
 		return "", fmt.Errorf("SDK capabilities not available for service %s", serviceName)
 	}
