@@ -3,7 +3,6 @@ package profile
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -37,8 +36,8 @@ Examples:
   # Capture 30s CPU profile
   coral profile cpu --service api --duration 30
 
-  # Generate flamegraph (requires flamegraph.pl)
-  coral profile cpu --service api --duration 30 --format folded | flamegraph.pl > cpu.svg
+  # Generate interactive SVG flame graph
+  coral profile cpu --service api --duration 30 --format svg > cpu.svg
 
   # Profile specific pod with custom frequency
   coral profile cpu --service api --pod api-7d8f9c --frequency 49
@@ -48,6 +47,10 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if serviceName == "" {
 				return fmt.Errorf("--service is required")
+			}
+
+			if format != "folded" && format != "json" && format != "svg" {
+				return fmt.Errorf("unknown format: %s (use 'folded', 'json', or 'svg')", format)
 			}
 
 			// Validate duration.
@@ -73,7 +76,7 @@ Examples:
 			}
 
 			// Show progress message.
-			fmt.Fprintf(os.Stderr, "Profiling CPU for service '%s' (%ds at %dHz)...\n",
+			cmd.PrintErrf("Profiling CPU for service '%s' (%ds at %dHz)...\n",
 				serviceName, durationSeconds, frequencyHz)
 
 			// Create request.
@@ -85,7 +88,7 @@ Examples:
 			})
 
 			// Call ProfileCPU RPC with extended timeout.
-			ctx, cancel := context.WithTimeout(context.Background(),
+			ctx, cancel := context.WithTimeout(cmd.Context(),
 				time.Duration(durationSeconds+60)*time.Second)
 			defer cancel()
 
@@ -102,6 +105,8 @@ Examples:
 			switch format {
 			case "json":
 				return printCPUProfileJSON(resp.Msg)
+			case "svg":
+				return printCPUProfileSVG(cmd.OutOrStdout(), resp.Msg)
 			case "folded":
 				fallthrough
 			default:
@@ -114,7 +119,7 @@ Examples:
 	cmd.Flags().StringVar(&podName, "pod", "", "Pod name (optional, specific instance)")
 	cmd.Flags().Int32VarP(&durationSeconds, "duration", "d", 30, "Profiling duration in seconds (default: 30s, max: 300s)")
 	cmd.Flags().Int32Var(&frequencyHz, "frequency", 99, "Sampling frequency in Hz (default: 99Hz, max: 1000Hz)")
-	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded (default), json")
+	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded (default), json, svg")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 

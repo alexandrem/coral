@@ -1124,10 +1124,13 @@ coral profile cpu [flags]
 
 Requires `--service`. Duration is integer seconds (maximum 300); frequency is Hz (maximum 1000). Default output is folded stacks. Needs a Linux observation agent with working perf/BPF collection.
 
+`--format svg` writes a self-contained interactive flame graph to stdout. Progress
+messages use stderr. Unknown output formats return an error before collection.
+
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--duration` / `-d` | int32 | `30` | Profiling duration in seconds (default: 30s, max: 300s) |
-| `--format` | string | `folded` | Output format: folded (default), json |
+| `--format` | string | `folded` | Output format: folded (default), json, svg |
 | `--frequency` | int32 | `99` | Sampling frequency in Hz (default: 99Hz, max: 1000Hz) |
 | `--pod` | string | empty | Pod name (optional, specific instance) |
 | `--service` / `-s` | string | empty | **Required.** Service name (required) |
@@ -1145,7 +1148,7 @@ Requires `--service` and a compatible heap-profile runtime endpoint. CPU eBPF su
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--duration` / `-d` | int32 | `30` | Profiling duration in seconds |
-| `--format` | string | `folded` | Output format: folded, json |
+| `--format` | string | `folded` | Output format: folded, json, svg |
 | `--sample-rate` | int32 | `512` | Sampling rate in KB (default: 512KB) |
 | `--service` / `-s` | string | empty | **Required.** Service name (required) |
 
@@ -1210,10 +1213,15 @@ Query historical CPU profiles.
 coral query cpu-profile [flags]
 ```
 
+Output formats are `folded` and `svg`; unsupported formats, including `json`,
+return an error before querying. SVG output is a self-contained interactive
+flame graph. Query metadata uses stderr. With no historical samples, the command
+succeeds with a message on stderr and leaves stdout empty.
+
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--build-id` | string | empty | Filter by specific build ID |
-| `--format` | string | `folded` | Output format: folded, json |
+| `--format` | string | `folded` | Output format: folded, svg |
 | `--service` / `-s` | string | empty | **Required.** Service name (required) |
 | `--since` | string | `1h` | Query from this time ago (e.g., '1h', '30m', '24h') |
 | `--until` | string | empty | Query until this time ago (default: now) |
@@ -1245,7 +1253,7 @@ coral query memory-profile [flags]
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--build-id` | string | empty | Filter by specific build ID |
-| `--format` / `-f` | string | `summary` | Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible) |
+| `--format` / `-f` | string | `summary` | Output format: summary (human/LLM readable), folded, svg |
 | `--service` / `-s` | string | empty | **Required.** Service name (required) |
 | `--show-growth` | bool | `false` | Show heap growth trends |
 | `--show-types` | bool | `false` | Show allocation breakdown by type |

@@ -28,13 +28,16 @@ polling introduce delay, and retained data has a finite lifetime.
 
 ```bash
 coral query cpu-profile --service api --since 1h > api-cpu.folded
+coral query cpu-profile --service api --since 1h --format svg > api-cpu.svg
 coral query memory-profile --service api --since 1h
 coral query memory-profile --service api --since 1h --show-growth --show-types
+coral query memory-profile --service api --since 1h --format svg > api-memory.svg
 ```
 
 CPU output defaults to folded stacks. Each line represents a stack and its
 sample count, suitable for a flame graph. Memory output defaults to a summary
-and can also emit folded data. `--build-id` separates observations from
+and can also emit folded data. Both commands support `--format svg` to generate
+an interactive flame graph directly. `--build-id` separates observations from
 different builds when that metadata is available.
 
 Growth and allocation categories help form a hypothesis, but do not establish
@@ -57,15 +60,23 @@ per second, capped at 1000. A higher rate can improve coverage while increasing
 collection cost. CPU `--pod` selects an instance when the service has several.
 See the [CLI reference](../CLI_REFERENCE.md) for each command's options.
 
-Generate an SVG with the repository's FlameGraph script:
+Generate an interactive SVG directly from a new capture:
 
 ```bash
-./scripts/flamegraph.pl api-cpu.folded > api-cpu.svg
+coral profile cpu --service api --duration 30 --format svg > api-cpu.svg
+coral profile memory --service api --duration 30 --format svg > api-memory.svg
 ```
 
-Open the SVG in your browser. Wide frames represent more captured samples,
-not necessarily the latency of a particular request. An empty capture under
-load needs investigation: check target process, perf permissions, startup
+The CLI renders a self-contained SVG with embedded interaction JavaScript.
+Generating it requires no installed browser or external rendering tool. Open
+the saved file in a browser with JavaScript enabled, click a frame to zoom,
+and use **Reset Zoom** to restore the full graph. Use **Search** to match
+function names with a regular expression, or hover to inspect counts.
+
+Wide CPU frames represent more captured samples, while memory frames represent
+allocation bytes. Width does not necessarily reflect
+the latency of a particular request. An empty capture under load needs
+investigation: check target process, perf permissions, startup
 warnings, and stack unwinding before interpreting it as idle CPU.
 
 ## Compare a trace with profiles
