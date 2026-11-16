@@ -39,9 +39,6 @@ func TestCLIDispatchMode(t *testing.T) {
 
 	askCfg := &config.AskConfig{
 		DefaultModel: "mock:" + scriptPath,
-		Agent: config.AskAgentConfig{
-			DispatchMode: config.DispatchModeCLI,
-		},
 	}
 	colonyCfg := &config.ColonyConfig{
 		ColonyID: "test-colony",
@@ -59,7 +56,7 @@ func TestCLIDispatchMode(t *testing.T) {
 	}
 	t.Cleanup(func() { coralExecutable = restoreExecutable })
 
-	// Creating the agent must succeed without contacting the MCP server.
+	// Unset dispatch mode must default to CLI without contacting the MCP server.
 	agent, err := NewAgentWithCLIReference(askCfg, colonyCfg, false, "# cli reference stub")
 	require.NoError(t, err, "CLI dispatch mode must not attempt MCP connection")
 

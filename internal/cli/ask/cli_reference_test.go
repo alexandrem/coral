@@ -31,11 +31,15 @@ func buildTestRoot() *cobra.Command {
 	debug.AddCommand(attach)
 	root.AddCommand(debug)
 
-	// service group.
-	service := &cobra.Command{Use: "service", Short: "Service management"}
+	// services group — the real root command is named "services", not "service".
+	services := &cobra.Command{Use: "services", Short: "List and manage services"}
 	list := &cobra.Command{Use: "list", Short: "List services"}
-	service.AddCommand(list)
-	root.AddCommand(service)
+	services.AddCommand(list)
+	root.AddCommand(services)
+
+	// triage — a top-level leaf, not a group (RFD 114).
+	triage := &cobra.Command{Use: "triage [service]", Short: "Diagnose the worst degraded service"}
+	root.AddCommand(triage)
 
 	// unrelated group — should be excluded.
 	colony := &cobra.Command{Use: "colony", Short: "Colony management"}
@@ -57,8 +61,13 @@ func TestGenerateCLIReference(t *testing.T) {
 		assert.Contains(t, ref, "debug attach")
 	})
 
-	t.Run("includes service commands", func(t *testing.T) {
-		assert.Contains(t, ref, "service list")
+	t.Run("includes services commands", func(t *testing.T) {
+		assert.Contains(t, ref, "services list")
+	})
+
+	t.Run("includes the triage top-level leaf", func(t *testing.T) {
+		assert.Contains(t, ref, "triage")
+		assert.Contains(t, ref, "Diagnose the worst degraded service")
 	})
 
 	t.Run("excludes unrelated top-level groups", func(t *testing.T) {

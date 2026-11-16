@@ -61,6 +61,7 @@ an ID. Commands without `--format` cannot be forced to emit JSON by adding it.
 - [`coral shell`](#coral-shell) — Open interactive shell or execute command in agent environment
 - [`coral status`](#coral-status) — Show global Coral environment status
 - [`coral terminal`](#coral-terminal) — Launch the mission-control TUI
+- [`coral triage`](#coral-triage) — Diagnose service health and resolve a probe candidate
 - [`coral version`](#coral-version) — Show version information
 
 ## Commands
@@ -1540,6 +1541,54 @@ coral terminal [flags]
 | `--colony` | string | empty | Colony ID to connect to (default: from config) |
 | `--debug` | bool | `false` | Enable debug logging to stderr |
 | `--model` | string | empty | Override LLM model (e.g. anthropic:claude-sonnet-4-6) |
+
+### coral triage
+
+Combine the health summary, profiling data, and function registry into a bounded
+diagnosis. Diagnosis is read-only; `--attach` instruments the resolved candidate
+with a bounded eBPF probe.
+
+```text
+coral triage [service] [flags]
+```
+
+With no service argument, selects the worst currently degraded or critical
+service across the fleet. A named service is checked regardless of its current
+health; healthy or unknown status returns without candidate resolution.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--since` | string | `5m` | Time range for the health summary |
+| `--attach` | bool | `false` | Attach a bounded eBPF probe to the resolved candidate |
+| `--attach-duration` | duration | `30s` | Positive probe duration, capped at `10m`; requires `--attach` |
+| `--format` | string | `text` | Output format: `text` or `json` |
+
+Candidate resolution uses profiling hot-path frames first: a match must be
+exact, service-scoped, probeable, and not already probed. Frames are searched
+from leaf to caller. When no hot path is available, it tries a semantic query
+built from the summary's issues and regression messages.
+Unprobed functions are not ranked by latency; when neither signal yields a
+candidate, the result reports `candidate_status: not_found`.
+
+JSON results expose `outcome`, `candidate_status`, and `attach.status` so
+scripts and agents can distinguish diagnosis, candidate lookup, and attachment
+results without parsing text.
+
+Summary and connection failures exit non-zero. Candidate lookup and attachment
+failures exit successfully with `candidate_status: unavailable` or
+`attach.status: failed` and an error field. An explicit `--attach` reports
+`skipped` when diagnosis cannot select a candidate, including healthy, unknown,
+and empty summaries. Inspect these fields before treating instrumentation as
+successful.
+
+On the public HTTPS endpoint, diagnosis requires `query`; attachment also
+requires `debug`. See [API token permissions](user/security.md#operator-api-tokens).
+
+```bash
+coral triage api
+coral triage --format json
+coral triage api --attach --attach-duration 30s
+```
 
 ### coral version
 

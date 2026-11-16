@@ -30,6 +30,14 @@ yourself, combine queries in [TypeScript scripts](scripting.md), or ask an
 client or an external MCP client. Tool results are evidence you can inspect; an
 LLM is optional.
 
+For a combined health and code-location check, run
+[`coral triage [service]`](../CLI_REFERENCE.md#coral-triage) from your operator
+workstation. It combines a recent health summary, profiling data, and function
+lookup. With no service argument it selects the worst degraded or critical
+service. Inspect the outcome and candidate status; a missing candidate means
+there was insufficient evidence to resolve a probeable function. Diagnosis is
+read-only; `--attach` explicitly requests a bounded probe.
+
 Linux agents use eBPF to observe supported application traffic without changing
 application code. You can also send application-defined OpenTelemetry spans to an
 agent and expose Go runtime metadata for deeper investigations. Profiling and

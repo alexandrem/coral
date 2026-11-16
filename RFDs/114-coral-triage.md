@@ -1,7 +1,7 @@
 ---
 rfd: "114"
 title: "Coral Triage: Composite Diagnosis Command and CLI Dispatch Unification"
-state: "draft"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "ask", "tui", "cli", "debug", "query", "auth" ]
 
 # RFD 114 - Coral Triage: Composite Diagnosis Command and CLI Dispatch Unification
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -143,7 +143,8 @@ outcome `unknown`.
 
 Candidate selection uses only signals available in the current API:
 
-1. If `profiling_summary.hot_path` is present, walk it from leaf to caller and
+1. If `profiling_summary.top_cpu_hotspots[0].frames` is present, walk it in its
+   API order (leaf to caller) and
    query `QueryFunctions` for each exact function name within the selected
    service. Select the first exact registry match that is probeable and not
    already probed. Function-name normalization must handle a fully qualified
@@ -164,8 +165,8 @@ provides one for that actual candidate.
 ### Optional attachment and failure semantics
 
 `--attach` is explicit because attaching a uprobe changes a running target and
-can add overhead. `--attach-duration` defaults to `30s` and is capped at the
-same server-enforced maximum as `AttachUprobe`. Supplying
+can add overhead. `--attach-duration` defaults to `30s`, must be positive, and
+is capped at the same server-enforced maximum (`10m`) as `AttachUprobe`. Supplying
 `--attach-duration` without `--attach` is an argument error.
 
 Summary acquisition is required: argument, connection, or summary failures
@@ -175,6 +176,11 @@ stages, so their failures are returned as structured partial results:
 - `candidate_status: unavailable` with `candidate_error`,
 - `candidate_status: not_found` when the lookup completed without a match, or
 - `attach.status: failed` with `attach.error`.
+
+An explicit `--attach` that cannot run because of an early diagnosis outcome
+(`no_data`, `healthy`, `unknown`, or `nothing_degraded`) reports
+`attach.status: skipped`. Without `--attach`, the status is always
+`not_requested`.
 
 These partial outcomes exit successfully so `coral_cli` preserves the JSON for
 the agent. Failure fields must be prominent in text output and must not be
@@ -203,6 +209,9 @@ The health parser includes only `degraded` and `critical` services. Tests must
 use fixtures matching the real CLI JSON shape, not the retired MCP tool output.
 CLI mode continues to include topology context. The shared prompt instructions
 recommend `triage` for combined health-and-code-location questions.
+Both modes scope CLI subprocesses to the selected colony through
+`CORAL_COLONY_ID`. Single-shot and interactive `ask` include the generated CLI
+reference, as does `terminal`.
 
 ### RBAC correction
 
@@ -302,47 +311,47 @@ dispatch. Only the empty-string fallback changes.
 
 ### Phase 1: Correct RPC authorization
 
-- [ ] Replace stale debug procedure keys in the HTTP RBAC map with
+- [x] Replace stale debug procedure keys in the HTTP RBAC map with
       `QueryFunctions` and `AttachUprobe`.
-- [ ] Reference generated Connect procedure constants where practical.
-- [ ] Test that status-only credentials are denied, query credentials can call
+- [x] Reference generated Connect procedure constants where practical.
+- [x] Test that status-only credentials are denied, query credentials can call
       `QueryFunctions`, and only debug credentials can call `AttachUprobe`.
 
 ### Phase 2: Unify dispatch and bootstrap context
 
-- [ ] Change the unset dispatch fallback in `NewAgent` from MCP to CLI.
-- [ ] Introduce a shared JSON command runner for prompt bootstrap, backed by
+- [x] Change the unset dispatch fallback in `NewAgent` from MCP to CLI.
+- [x] Introduce a shared JSON command runner for prompt bootstrap, backed by
       local CLI execution in CLI mode and `coral_cli` MCP calls in MCP mode.
-- [ ] Parse the real JSON shapes returned by `services` and `query summary`.
-- [ ] Include service and degraded-health context in both dispatch modes.
-- [ ] Update the CLI system prompt to recommend `triage` for combined
+- [x] Parse the real JSON shapes returned by `services` and `query summary`.
+- [x] Include service and degraded-health context in both dispatch modes.
+- [x] Update the CLI system prompt to recommend `triage` for combined
       health-and-location questions.
-- [ ] Update configuration comments and engineering documentation.
-- [ ] Test the unset default, explicit MCP mode, both runners, malformed JSON,
+- [x] Update configuration comments and engineering documentation.
+- [x] Test the unset default, explicit MCP mode, both runners, malformed JSON,
       command failures, and real service/summary JSON fixtures.
 
 ### Phase 3: Implement `coral triage`
 
-- [ ] Add `internal/cli/triage/` with an internal client interface so selection
+- [x] Add `internal/cli/triage/` with an internal client interface so selection
       and partial-result behavior can be unit tested without a live colony.
-- [ ] Implement deterministic service selection using
+- [x] Implement deterministic service selection using
       `critical > degraded > healthy > unknown`, error rate, average latency,
       and name.
-- [ ] Implement exact hot-path resolution and semantic issue fallback without
+- [x] Implement exact hot-path resolution and semantic issue fallback without
       relying on `Metrics.P95` or `PrioritizeSlow`.
-- [ ] Add `--since` (default `5m`), `--attach`, `--attach-duration` (default
+- [x] Add `--since` (default `5m`), `--attach`, `--attach-duration` (default
       `30s`), and `--format text|json`.
-- [ ] Validate that `--attach-duration` requires `--attach`.
-- [ ] Implement stable full and partial result schemas.
-- [ ] Register `triage` in `internal/cli/root.go`.
+- [x] Validate that `--attach-duration` requires `--attach`.
+- [x] Implement stable full and partial result schemas.
+- [x] Register `triage` in `internal/cli/root.go`.
 
 ### Phase 4: Agent reference and documentation
 
-- [ ] Add the top-level `triage` leaf explicitly to `GenerateCLIReference`.
-- [ ] Correct the relevant command-group name from `service` to `services`.
-- [ ] Test that `triage` and `services` appear and unrelated top-level commands
+- [x] Add the top-level `triage` leaf explicitly to `GenerateCLIReference`.
+- [x] Correct the relevant command-group name from `service` to `services`.
+- [x] Test that `triage` and `services` appear and unrelated top-level commands
       remain excluded.
-- [ ] Update `docs/user/README.md`, `docs/CLI_REFERENCE.md`, and
+- [x] Update `docs/user/README.md`, `docs/CLI_REFERENCE.md`, and
       `docs/architecture/mcp-and-llm.md`.
 
 ## Testing Strategy
@@ -399,12 +408,44 @@ longer be authorized. Release notes must call out this security correction.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
-`coral triage`, dispatch unification, JSON bootstrap parsing, and the RBAC
-correction are unimplemented.
+All four phases are complete:
+
+- ✅ Generated RPC permission mappings and HTTP route authorization tests.
+- ✅ CLI dispatch by default, equivalent JSON bootstrap in both modes, shared
+  triage guidance, selected-colony subprocess scope, and command references in
+  single-shot and interactive `ask` as well as `terminal`.
+- ✅ Read-only diagnosis, deterministic service selection, leaf-to-caller
+  profiling resolution, qualifier-preserving function matching, semantic issue
+  matching, and explicit probes capped at 10 minutes.
+- ✅ Stable JSON and text partial results, cancellation propagation, CLI
+  reference, and user documentation including the permission compatibility
+  change.
+
+Final review corrected reversed profiling traversal, overly broad function-name
+normalization, missing duration bounds, tool-level bootstrap errors, omitted
+`ask` references, and selected-colony propagation. Blank evidence never triggers
+an unfiltered registry query. Early diagnosis outcomes report an explicit
+attachment request as skipped.
+
+Validation: `make test`, `make lint`, and `make docs-check` pass. Local Connect
+integration tests exercise the real command, clients, auth middleware, and
+generated routes for profiling-resolved candidates, read-only diagnosis,
+successful attachment, and permission denial. Bootstrap tests exercise a CLI
+subprocess and an in-process MCP server with matching JSON fixtures. The
+distributed suite covers degraded/no-candidate and bootstrap flows; live Linux
+eBPF attachment was not rerun during final review.
 
 ## Future Work
+
+### Remaining unmapped debug procedures
+
+`DetachUprobe`, `GetDebugResults`, and `ListDebugSessions` are not in the HTTP
+RBAC map and currently default to `PermissionStatus`. A future change should
+decide and assign their intended permissions (most likely `PermissionDebug`
+for detach and `PermissionQuery` for the two read operations, mirroring
+`AttachUprobe` and `QueryFunctions`).
 
 ### Registry-backed function performance ranking
 

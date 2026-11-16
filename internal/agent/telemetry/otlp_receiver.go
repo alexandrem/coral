@@ -373,6 +373,10 @@ func (r *OTLPReceiver) convertOTLPSpan(otlpSpan *otlptrace.Span, serviceName str
 		}
 	}
 
+	if !isError && (httpStatus >= 500 || attributes["error"] == "true") {
+		isError = true
+	}
+
 	// Determine span kind.
 	spanKind := spanKindToString(otlpSpan.Kind)
 

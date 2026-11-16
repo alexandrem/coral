@@ -99,7 +99,7 @@ var coralExecutable = os.Executable
 // executeCLITool runs coral <args> --format json as a subprocess (RFD 100).
 // Non-zero exits are returned as MCP tool errors so the LLM can handle them.
 // Go errors are only returned for unexpected failures (e.g., exec.LookPath).
-func executeCLITool(ctx context.Context, args []string, debug bool) (*mcp.CallToolResult, float64, error) {
+func executeCLITool(ctx context.Context, args []string, debug bool, colonyID string) (*mcp.CallToolResult, float64, error) {
 	start := time.Now()
 
 	// Append --format json automatically.
@@ -116,6 +116,9 @@ func executeCLITool(ctx context.Context, args []string, debug bool) (*mcp.CallTo
 	}
 
 	cmd := exec.CommandContext(ctx, coralBin, args...) // #nosec G204
+	if colonyID != "" {
+		cmd.Env = append(os.Environ(), "CORAL_COLONY_ID="+colonyID)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

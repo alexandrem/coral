@@ -24,7 +24,7 @@ type Agent struct {
 	conversations map[string]*Conversation
 	mcpClient     *client.Client
 	debug         bool
-	dispatchMode  string // "mcp" (default) or "cli" (RFD 100)
+	dispatchMode  string // "cli" (default) or "mcp" (RFD 114)
 	cliReference  string // compact CLI reference for CLI dispatch mode (RFD 100)
 }
 
@@ -154,6 +154,16 @@ func NewAgentWithCLIReference(askCfg *config.AskConfig, colonyCfg *config.Colony
 	return newAgent(askCfg, colonyCfg, debug, cliRef)
 }
 
+// resolveDispatchMode returns the effective dispatch mode for a configured
+// AskAgentConfig.DispatchMode value. CLI is the default when unset (RFD 114);
+// an explicit "mcp" remains supported.
+func resolveDispatchMode(configured string) string {
+	if configured == "" {
+		return config.DispatchModeCLI
+	}
+	return configured
+}
+
 // newAgent is the internal constructor shared by NewAgent and NewAgentWithCLIReference.
 func newAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool, cliRef string) (*Agent, error) {
 	if debug {
@@ -197,10 +207,7 @@ func newAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 	}
 
 	// Determine dispatch mode: CLI mode skips MCP and uses coral subprocess instead.
-	dispatchMode := askCfg.Agent.DispatchMode
-	if dispatchMode == "" {
-		dispatchMode = config.DispatchModeMCP
-	}
+	dispatchMode := resolveDispatchMode(askCfg.Agent.DispatchMode)
 
 	var mcpClient *client.Client
 	if dispatchMode == config.DispatchModeCLI {
@@ -373,9 +380,12 @@ func (a *Agent) buildSystemPrompt(ctx context.Context) string {
 }
 
 // buildMCPSystemPrompt builds the system prompt for MCP dispatch mode (RFD 054).
+// Bootstrap context is fetched through the same coral_cli JSON path as CLI
+// dispatch mode (RFD 114), since coral mcp proxy exposes no other tools.
 func (a *Agent) buildMCPSystemPrompt(ctx context.Context) string {
-	serviceCtx := a.fetchServiceContext(ctx)
-	healthAlerts := a.fetchHealthAlerts(ctx)
+	runner := &mcpCommandRunner{client: a.mcpClient}
+	serviceCtx := bootstrapServiceContext(ctx, runner, a.debug)
+	healthAlerts := bootstrapHealthAlerts(ctx, runner, a.debug)
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
@@ -394,20 +404,30 @@ PARAMETER EXTRACTION RULES:
 3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
 4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
 
-Always extract ALL relevant parameters from the user's query before asking for clarification.`
+Always extract ALL relevant parameters from the user's query before asking for clarification.
+` + triageInstructions
 
 	return prompt
 }
 
 // buildCLISystemPrompt builds the system prompt for CLI dispatch mode (RFD 100).
 // Agent actions are expressed as coral CLI commands, producing auditable session logs.
+// Includes the same service and health bootstrap context as MCP dispatch mode,
+// plus topology, which is CLI-only (RFD 114).
 func (a *Agent) buildCLISystemPrompt(ctx context.Context) string {
+	runner := &cliCommandRunner{debug: a.debug, colonyID: a.selectedColonyID()}
+	serviceCtx := bootstrapServiceContext(ctx, runner, a.debug)
+	healthAlerts := bootstrapHealthAlerts(ctx, runner, a.debug)
 	topologyCtx := a.fetchTopologyCLI(ctx)
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
 	prompt := "You are an observability assistant for Coral distributed systems.\n"
 	prompt += "Current time: " + now + "\n"
+
+	if healthAlerts != "" {
+		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
+	}
 
 	if topologyCtx != "" {
 		prompt += "\n" + topologyCtx + "\n"
@@ -421,10 +441,9 @@ RULES:
 1. Use coral_cli with args like ["query", "traces", "--service", "api", "--since", "10m"].
 2. Do NOT include "coral" in args — it is prepended automatically.
 3. --format json is appended automatically — do not include it.
-4. Call coral_cli ["services"] first to discover available services.
+4. Available services: ` + serviceCtx + `
 5. Time ranges: convert natural language ("last hour" → "1h", "30 min" → "30m").
-
-`
+` + triageInstructions + "\n"
 
 	if a.cliReference != "" {
 		prompt += "AVAILABLE COMMANDS (coral://cli/reference):\n"
@@ -434,81 +453,168 @@ RULES:
 	return prompt
 }
 
-// fetchServiceContext fetches the list of available services with their status.
-func (a *Agent) fetchServiceContext(ctx context.Context) string {
-	req := mcp.CallToolRequest{}
-	req.Params.Name = "coral_list_services"
-	req.Params.Arguments = map[string]interface{}{}
+// triageInstructions keeps diagnosis and explicit instrumentation guidance
+// consistent across CLI and MCP dispatch modes.
+const triageInstructions = `For a combined health-and-code-location question (e.g. "what's broken and
+where"), prefer coral_cli with args ["triage"] (or ["triage", "<service>"])
+to resolve a probeable candidate function in one call. Pass
+["triage", "<service>", "--attach"] only when the user asked to instrument.
+`
 
-	result, err := a.mcpClient.CallTool(ctx, req)
+// commandRunner executes a coral CLI command and returns its raw JSON stdout
+// (RFD 114). CLI dispatch mode and MCP dispatch mode implement this with
+// different transports so prompt bootstrap can parse the same JSON shapes in
+// both modes instead of maintaining separate parsers.
+type commandRunner interface {
+	run(ctx context.Context, args []string) (string, error)
+}
+
+// cliCommandRunner runs coral commands as local subprocesses (CLI dispatch mode).
+type cliCommandRunner struct {
+	debug    bool
+	colonyID string
+}
+
+func (r *cliCommandRunner) run(ctx context.Context, args []string) (string, error) {
+	result, _, err := executeCLITool(ctx, args, r.debug, r.colonyID)
 	if err != nil {
-		if a.debug {
+		return "", err
+	}
+	return commandTextContent(result)
+}
+
+// selectedColonyID keeps CLI subprocesses scoped to the agent's colony.
+func (a *Agent) selectedColonyID() string {
+	if a.colonyConfig == nil {
+		return ""
+	}
+	return a.colonyConfig.ColonyID
+}
+
+// mcpCommandRunner runs coral commands through the proxy's sole coral_cli
+// tool (MCP dispatch mode). coral mcp proxy exposes no other tools (RFD 100).
+type mcpCommandRunner struct {
+	client *client.Client
+}
+
+func (r *mcpCommandRunner) run(ctx context.Context, args []string) (string, error) {
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "coral_cli"
+	req.Params.Arguments = map[string]interface{}{"args": args}
+
+	result, err := r.client.CallTool(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return commandTextContent(result)
+}
+
+// commandTextContent extracts JSON stdout and preserves tool-level failures.
+// Both transports can report command failures with IsError and no Go error.
+func commandTextContent(result *mcp.CallToolResult) (string, error) {
+	if result == nil {
+		return "", fmt.Errorf("command returned no result")
+	}
+	var parts []string
+	for _, content := range result.Content {
+		if tc, ok := mcp.AsTextContent(content); ok {
+			parts = append(parts, tc.Text)
+		}
+	}
+	text := strings.Join(parts, "\n")
+	if result.IsError {
+		return "", fmt.Errorf("command failed: %s", text)
+	}
+	if text == "" {
+		return "", fmt.Errorf("command returned no text")
+	}
+	return text, nil
+}
+
+// bootstrapServiceContext runs "coral services" and returns a compact,
+// comma-separated list of service names for the system prompt (RFD 114).
+func bootstrapServiceContext(ctx context.Context, runner commandRunner, debug bool) string {
+	text, err := runner.run(ctx, []string{"services"})
+	if err != nil {
+		if debug {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch service list: %v\n", err)
 		}
 		return "(service list unavailable)"
 	}
-
-	if len(result.Content) > 0 {
-		if textContent, ok := mcp.AsTextContent(result.Content[0]); ok {
-			var output struct {
-				Services []struct {
-					Name   string `json:"name"`
-					Status string `json:"status"`
-				} `json:"services"`
-			}
-			if err := json.Unmarshal([]byte(textContent.Text), &output); err == nil {
-				entries := make([]string, 0, len(output.Services))
-				for _, svc := range output.Services {
-					entry := svc.Name
-					// Only annotate non-normal statuses so healthy services don't add noise.
-					if svc.Status != "" && svc.Status != "ACTIVE" {
-						entry += " (" + svc.Status + ")"
-					}
-					entries = append(entries, entry)
-				}
-				if len(entries) > 0 {
-					return strings.Join(entries, ", ")
-				}
-			}
-		}
-	}
-
-	return "(no services registered)"
+	return formatServiceContext(text)
 }
 
-// fetchHealthAlerts calls coral_query_summary and returns a compact alert string
-// containing only degraded or critical services. Returns empty string if all healthy.
-func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
-	req := mcp.CallToolRequest{}
-	req.Params.Name = "coral_query_summary"
-	req.Params.Arguments = map[string]interface{}{
-		"time_range":        "5m",
-		"include_profiling": false,
+// formatServiceContext parses the JSON produced by "coral services --format json"
+// (an object containing a "services" array) into a compact name list.
+func formatServiceContext(jsonText string) string {
+	var output struct {
+		Services []struct {
+			Name string `json:"name"`
+		} `json:"services"`
 	}
+	if err := json.Unmarshal([]byte(jsonText), &output); err != nil || len(output.Services) == 0 {
+		return "(no services registered)"
+	}
+	names := make([]string, len(output.Services))
+	for i, svc := range output.Services {
+		names[i] = svc.Name
+	}
+	return strings.Join(names, ", ")
+}
 
-	result, err := a.mcpClient.CallTool(ctx, req)
+// bootstrapHealthAlerts runs "coral query summary --since 5m" and returns a
+// compact alert block containing only degraded or critical services (RFD 114).
+// Returns an empty string if all services are healthy.
+func bootstrapHealthAlerts(ctx context.Context, runner commandRunner, debug bool) string {
+	text, err := runner.run(ctx, []string{"query", "summary", "--since", "5m"})
 	if err != nil {
-		if a.debug {
+		if debug {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch health snapshot: %v\n", err)
 		}
 		return ""
 	}
+	return formatHealthAlerts(text)
+}
 
-	if len(result.Content) == 0 {
+// summaryAlertJSON is the subset of "coral query summary --format json" fields
+// needed to render a compact health alert line.
+type summaryAlertJSON struct {
+	ServiceName  string  `json:"service_name"`
+	Status       string  `json:"status"`
+	ErrorRate    float64 `json:"error_rate"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
+	RequestCount int64   `json:"request_count"`
+}
+
+// formatHealthAlerts parses the JSON array produced by
+// "coral query summary --format json" and renders one compact line per
+// degraded or critical service. Healthy and unknown-status services are
+// omitted so alerts don't add noise.
+func formatHealthAlerts(jsonText string) string {
+	var summaries []summaryAlertJSON
+	if err := json.Unmarshal([]byte(jsonText), &summaries); err != nil {
 		return ""
 	}
-	textContent, ok := mcp.AsTextContent(result.Content[0])
-	if !ok {
-		return ""
+	var alerts []string
+	for _, s := range summaries {
+		if s.Status != "degraded" && s.Status != "critical" {
+			continue
+		}
+		icon := "⚠️"
+		if s.Status == "critical" {
+			icon = "❌"
+		}
+		alerts = append(alerts, fmt.Sprintf("%s %s | Status: %s | Error Rate: %.2f%% | Avg Latency: %.2fms | Requests: %d",
+			icon, s.ServiceName, s.Status, s.ErrorRate, s.AvgLatencyMs, s.RequestCount))
 	}
-	return parseHealthAlerts(textContent.Text)
+	return strings.Join(alerts, "\n")
 }
 
 // fetchTopologyCLI runs coral query topology in CLI dispatch mode and returns a compact
 // call graph line for injection into the system prompt. Returns empty string on failure
 // or when no connections are observed.
 func (a *Agent) fetchTopologyCLI(ctx context.Context) string {
-	result, _, err := executeCLITool(ctx, []string{"query", "topology"}, a.debug)
+	result, _, err := executeCLITool(ctx, []string{"query", "topology"}, a.debug, a.selectedColonyID())
 	if err != nil || result == nil {
 		return ""
 	}
@@ -596,46 +702,6 @@ func formatCompactCallGraph(topologyText string) string {
 		return ""
 	}
 	return "Call graph: " + strings.Join(edges, ", ")
-}
-
-// parseHealthAlerts extracts compact one-liners for degraded/critical services from
-// the coral_query_summary text output. Returns empty string if no issues found.
-func parseHealthAlerts(summaryText string) string {
-	// Each service block is separated by a blank line.
-	blocks := strings.Split(summaryText, "\n\n")
-	var alerts []string
-	for _, block := range blocks {
-		block = strings.TrimSpace(block)
-		if block == "" {
-			continue
-		}
-		lines := strings.Split(block, "\n")
-		if len(lines) == 0 {
-			continue
-		}
-		firstLine := strings.TrimSpace(lines[0])
-		// Include only degraded (⚠️) or critical (❌) services.
-		if !strings.HasPrefix(firstLine, "⚠️") && !strings.HasPrefix(firstLine, "❌") {
-			continue
-		}
-		alerts = append(alerts, compactServiceAlert(firstLine, lines[1:]))
-	}
-	return strings.Join(alerts, "\n")
-}
-
-// compactServiceAlert formats a single degraded/critical service as a one-liner.
-func compactServiceAlert(header string, lines []string) string {
-	parts := []string{header}
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Status:") ||
-			strings.HasPrefix(line, "Error Rate:") ||
-			strings.HasPrefix(line, "Avg Latency:") ||
-			strings.HasPrefix(line, "Requests:") {
-			parts = append(parts, line)
-		}
-	}
-	return strings.Join(parts, " | ")
 }
 
 // ask is the internal implementation that sends a question to the agent (RFD 051).
@@ -866,7 +932,7 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 					}
 				}
 
-				toolResult, toolDuration, err = executeCLITool(ctx, cliArgs, a.debug)
+				toolResult, toolDuration, err = executeCLITool(ctx, cliArgs, a.debug, a.selectedColonyID())
 				if err != nil {
 					return nil, fmt.Errorf("coral_cli failed: %w", err)
 				}

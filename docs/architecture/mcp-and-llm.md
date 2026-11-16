@@ -51,12 +51,23 @@ from the Cobra command tree, and executes requested commands locally. Results
 are added to the conversation so the model can choose another operation or
 produce an answer.
 
-The current CLI system prompt attempts to fetch a compact topology through
-`coral query topology` and instructs the model to call `coral services` to
-discover available services. It does not require a successful topology fetch to
-start a conversation. A failure or empty graph can omit that context. The
-handler still contains helpers for older MCP-based service and summary calls;
-their presence does not make them the CLI-mode initialization path.
+Before constructing the system prompt, both dispatch modes use a shared
+`commandRunner` to fetch `coral services --format json` and
+`coral query summary --since 5m --format json`. CLI mode executes locally;
+MCP mode invokes the proxy's `coral_cli` tool. The prompt includes the service
+list and degraded or critical health alerts. A failed service query produces
+an unavailable-context marker; failed or empty health results omit the alert
+block. Neither failure prevents a conversation from starting.
+
+CLI mode additionally attempts to fetch a compact topology through
+`coral query topology`. A failed or empty topology can omit that context.
+For combined health and code-location questions, its prompt recommends
+`coral triage [service]`, which resolves a probe candidate from health,
+profiling, and function-registry evidence in one command. Probe attachment
+requires an explicit `--attach` request.
+
+CLI dispatch is the default for `coral ask` and the terminal. An explicit
+`mcp` setting in the client's agent configuration selects proxy dispatch.
 
 The provider abstraction translates messages, tool definitions, and responses
 for supported LLM backends. The operational data remains in the Colony and
@@ -98,3 +109,4 @@ Implementation: [legacy Colony tool handlers](../../internal/colony/server/serve
 - [RFD 054: Parameter Extraction](../../RFDs/054-coral-ask-smart-parameter-extraction.md)
 - [RFD 055: Ask Configuration](../../RFDs/055-coral-ask-config.md)
 - [RFD 100: CLI-Native Dispatch](../../RFDs/100-cli-native-agent-dispatch.md)
+- [RFD 114: Coral Triage and Dispatch Unification](../../RFDs/114-coral-triage.md)

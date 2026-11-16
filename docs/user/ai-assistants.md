@@ -85,8 +85,14 @@ ask:
 ```
 
 The global file uses `ai.ask`; the Colony file uses `ask`. Changing model
-settings does not change the Colony selected for data access. Retained
-conversation turns and context limits also affect how much earlier evidence
+settings does not change the Colony selected for data access.
+
+The default `ask.agent.dispatch_mode` is `cli`: both `coral ask` and the
+terminal execute Coral commands locally. Set it to `mcp` only when agent tool
+calls need to pass through the MCP proxy. In the global file, the field is
+`ai.ask.agent.dispatch_mode`.
+
+Retained conversation turns and context limits also affect how much earlier evidence
 is available to a later model call.
 
 ## Use a local Ollama model

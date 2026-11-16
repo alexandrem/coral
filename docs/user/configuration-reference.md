@@ -80,7 +80,7 @@ and model/provider interpretation.
 | `ai.ask.conversation.context_window` | int      | `8192`     | Maximum tokens for context                       |
 | `ai.ask.conversation.auto_prune`     | bool     | `true`     | Auto-prune old messages when limit reached       |
 | `ai.ask.agent.mode`                  | string   | `embedded` | Agent mode: `embedded`, `daemon`, or `ephemeral` |
-| `ai.ask.agent.dispatch_mode`         | string   | `mcp`      | How the agent calls tools: `mcp` or `cli` (local `coral` subprocesses) |
+| `ai.ask.agent.dispatch_mode`         | string   | `cli`      | How the agent calls tools: `mcp` or `cli` (local `coral` subprocesses) |
 
 The default fallback list is `anthropic:claude-3-5-sonnet-20241022` and
 `openai:gpt-4o-mini`. Replace it with models your provider accounts can use.
