@@ -17,7 +17,6 @@ import (
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
-	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
 // Stable outcome values (RFD 114 User Interface section).
@@ -63,6 +62,9 @@ const DefaultSince = "5m"
 // DefaultAttachDuration is the bounded probe lifetime used when --attach is
 // passed without --attach-duration.
 const DefaultAttachDuration = 30 * time.Second
+
+// MaxAttachDuration matches the AttachUprobe server's maximum probe lifetime.
+const MaxAttachDuration = 10 * time.Minute
 
 // client is the narrow RPC surface triage needs, kept interface-based so
 // service selection and candidate/partial-result behavior can be unit tested
@@ -177,6 +179,9 @@ func Diagnose(ctx context.Context, colonyID string, opts Options) (*Result, erro
 // diagnose is the client-agnostic implementation, exercised directly by unit
 // tests against a fake client.
 func diagnose(ctx context.Context, c client, opts Options) (*Result, error) {
+	if opts.AttachDuration < 0 {
+		return nil, fmt.Errorf("attach duration must be positive")
+	}
 	since := opts.Since
 	if since == "" {
 		since = DefaultSince
@@ -190,8 +195,12 @@ func diagnose(ctx context.Context, c client, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to query summary: %w", err)
 	}
 
+	attachStatus := AttachNotRequested
+	if opts.Attach {
+		attachStatus = AttachSkipped
+	}
 	if len(resp.Summaries) == 0 {
-		return &Result{Service: opts.Service, Outcome: OutcomeNoData, Attach: AttachOutcome{Status: AttachNotRequested}}, nil
+		return &Result{Service: opts.Service, Outcome: OutcomeNoData, Attach: AttachOutcome{Status: attachStatus}}, nil
 	}
 
 	var target *colonypb.UnifiedSummaryResult
@@ -208,7 +217,7 @@ func diagnose(ctx context.Context, c client, opts Options) (*Result, error) {
 			ErrorRate:    target.ErrorRate,
 			AvgLatencyMs: target.AvgLatencyMs,
 		},
-		Attach: AttachOutcome{Status: AttachNotRequested},
+		Attach: AttachOutcome{Status: attachStatus},
 	}
 
 	if target.Status != statusCritical && target.Status != statusDegraded {
@@ -235,8 +244,11 @@ func diagnose(ctx context.Context, c client, opts Options) (*Result, error) {
 	}
 
 	attachDuration := opts.AttachDuration
-	if attachDuration <= 0 {
+	if attachDuration == 0 {
 		attachDuration = DefaultAttachDuration
+	}
+	if attachDuration > MaxAttachDuration {
+		attachDuration = MaxAttachDuration
 	}
 	result.Attach = maybeAttach(ctx, c, target.ServiceName, candidate, opts.Attach, attachDuration)
 
@@ -288,7 +300,7 @@ func resolveCandidate(ctx context.Context, c client, summary *colonypb.UnifiedSu
 	return resolveFromSemanticQuery(ctx, c, summary)
 }
 
-// hotPathFrames returns the hottest CPU stack, root to leaf, or nil when no
+// hotPathFrames returns the hottest CPU stack, leaf to root, or nil when no
 // profiling data is available.
 func hotPathFrames(summary *colonypb.UnifiedSummaryResult) []string {
 	ps := summary.ProfilingSummary
@@ -302,8 +314,11 @@ func hotPathFrames(summary *colonypb.UnifiedSummaryResult) []string {
 // candidate) to caller, querying the registry for an exact, service-scoped,
 // probeable, not-already-probed match.
 func resolveFromHotPath(ctx context.Context, c client, serviceName string, frames []string) (*CandidateFunction, string, error) {
-	for i := len(frames) - 1; i >= 0; i-- {
-		cand, err := lookupExactFunction(ctx, c, serviceName, frames[i])
+	for _, frame := range frames {
+		if strings.TrimSpace(frame) == "" {
+			continue
+		}
+		cand, err := lookupExactFunction(ctx, c, serviceName, frame)
 		if err != nil {
 			return nil, CandidateUnavailable, err
 		}
@@ -340,11 +355,15 @@ func lookupExactFunction(ctx context.Context, c client, serviceName, frame strin
 }
 
 // exactFunctionMatch compares a registry function name and a profile frame
-// after normalizing both to their leaf identifier, so a fully qualified
-// registry name (e.g. "main.handleCheckout") matches an unqualified or
-// differently package-qualified profile frame for the same function.
+// while retaining package and receiver qualifiers present in the frame. A
+// fully qualified registry name can match a shorter profile name, but two
+// distinct qualified functions with the same final identifier cannot match.
 func exactFunctionMatch(registryName, frame string) bool {
-	return database.ShortFunctionName(registryName) == database.ShortFunctionName(frame)
+	if registryName == "" || frame == "" {
+		return false
+	}
+	return registryName == frame || strings.HasSuffix(registryName, "/"+frame) ||
+		(!strings.Contains(frame, "/") && strings.HasSuffix(registryName, "."+frame))
 }
 
 // resolveFromSemanticQuery builds a query from the summary's issues and
@@ -375,10 +394,14 @@ func resolveFromSemanticQuery(ctx context.Context, c client, summary *colonypb.U
 
 func semanticQuery(summary *colonypb.UnifiedSummaryResult) string {
 	parts := make([]string, 0, len(summary.Issues)+len(summary.Regressions))
-	parts = append(parts, summary.Issues...)
+	for _, issue := range summary.Issues {
+		if issue = strings.TrimSpace(issue); issue != "" {
+			parts = append(parts, issue)
+		}
+	}
 	for _, r := range summary.Regressions {
-		if r.Message != "" {
-			parts = append(parts, r.Message)
+		if message := strings.TrimSpace(r.GetMessage()); message != "" {
+			parts = append(parts, message)
 		}
 	}
 	return strings.Join(parts, " ")

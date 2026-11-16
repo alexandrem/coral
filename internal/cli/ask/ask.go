@@ -90,7 +90,7 @@ Interactive Mode (RFD 051):
 				}
 
 				if interactive || resume != "" {
-					return runInteractive(cmd.Context(), colonyID, model, resume, debug, dryRun)
+					return runInteractive(cmd.Context(), colonyID, model, resume, debug, dryRun, GenerateCLIReference(cmd.Root()))
 				}
 
 				return fmt.Errorf("question argument required in non-interactive mode")
@@ -98,7 +98,7 @@ Interactive Mode (RFD 051):
 
 			// Single-shot mode.
 			question := strings.Join(args, " ")
-			return runAsk(cmd.Context(), question, colonyID, model, stream, format, cont, debug, dryRun)
+			return runAsk(cmd.Context(), question, colonyID, model, stream, format, cont, debug, dryRun, GenerateCLIReference(cmd.Root()))
 		},
 	}
 
@@ -125,7 +125,7 @@ Interactive Mode (RFD 051):
 }
 
 // runAsk executes the ask command.
-func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream bool, format string, continueConv, debug, dryRun bool) error {
+func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream bool, format string, continueConv, debug, dryRun bool, cliRef string) error {
 	// Configure debug logger.
 	if debug {
 		fmt.Fprintln(os.Stderr, "[DEBUG] Debug mode enabled")
@@ -194,7 +194,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	}
 
 	// Create agent.
-	agent, err := NewAgent(askCfg, colonyCfg, debug)
+	agent, err := NewAgentWithCLIReference(askCfg, colonyCfg, debug, cliRef)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}

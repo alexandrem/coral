@@ -1,7 +1,6 @@
 package triage
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -34,13 +33,16 @@ regardless of its current health.`,
 			if err := validateFlags(format, attach, cmd.Flags().Changed("attach-duration")); err != nil {
 				return err
 			}
+			if attach && attachDuration <= 0 {
+				return fmt.Errorf("--attach-duration must be positive")
+			}
 
 			service := ""
 			if len(args) > 0 {
 				service = args[0]
 			}
 
-			result, err := Diagnose(context.Background(), "", Options{
+			result, err := Diagnose(cmd.Context(), "", Options{
 				Service:        service,
 				Since:          since,
 				Attach:         attach,
@@ -55,18 +57,18 @@ regardless of its current health.`,
 				if err != nil {
 					return fmt.Errorf("failed to format output: %w", err)
 				}
-				fmt.Println(string(data))
-				return nil
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				return err
 			}
 
-			fmt.Print(formatText(result))
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), formatText(result))
+			return err
 		},
 	}
 
 	cmd.Flags().StringVar(&since, "since", DefaultSince, "Time range for the health summary (e.g. 5m, 1h)")
 	cmd.Flags().BoolVar(&attach, "attach", false, "Attach a bounded eBPF probe to the resolved candidate")
-	cmd.Flags().DurationVar(&attachDuration, "attach-duration", DefaultAttachDuration, "Probe duration when --attach is set")
+	cmd.Flags().DurationVar(&attachDuration, "attach-duration", DefaultAttachDuration, "Probe duration when --attach is set (positive, capped at 10m)")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
 
 	return cmd
@@ -102,16 +104,12 @@ func formatText(r *Result) string {
 	switch r.Outcome {
 	case OutcomeNoData:
 		fmt.Fprintln(&b, "  No data available for the requested service and time range.")
-		return b.String()
 	case OutcomeNothingDegraded:
 		fmt.Fprintln(&b, "  No degraded or critical services found.")
-		return b.String()
 	case OutcomeHealthy:
 		fmt.Fprintln(&b, "  Service is healthy; no diagnosis needed.")
-		return b.String()
 	case OutcomeUnknown:
 		fmt.Fprintln(&b, "  Service status is unknown; no diagnosis performed.")
-		return b.String()
 	}
 
 	switch r.CandidateStatus {

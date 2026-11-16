@@ -143,7 +143,8 @@ outcome `unknown`.
 
 Candidate selection uses only signals available in the current API:
 
-1. If `profiling_summary.hot_path` is present, walk it from leaf to caller and
+1. If `profiling_summary.top_cpu_hotspots[0].frames` is present, walk it in its
+   API order (leaf to caller) and
    query `QueryFunctions` for each exact function name within the selected
    service. Select the first exact registry match that is probeable and not
    already probed. Function-name normalization must handle a fully qualified
@@ -164,8 +165,8 @@ provides one for that actual candidate.
 ### Optional attachment and failure semantics
 
 `--attach` is explicit because attaching a uprobe changes a running target and
-can add overhead. `--attach-duration` defaults to `30s` and is capped at the
-same server-enforced maximum as `AttachUprobe`. Supplying
+can add overhead. `--attach-duration` defaults to `30s`, must be positive, and
+is capped at the same server-enforced maximum (`10m`) as `AttachUprobe`. Supplying
 `--attach-duration` without `--attach` is an argument error.
 
 Summary acquisition is required: argument, connection, or summary failures
@@ -175,6 +176,11 @@ stages, so their failures are returned as structured partial results:
 - `candidate_status: unavailable` with `candidate_error`,
 - `candidate_status: not_found` when the lookup completed without a match, or
 - `attach.status: failed` with `attach.error`.
+
+An explicit `--attach` that cannot run because of an early diagnosis outcome
+(`no_data`, `healthy`, `unknown`, or `nothing_degraded`) reports
+`attach.status: skipped`. Without `--attach`, the status is always
+`not_requested`.
 
 These partial outcomes exit successfully so `coral_cli` preserves the JSON for
 the agent. Failure fields must be prominent in text output and must not be
@@ -203,6 +209,9 @@ The health parser includes only `degraded` and `critical` services. Tests must
 use fixtures matching the real CLI JSON shape, not the retired MCP tool output.
 CLI mode continues to include topology context. The shared prompt instructions
 recommend `triage` for combined health-and-code-location questions.
+Both modes scope CLI subprocesses to the selected colony through
+`CORAL_COLONY_ID`. Single-shot and interactive `ask` include the generated CLI
+reference, as does `terminal`.
 
 ### RBAC correction
 
@@ -401,9 +410,32 @@ longer be authorized. Release notes must call out this security correction.
 
 **Core Capability:** 🎉 Implemented
 
-All four phases are complete: the RBAC procedure-name correction, CLI dispatch
-default + shared bootstrap, `coral triage`, and CLI reference/docs. `make
-test` and `make lint` are clean.
+All four phases are complete:
+
+- ✅ Generated RPC permission mappings and HTTP route authorization tests.
+- ✅ CLI dispatch by default, equivalent JSON bootstrap in both modes, shared
+  triage guidance, selected-colony subprocess scope, and command references in
+  single-shot and interactive `ask` as well as `terminal`.
+- ✅ Read-only diagnosis, deterministic service selection, leaf-to-caller
+  profiling resolution, qualifier-preserving function matching, semantic issue
+  matching, and explicit probes capped at 10 minutes.
+- ✅ Stable JSON and text partial results, cancellation propagation, CLI
+  reference, and user documentation including the permission compatibility
+  change.
+
+Final review corrected reversed profiling traversal, overly broad function-name
+normalization, missing duration bounds, tool-level bootstrap errors, omitted
+`ask` references, and selected-colony propagation. Blank evidence never triggers
+an unfiltered registry query. Early diagnosis outcomes report an explicit
+attachment request as skipped.
+
+Validation: `make test`, `make lint`, and `make docs-check` pass. Local Connect
+integration tests exercise the real command, clients, auth middleware, and
+generated routes for profiling-resolved candidates, read-only diagnosis,
+successful attachment, and permission denial. Bootstrap tests exercise a CLI
+subprocess and an in-process MCP server with matching JSON fixtures. The
+distributed suite covers degraded/no-candidate and bootstrap flows; live Linux
+eBPF attachment was not rerun during final review.
 
 ## Future Work
 

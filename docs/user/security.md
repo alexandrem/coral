@@ -116,6 +116,10 @@ comma-separated list of these names:
 | `debug` | Attach live eBPF probes and debug |
 | `admin` | Full administrative access, including configuration changes |
 
+Status-only tokens cannot discover functions or attach probes. Use `query` for
+function discovery and read-only `coral triage`, and grant both `query` and
+`debug` for `coral triage --attach`. An `admin` token includes both permissions.
+
 The [CLI manual](../CLI_REFERENCE.md) documents token options such as rate
 limits. Revoke an unwanted token with:
 

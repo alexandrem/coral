@@ -70,6 +70,7 @@ func runInteractive(
 	resumeArg string,
 	debug bool,
 	dryRun bool,
+	cliRef string,
 ) error {
 	// Load configuration (same as runAsk).
 	loader, err := config.NewLoader()
@@ -113,7 +114,7 @@ func runInteractive(
 	}
 
 	// Create agent.
-	agent, err := NewAgent(askCfg, colonyCfg, debug)
+	agent, err := NewAgentWithCLIReference(askCfg, colonyCfg, debug, cliRef)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}

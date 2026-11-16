@@ -169,7 +169,7 @@ func TestDiagnose_AllHealthyFleet_NeverQueriesOrAttaches(t *testing.T) {
 	assert.Equal(t, OutcomeNothingDegraded, result.Outcome)
 	assert.Empty(t, c.queryFunctionsCalls)
 	assert.Empty(t, c.attachCalls)
-	assert.Equal(t, AttachNotRequested, result.Attach.Status)
+	assert.Equal(t, AttachSkipped, result.Attach.Status)
 }
 
 func TestDiagnose_NamedServiceHealthy_NeverQueriesOrAttaches(t *testing.T) {
@@ -197,13 +197,14 @@ func TestDiagnose_HotPathResolution(t *testing.T) {
 	summary := summaryResult("api", "critical", 50, 900)
 	summary.ProfilingSummary = &colonypb.ProfilingSummary{
 		TopCpuHotspots: []*colonypb.CPUHotspot{
-			{Frames: []string{"main.a", "main.b", "main.c"}}, // root...leaf
+			{Frames: []string{"main.c", "main.b", "main.a"}}, // leaf...root, as returned by the RPC
 		},
 	}
 	c := &fakeClient{
 		summaryResp: &colonypb.QueryUnifiedSummaryResponse{Summaries: []*colonypb.UnifiedSummaryResult{summary}},
 		queryFunctionsResp: map[string]*colonypb.QueryFunctionsResponse{
 			"main.c": {Results: []*colonypb.FunctionResult{functionResult("main.c", "svc/c.go", 10, true, false)}},
+			"main.a": {Results: []*colonypb.FunctionResult{functionResult("main.a", "svc/a.go", 30, true, false)}},
 		},
 	}
 	result, err := diagnose(context.Background(), c, Options{Service: "api"})
@@ -223,7 +224,7 @@ func TestDiagnose_HotPathSkipsUnprobeableAndAlreadyProbedFrames(t *testing.T) {
 	summary := summaryResult("api", "critical", 50, 900)
 	summary.ProfilingSummary = &colonypb.ProfilingSummary{
 		TopCpuHotspots: []*colonypb.CPUHotspot{
-			{Frames: []string{"main.a", "main.b", "main.c"}},
+			{Frames: []string{"main.c", "main.b", "main.a"}},
 		},
 	}
 	c := &fakeClient{
@@ -291,6 +292,99 @@ func TestDiagnose_NoHotPathNoIssues_NotFoundWithoutQuerying(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, CandidateNotFound, result.CandidateStatus)
 	assert.Empty(t, c.queryFunctionsCalls, "must not select from an unfiltered arbitrary list")
+}
+
+func TestExactFunctionMatch(t *testing.T) {
+	for _, tt := range []struct {
+		registry, frame string
+		match           bool
+	}{
+		{"main.checkout", "main.checkout", true},
+		{"main.checkout", "checkout", true},
+		{"example.com/app/checkout.Handle", "checkout.Handle", true},
+		{"example.com/app/checkout.(*Handler).Serve", "(*Handler).Serve", true},
+		{"other.Handle", "checkout.Handle", false},
+		{"checkout.(*Other).Serve", "checkout.(*Handler).Serve", false},
+		{"example.com/other/checkout.Handle", "example.com/app/checkout.Handle", false},
+		{"main.checkoutExtra", "checkout", false},
+		{"main.checkout", "", false},
+		{"", "", false},
+	} {
+		t.Run(tt.registry+"/"+tt.frame, func(t *testing.T) {
+			assert.Equal(t, tt.match, exactFunctionMatch(tt.registry, tt.frame))
+		})
+	}
+}
+
+func TestDiagnose_EmptyEvidenceNeverListsRegistry(t *testing.T) {
+	for _, frames := range [][]string{nil, {"", "  "}} {
+		summary := summaryResult("api", "critical", 50, 900)
+		summary.Issues = []string{"", " \n "}
+		summary.Regressions = []*colonypb.RegressionIndicator{{Message: " "}}
+		summary.ProfilingSummary = &colonypb.ProfilingSummary{
+			TopCpuHotspots: []*colonypb.CPUHotspot{{Frames: frames}},
+		}
+		c := &fakeClient{summaryResp: &colonypb.QueryUnifiedSummaryResponse{Summaries: []*colonypb.UnifiedSummaryResult{summary}}}
+		result, err := diagnose(t.Context(), c, Options{Service: "api", Attach: true})
+		require.NoError(t, err)
+		assert.Equal(t, CandidateNotFound, result.CandidateStatus)
+		assert.Equal(t, AttachSkipped, result.Attach.Status)
+		assert.Empty(t, c.queryFunctionsCalls)
+		assert.Empty(t, c.attachCalls)
+	}
+}
+
+func TestDiagnose_AttachSkippedForEarlyOutcomes(t *testing.T) {
+	for _, tt := range []struct {
+		name, service, outcome string
+		summaries              []*colonypb.UnifiedSummaryResult
+	}{
+		{"no data", "api", OutcomeNoData, nil},
+		{"healthy", "api", OutcomeHealthy, []*colonypb.UnifiedSummaryResult{summaryResult("api", "healthy", 0, 1)}},
+		{"unknown", "api", OutcomeUnknown, []*colonypb.UnifiedSummaryResult{summaryResult("api", "", 0, 0)}},
+		{"nothing degraded", "", OutcomeNothingDegraded, []*colonypb.UnifiedSummaryResult{summaryResult("api", "healthy", 0, 1)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &fakeClient{summaryResp: &colonypb.QueryUnifiedSummaryResponse{Summaries: tt.summaries}}
+			result, err := diagnose(t.Context(), c, Options{Service: tt.service, Attach: true})
+			require.NoError(t, err)
+			assert.Equal(t, tt.outcome, result.Outcome)
+			assert.Equal(t, AttachSkipped, result.Attach.Status)
+			assert.Contains(t, formatText(result), "Attach: skipped")
+			assert.Empty(t, c.queryFunctionsCalls)
+			assert.Empty(t, c.attachCalls)
+		})
+	}
+}
+
+func TestDiagnose_AttachDurationBounds(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		duration time.Duration
+		want     time.Duration
+	}{
+		{"default", 0, DefaultAttachDuration},
+		{"maximum", MaxAttachDuration, MaxAttachDuration},
+		{"capped", time.Hour, MaxAttachDuration},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			summary := summaryResult("api", "critical", 50, 900)
+			summary.Issues = []string{"checkout errors"}
+			c := &fakeClient{
+				summaryResp: &colonypb.QueryUnifiedSummaryResponse{Summaries: []*colonypb.UnifiedSummaryResult{summary}},
+				queryFunctionsResp: map[string]*colonypb.QueryFunctionsResponse{
+					"checkout errors": {Results: []*colonypb.FunctionResult{functionResult("main.checkout", "", 0, true, false)}},
+				},
+				attachResp: &colonypb.AttachUprobeResponse{Success: true, SessionId: "session"},
+			}
+			_, err := diagnose(t.Context(), c, Options{Attach: true, AttachDuration: tt.duration})
+			require.NoError(t, err)
+			require.Len(t, c.attachCalls, 1)
+			assert.Equal(t, tt.want, c.attachCalls[0].Duration.AsDuration())
+		})
+	}
+	_, err := diagnose(t.Context(), &fakeClient{}, Options{Attach: true, AttachDuration: -time.Second})
+	require.ErrorContains(t, err, "duration must be positive")
 }
 
 func TestDiagnose_CandidateUnavailable_QueryFunctionsError(t *testing.T) {

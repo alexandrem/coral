@@ -790,6 +790,9 @@ func (p *mcpProxy) executeCLITool(ctx context.Context, args []string) (string, e
 	fmt.Fprintf(os.Stderr, "→ coral_cli: coral %s\n", strings.Join(args, " "))
 
 	cmd := exec.CommandContext(ctx, coralBin, args...) // #nosec G204
+	if p.colonyID != "" {
+		cmd.Env = append(os.Environ(), "CORAL_COLONY_ID="+p.colonyID)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

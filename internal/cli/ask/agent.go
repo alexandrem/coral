@@ -24,7 +24,7 @@ type Agent struct {
 	conversations map[string]*Conversation
 	mcpClient     *client.Client
 	debug         bool
-	dispatchMode  string // "mcp" (default) or "cli" (RFD 100)
+	dispatchMode  string // "cli" (default) or "mcp" (RFD 114)
 	cliReference  string // compact CLI reference for CLI dispatch mode (RFD 100)
 }
 
@@ -404,7 +404,8 @@ PARAMETER EXTRACTION RULES:
 3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
 4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
 
-Always extract ALL relevant parameters from the user's query before asking for clarification.`
+Always extract ALL relevant parameters from the user's query before asking for clarification.
+` + triageInstructions
 
 	return prompt
 }
@@ -414,7 +415,7 @@ Always extract ALL relevant parameters from the user's query before asking for c
 // Includes the same service and health bootstrap context as MCP dispatch mode,
 // plus topology, which is CLI-only (RFD 114).
 func (a *Agent) buildCLISystemPrompt(ctx context.Context) string {
-	runner := &cliCommandRunner{debug: a.debug}
+	runner := &cliCommandRunner{debug: a.debug, colonyID: a.selectedColonyID()}
 	serviceCtx := bootstrapServiceContext(ctx, runner, a.debug)
 	healthAlerts := bootstrapHealthAlerts(ctx, runner, a.debug)
 	topologyCtx := a.fetchTopologyCLI(ctx)
@@ -442,13 +443,7 @@ RULES:
 3. --format json is appended automatically — do not include it.
 4. Available services: ` + serviceCtx + `
 5. Time ranges: convert natural language ("last hour" → "1h", "30 min" → "30m").
-6. For a combined health-and-code-location question (e.g. "what's broken and
-   where"), prefer coral_cli ["triage"] (or ["triage", "<service>"]) over
-   composing separate query/debug calls — it resolves a probeable candidate
-   function in one call. Pass ["triage", "<service>", "--attach"] only when
-   the user asked to instrument, not just diagnose.
-
-`
+` + triageInstructions + "\n"
 
 	if a.cliReference != "" {
 		prompt += "AVAILABLE COMMANDS (coral://cli/reference):\n"
@@ -457,6 +452,14 @@ RULES:
 
 	return prompt
 }
+
+// triageInstructions keeps diagnosis and explicit instrumentation guidance
+// consistent across CLI and MCP dispatch modes.
+const triageInstructions = `For a combined health-and-code-location question (e.g. "what's broken and
+where"), prefer coral_cli with args ["triage"] (or ["triage", "<service>"])
+to resolve a probeable candidate function in one call. Pass
+["triage", "<service>", "--attach"] only when the user asked to instrument.
+`
 
 // commandRunner executes a coral CLI command and returns its raw JSON stdout
 // (RFD 114). CLI dispatch mode and MCP dispatch mode implement this with
@@ -468,15 +471,24 @@ type commandRunner interface {
 
 // cliCommandRunner runs coral commands as local subprocesses (CLI dispatch mode).
 type cliCommandRunner struct {
-	debug bool
+	debug    bool
+	colonyID string
 }
 
 func (r *cliCommandRunner) run(ctx context.Context, args []string) (string, error) {
-	result, _, err := executeCLITool(ctx, args, r.debug)
+	result, _, err := executeCLITool(ctx, args, r.debug, r.colonyID)
 	if err != nil {
 		return "", err
 	}
-	return firstTextContent(result), nil
+	return commandTextContent(result)
+}
+
+// selectedColonyID keeps CLI subprocesses scoped to the agent's colony.
+func (a *Agent) selectedColonyID() string {
+	if a.colonyConfig == nil {
+		return ""
+	}
+	return a.colonyConfig.ColonyID
 }
 
 // mcpCommandRunner runs coral commands through the proxy's sole coral_cli
@@ -494,18 +506,29 @@ func (r *mcpCommandRunner) run(ctx context.Context, args []string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return firstTextContent(result), nil
+	return commandTextContent(result)
 }
 
-// firstTextContent extracts the first text content item from an MCP tool result.
-func firstTextContent(result *mcp.CallToolResult) string {
-	if result == nil || len(result.Content) == 0 {
-		return ""
+// commandTextContent extracts JSON stdout and preserves tool-level failures.
+// Both transports can report command failures with IsError and no Go error.
+func commandTextContent(result *mcp.CallToolResult) (string, error) {
+	if result == nil {
+		return "", fmt.Errorf("command returned no result")
 	}
-	if tc, ok := mcp.AsTextContent(result.Content[0]); ok {
-		return tc.Text
+	var parts []string
+	for _, content := range result.Content {
+		if tc, ok := mcp.AsTextContent(content); ok {
+			parts = append(parts, tc.Text)
+		}
 	}
-	return ""
+	text := strings.Join(parts, "\n")
+	if result.IsError {
+		return "", fmt.Errorf("command failed: %s", text)
+	}
+	if text == "" {
+		return "", fmt.Errorf("command returned no text")
+	}
+	return text, nil
 }
 
 // bootstrapServiceContext runs "coral services" and returns a compact,
@@ -591,7 +614,7 @@ func formatHealthAlerts(jsonText string) string {
 // call graph line for injection into the system prompt. Returns empty string on failure
 // or when no connections are observed.
 func (a *Agent) fetchTopologyCLI(ctx context.Context) string {
-	result, _, err := executeCLITool(ctx, []string{"query", "topology"}, a.debug)
+	result, _, err := executeCLITool(ctx, []string{"query", "topology"}, a.debug, a.selectedColonyID())
 	if err != nil || result == nil {
 		return ""
 	}
@@ -909,7 +932,7 @@ func (a *Agent) ask(ctx context.Context, question string, conversationID string,
 					}
 				}
 
-				toolResult, toolDuration, err = executeCLITool(ctx, cliArgs, a.debug)
+				toolResult, toolDuration, err = executeCLITool(ctx, cliArgs, a.debug, a.selectedColonyID())
 				if err != nil {
 					return nil, fmt.Errorf("coral_cli failed: %w", err)
 				}

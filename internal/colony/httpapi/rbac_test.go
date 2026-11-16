@@ -2,7 +2,12 @@
 package httpapi
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/auth"
@@ -201,6 +206,37 @@ func TestRBACDebugProcedureCorrection(t *testing.T) {
 	}
 	if !auth.HasPermission(debugToken, attachUprobeRequired) {
 		t.Error("debug token should be able to call AttachUprobe")
+	}
+}
+
+func TestRBACDebugRoutes(t *testing.T) {
+	for _, procedure := range []string{
+		colonyv1connect.ColonyDebugServiceQueryFunctionsProcedure,
+		colonyv1connect.ColonyDebugServiceAttachUprobeProcedure,
+	} {
+		for _, permission := range []auth.Permission{auth.PermissionStatus, auth.PermissionQuery, auth.PermissionDebug} {
+			t.Run(procedure+"/"+string(permission), func(t *testing.T) {
+				reachedHandler := false
+				handler := NewRBACMiddleware(zerolog.Nop()).Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					reachedHandler = true
+					w.WriteHeader(http.StatusNoContent)
+				}))
+				req := httptest.NewRequest(http.MethodPost, procedure, nil)
+				token := &auth.APIToken{TokenID: "test", Permissions: []auth.Permission{permission}}
+				req = req.WithContext(context.WithValue(req.Context(), TokenContextKey, token))
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, req)
+				allowed := (procedure == colonyv1connect.ColonyDebugServiceQueryFunctionsProcedure && permission == auth.PermissionQuery) ||
+					(procedure == colonyv1connect.ColonyDebugServiceAttachUprobeProcedure && permission == auth.PermissionDebug)
+				wantStatus := http.StatusForbidden
+				if allowed {
+					wantStatus = http.StatusNoContent
+				}
+				if response.Code != wantStatus || reachedHandler != allowed {
+					t.Fatalf("status=%d reached=%v; want status=%d reached=%v", response.Code, reachedHandler, wantStatus, allowed)
+				}
+			})
+		}
 	}
 }
 

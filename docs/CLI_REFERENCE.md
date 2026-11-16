@@ -1560,18 +1560,29 @@ health; healthy or unknown status returns without candidate resolution.
 | --- | --- | --- | --- |
 | `--since` | string | `5m` | Time range for the health summary |
 | `--attach` | bool | `false` | Attach a bounded eBPF probe to the resolved candidate |
-| `--attach-duration` | duration | `30s` | Probe duration; requires `--attach` |
+| `--attach-duration` | duration | `30s` | Positive probe duration, capped at `10m`; requires `--attach` |
 | `--format` | string | `text` | Output format: `text` or `json` |
 
 Candidate resolution uses profiling hot-path frames first: a match must be
-exact, service-scoped, probeable, and not already probed. It then tries a
-semantic query built from the summary's issues and regression messages.
+exact, service-scoped, probeable, and not already probed. Frames are searched
+from leaf to caller. When no hot path is available, it tries a semantic query
+built from the summary's issues and regression messages.
 Unprobed functions are not ranked by latency; when neither signal yields a
 candidate, the result reports `candidate_status: not_found`.
 
 JSON results expose `outcome`, `candidate_status`, and `attach.status` so
 scripts and agents can distinguish diagnosis, candidate lookup, and attachment
 results without parsing text.
+
+Summary and connection failures exit non-zero. Candidate lookup and attachment
+failures exit successfully with `candidate_status: unavailable` or
+`attach.status: failed` and an error field. An explicit `--attach` reports
+`skipped` when diagnosis cannot select a candidate, including healthy, unknown,
+and empty summaries. Inspect these fields before treating instrumentation as
+successful.
+
+On the public HTTPS endpoint, diagnosis requires `query`; attachment also
+requires `debug`. See [API token permissions](user/security.md#operator-api-tokens).
 
 ```bash
 coral triage api

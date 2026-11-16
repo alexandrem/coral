@@ -3,9 +3,15 @@ package ask
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,6 +23,79 @@ import (
 type fakeCommandRunner struct {
 	output string
 	err    error
+}
+
+func TestBootstrapTransportParity(t *testing.T) {
+	const servicesJSON = `{"services":[{"name":"api"},{"name":"checkout"}]}`
+	const summaryJSON = `[{"service_name":"api","status":"critical","error_rate":50,"avg_latency_ms":900,"request_count":10}]`
+
+	// The subprocess fixture verifies JSON format is appended on the CLI path.
+	script := `#!/bin/sh
+test "$CORAL_COLONY_ID" = selected || { echo 'wrong colony' >&2; exit 1; }
+case "$*" in
+  'services --format json') printf '%s' '` + servicesJSON + `' ;;
+  'query summary --since 5m --format json') printf '%s' '` + summaryJSON + `' ;;
+  'query topology --format json') printf '%s' '{"connections":[]}' ;;
+  *) echo 'unexpected command' >&2; exit 1 ;;
+esac
+`
+	path := filepath.Join(t.TempDir(), "coral")
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	previous := coralExecutable
+	coralExecutable = func() (string, error) { return path, nil }
+	t.Cleanup(func() { coralExecutable = previous })
+
+	mcpServer := server.NewMCPServer("bootstrap-test", "1.0", server.WithToolCapabilities(false))
+	var calls [][]string
+	mcpServer.AddTool(buildCLITools()[0], func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		assert.Equal(t, "coral_cli", req.Params.Name)
+		var args []string
+		for _, arg := range req.GetArguments()["args"].([]any) {
+			args = append(args, arg.(string))
+		}
+		calls = append(calls, args)
+		switch strings.Join(args, " ") {
+		case "services":
+			return mcp.NewToolResultText(servicesJSON), nil
+		case "query summary --since 5m":
+			return mcp.NewToolResultText(summaryJSON), nil
+		default:
+			return mcp.NewToolResultError("unexpected command"), nil
+		}
+	})
+	mcpClient, err := client.NewInProcessClient(mcpServer)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mcpClient.Close() })
+	require.NoError(t, mcpClient.Start(t.Context()))
+	initReq := mcp.InitializeRequest{}
+	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initReq.Params.ClientInfo = mcp.Implementation{Name: "test", Version: "1.0"}
+	_, err = mcpClient.Initialize(t.Context(), initReq)
+	require.NoError(t, err)
+
+	t.Setenv("CORAL_COLONY_ID", "other-colony")
+	cliPrompt := (&Agent{dispatchMode: config.DispatchModeCLI, colonyConfig: &config.ColonyConfig{ColonyID: "selected"}}).buildSystemPrompt(t.Context())
+	mcpPrompt := (&Agent{dispatchMode: config.DispatchModeMCP, mcpClient: mcpClient}).buildSystemPrompt(t.Context())
+	for _, prompt := range []string{cliPrompt, mcpPrompt} {
+		assert.Contains(t, prompt, "Available services: api, checkout")
+		assert.Contains(t, prompt, "❌ api | Status: critical")
+		assert.Contains(t, prompt, `["triage", "<service>", "--attach"] only when the user asked to instrument`)
+	}
+	assert.Equal(t, [][]string{{"services"}, {"query", "summary", "--since", "5m"}}, calls)
+
+	// A subprocess exit failure is an MCP IsError result with a nil Go error.
+	_, err = (&cliCommandRunner{colonyID: "selected"}).run(t.Context(), []string{"invalid"})
+	require.ErrorContains(t, err, "unexpected command")
+	_, err = (&mcpCommandRunner{client: mcpClient}).run(t.Context(), []string{"invalid"})
+	require.ErrorContains(t, err, "unexpected command")
+	assert.Equal(t, "other-colony", os.Getenv("CORAL_COLONY_ID"), "subprocess scoping must not change the parent environment")
+}
+
+func TestCommandTextContentFailures(t *testing.T) {
+	for _, result := range []*mcp.CallToolResult{nil, {}, mcp.NewToolResultError("permission denied")} {
+		_, err := commandTextContent(result)
+		require.Error(t, err, fmt.Sprintf("result: %v", result))
+	}
 }
 
 func (f *fakeCommandRunner) run(_ context.Context, _ []string) (string, error) {
