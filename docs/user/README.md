@@ -89,6 +89,6 @@ and the [TypeScript SDK reference](sdk-reference.md) describes analysis interfac
 The [Kubernetes deployment notes](../../deployments/k8s/README.md) explain the
 maintained manifest variants. [Runnable examples](../../examples/) supply
 application and script examples. The [architecture book](../architecture/README.md)
-explains internal mechanisms; [development notes](../development/) and
-[RFDs](../../RFDs/) cover contributor work and design proposals. Proposed features,
+explains internal mechanisms; [development notes](../development/) cover
+contributor work. Proposed features,
 including [Reef federation](../REEF.md), are not prerequisites for using Coral.

@@ -181,7 +181,7 @@ per-command authorization. See [access boundaries](security.md#understand-the-ac
 | `remote.certificate_authority_data` | string | -       | Base64-encoded CA certificate (takes precedence)                 |
 | `remote.insecure_skip_tls_verify`   | bool   | `false` | Skip TLS verification (testing only, never in prod)              |
 | `remote.ca_fingerprint.algorithm`   | string | -       | CA fingerprint hash algorithm (e.g., `sha256`)                   |
-| `remote.ca_fingerprint.value`       | string | -       | Hex-encoded CA fingerprint for continuous verification (RFD 085) |
+| `remote.ca_fingerprint.value`       | string | -       | Hex-encoded CA fingerprint for continuous verification |
 
 Operator tokens are supplied through `CORAL_API_TOKEN`; `remote` has no
 `api_token` field. TLS data takes precedence over a CA file. Fingerprint
@@ -217,7 +217,7 @@ restart; SIGHUP does not reconfigure every listener or collector.
 | `beyla.retention.http_days`   | int  | `30`    | Retention period for HTTP metrics (days)                 |
 | `beyla.retention.grpc_days`   | int  | `30`    | Retention period for gRPC metrics (days)                 |
 | `beyla.retention.sql_days`    | int  | `14`    | Retention period for SQL metrics (days)                  |
-| `beyla.retention.traces_days` | int  | `7`     | Retention period for distributed traces (days) (RFD 036) |
+| `beyla.retention.traces_days` | int  | `7`     | Retention period for distributed traces (days) |
 
 | Field                           | Type | Default | Description                                      |
 | ------------------------------- | ---- | ------- | ------------------------------------------------ |
@@ -312,7 +312,7 @@ Colony ID, CA fingerprint, and Bootstrap PSK through
 | --- | --- | --- | --- |
 | `agent.bootstrap.enabled` | bool | startup-controlled | Startup performs required enrollment; not a bypass for trust checks |
 | `agent.bootstrap.ca_fingerprint` | string | - | Root CA fingerprint (sha256:hex) for trust |
-| `agent.bootstrap.bootstrap_psk` | string | - | Bootstrap PSK for enrollment authorization (RFD 088) |
+| `agent.bootstrap.bootstrap_psk` | string | - | Bootstrap PSK for enrollment authorization |
 | `agent.bootstrap.certs_dir` | string | `~/.coral/certs` | Directory for storing certificates |
 | `agent.bootstrap.retry_attempts` | int | `10` | Max bootstrap retry attempts |
 | `agent.bootstrap.retry_delay` | duration | `1s` | Initial retry delay (exponential) |

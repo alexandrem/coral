@@ -16,6 +16,8 @@ system explanations in `docs/architecture/`. Start at its `README.md` reading ma
 **User Documentation** (`/user-docs`): Use the skill for setup, configuration,
 operations, and feature guides in `docs/user/`. Start at its `README.md` reading
 map. Keep `docs/CLI_REFERENCE.md` as the single man-style command manual.
+Never mention RFD numbers or link to RFDs in user documentation, including the
+CLI reference. Describe the user-facing behavior directly.
 
 **RFD Writing** (`/rfd-write`): Use the skill. Read `RFDs/000-RFD-TEMPLATE.md`
 first. Scope must be completable — split if >5 phases or blocked by other RFDs.

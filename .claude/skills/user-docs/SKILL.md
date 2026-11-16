@@ -10,6 +10,10 @@ small amount of system context a user needs, then help them complete a task and
 recognize its result. Before drafting substantial prose, read
 [references/writing-guidelines.md](references/writing-guidelines.md).
 
+Never mention RFDs in user documentation, including `docs/user/` and
+`docs/CLI_REFERENCE.md`. Do not include RFD identifiers, titles, links, or design
+history references. Describe shipped behavior directly in terms of user tasks.
+
 ## Canonical homes
 
 - `docs/user/README.md` is the reading map. Chapters own setup, configuration
