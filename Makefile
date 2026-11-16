@@ -1,4 +1,4 @@
-.PHONY: build build-colony build-agent build-all build-dev clean init install install-tools test test-integration run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
+.PHONY: docs-check build build-colony build-agent build-all build-dev clean init install install-tools test test-integration run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
 
 # Build variables
 BINARY_NAME=coral
@@ -275,6 +275,9 @@ install-tools: ## Install development tools
 lint: ## Run linter
 	@echo "Running linter..."
 	golangci-lint run --config .golangci.yml ./...
+
+docs-check: ## Check user docs: links, anchors, reading map, YAML and shell examples
+	go run ./scripts/docscheck
 
 lint-linux: ## Run linter in Linux Docker (tests platform-specific code)
 	@echo "Running linter in Linux Docker..."

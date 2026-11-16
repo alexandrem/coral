@@ -225,7 +225,7 @@ spec:
                     command: [ "coral", "agent", "start", "--monitor-all" ]
                     env:
                         -   name: CORAL_DISCOVERY_ENDPOINT
-                            value: "https://discovery.coral.io"
+                            value: "https://discovery.coralmesh.dev"
                         -   name: CORAL_COLONY_ID
                             value: "prod-us-east"
                         -   name: CORAL_BOOTSTRAP_TOKEN
@@ -335,7 +335,7 @@ coral inject deployment.yaml --policy=baseline
 coral inject deployment.yaml --colony-id=prod-us-east
 
 # Specify discovery service endpoint
-coral inject deployment.yaml --discovery=https://discovery.coral.io
+coral inject deployment.yaml --discovery=https://discovery.coralmesh.dev
 
 # Disable specific features
 coral inject deployment.yaml --no-exec
@@ -351,7 +351,7 @@ coral inject deployment.yaml --verbose
 # Coral agent injected
 # Features enabled: monitoring, exec
 # PodSecurity policy: baseline
-# Discovery endpoint: https://discovery.coral.io
+# Discovery endpoint: https://discovery.coralmesh.dev
 # Colony ID: prod-us-east
 apiVersion: apps/v1
 kind: Deployment
@@ -383,7 +383,7 @@ kubectl coral apply -f deployment.yaml --colony-id=staging
 Injecting Coral agent...
   Policy detected: baseline
   Features enabled: monitoring, exec
-  Discovery endpoint: https://discovery.coral.io
+  Discovery endpoint: https://discovery.coralmesh.dev
   Colony ID: prod-us-east
 
 deployment.apps/myapp created
@@ -401,7 +401,7 @@ version: 1
 
 # Discovery service configuration
 discovery:
-    endpoint: "https://discovery.coral.io"
+    endpoint: "https://discovery.coralmesh.dev"
 
 # Colony configuration
 colony:
@@ -595,7 +595,7 @@ spec:
 
 **Discovery Service & Colony Configuration:**
 
-- Discovery service endpoint configurable (defaults to https://discovery.coral.io)
+- Discovery service endpoint configurable (defaults to https://discovery.coralmesh.dev)
 - Colony ID specified per environment
 - Bootstrap token stored in Kubernetes secret (not in manifest)
 - Discovery service provides colony mesh endpoint dynamically

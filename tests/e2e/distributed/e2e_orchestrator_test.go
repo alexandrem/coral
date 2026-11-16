@@ -116,10 +116,10 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 	serviceSuite.SetupSuite()
 	defer serviceSuite.TearDownSuite()
 
-	s.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
-	s.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
-	s.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
-	s.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
+	serviceSuite.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
+	serviceSuite.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
+	serviceSuite.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
+	serviceSuite.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
 
 	// Run ExePatternSuite tests (RFD 111: connect-by-executable-pattern) with
 	// the same shared fixture.
@@ -188,8 +188,14 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	// discovery) with the same shared fixture.
 	containerNamespaceSuite := NewContainerNamespaceSuite(s.E2EDistributedSuite, s.T())
 
-	s.Run("NetnsAppAutoDiscovered", containerNamespaceSuite.TestNetnsAppAutoDiscovered)
-	s.Run("NetnsAppBeylaCapturesTraffic", containerNamespaceSuite.TestNetnsAppBeylaCapturesTraffic)
+	s.Run("NetnsAppAutoDiscovered", func() {
+		containerNamespaceSuite.SetT(s.T())
+		containerNamespaceSuite.TestNetnsAppAutoDiscovered()
+	})
+	s.Run("NetnsAppBeylaCapturesTraffic", func() {
+		containerNamespaceSuite.SetT(s.T())
+		containerNamespaceSuite.TestNetnsAppBeylaCapturesTraffic()
+	})
 
 	if !s.T().Failed() {
 		s.passiveObservability = true
@@ -461,6 +467,26 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	runSubtest(cliTriageSuite, "CLI_TriageAllServicesSelectsWorst", cliTriageSuite.TestTriageAllServicesSelectsWorst)
 	runSubtest(cliTriageSuite, "CLI_TriageTextOutputShowsFailureProminently", cliTriageSuite.TestTriageTextOutputShowsFailureProminently)
 
+	cliExecSuite := &CLIExecSuite{
+		E2EDistributedSuite: E2EDistributedSuite{ctx: s.ctx, fixture: s.fixture},
+	}
+	cliExecSuite.SetT(s.T())
+	cliExecSuite.SetupSuite()
+	defer cliExecSuite.TearDownSuite()
+
+	s.Run("CLI_ExecProcessName", func() {
+		cliExecSuite.SetT(s.T())
+		cliExecSuite.TestContainerExecProcessName()
+	})
+	s.Run("CLI_ExecPID", func() {
+		cliExecSuite.SetT(s.T())
+		cliExecSuite.TestContainerExecPID()
+	})
+	s.Run("CLI_ExecRejectsInvalidTargets", func() {
+		cliExecSuite.SetT(s.T())
+		cliExecSuite.TestContainerExecRejectsInvalidTargets()
+	})
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")
@@ -549,19 +575,19 @@ func (s *E2EOrchestratorSuite) Test9_DiscoveryService() {
 	defer discoverySuite.TearDownTest()
 
 	// Core RPC tests (work with both local and Workers).
-	s.Run("HealthEndpoint", discoverySuite.TestHealthEndpoint)
-	s.Run("JWKSEndpoint", discoverySuite.TestJWKSEndpoint)
-	s.Run("RegisterAndLookupColony", discoverySuite.TestRegisterAndLookupColony)
-	s.Run("RegisterAndLookupAgent", discoverySuite.TestRegisterAndLookupAgent)
-	s.Run("SplitBrainProtection", discoverySuite.TestSplitBrainProtection)
-	s.Run("ObservedEndpointCapture", discoverySuite.TestObservedEndpointCapture)
+	discoverySuite.Run("HealthEndpoint", discoverySuite.TestHealthEndpoint)
+	discoverySuite.Run("JWKSEndpoint", discoverySuite.TestJWKSEndpoint)
+	discoverySuite.Run("RegisterAndLookupColony", discoverySuite.TestRegisterAndLookupColony)
+	discoverySuite.Run("RegisterAndLookupAgent", discoverySuite.TestRegisterAndLookupAgent)
+	discoverySuite.Run("SplitBrainProtection", discoverySuite.TestSplitBrainProtection)
+	discoverySuite.Run("ObservedEndpointCapture", discoverySuite.TestObservedEndpointCapture)
 
 	// Auth flow test (requires docker-compose environment).
-	s.Run("AuthorizationFlow", discoverySuite.TestAuthorizationFlow)
+	discoverySuite.Run("AuthorizationFlow", discoverySuite.TestAuthorizationFlow)
 
 	// Environment-specific tests.
-	// s.Run("RelayNotImplemented", discoverySuite.TestRelayNotImplemented)
-	s.Run("TTLExpiration", discoverySuite.TestTTLExpiration)
+	// discoverySuite.Run("RelayNotImplemented", discoverySuite.TestRelayNotImplemented)
+	discoverySuite.Run("TTLExpiration", discoverySuite.TestTTLExpiration)
 
 	if !s.T().Failed() {
 		s.discoveryPassed = true

@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
 	"github.com/coral-mesh/coral/internal/privilege"
 )
 
@@ -133,6 +134,14 @@ func (m *Manager) Load() error {
 	keyPath := filepath.Join(m.certsDir, KeyFileName)
 	rootCAPath := filepath.Join(m.certsDir, RootCAFileName)
 
+	// #nosec G302: private directory requires traversal.
+	if err := os.Chmod(m.certsDir, 0700); err != nil {
+		return fmt.Errorf("failed to secure certs directory: %w", err)
+	}
+	if err := os.Chmod(keyPath, 0600); err != nil {
+		return fmt.Errorf("failed to secure private key: %w", err)
+	}
+
 	// Load certificate and key.
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
@@ -185,31 +194,45 @@ func (m *Manager) Save(result *bootstrap.Result) error {
 		return fmt.Errorf("failed to create certs directory: %w", err)
 	}
 
+	// Enforce permissions even when the directory already exists.
+	// #nosec G302: private directory requires traversal.
+	if err := os.Chmod(m.certsDir, 0700); err != nil {
+		return fmt.Errorf("failed to secure certs directory: %w", err)
+	}
+
+	// Save each file durably before the caller commits the enrollment marker.
 	// Save certificate (readable by user for inspection).
 	certPath := filepath.Join(m.certsDir, CertFileName)
 	// #nosec G306: Certificate file should be readable (not secret).
-	if err := os.WriteFile(certPath, result.Certificate, 0644); err != nil {
+	if err := enrollmentstate.WriteFileAtomic(certPath, result.Certificate, 0644); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
 	}
 
 	// Save private key (restricted).
 	keyPath := filepath.Join(m.certsDir, KeyFileName)
-	if err := os.WriteFile(keyPath, result.PrivateKey, 0600); err != nil {
+	if err := enrollmentstate.WriteFileAtomic(keyPath, result.PrivateKey, 0600); err != nil {
 		return fmt.Errorf("failed to write private key: %w", err)
 	}
 
 	// Save Root CA (readable for verification).
 	rootCAPath := filepath.Join(m.certsDir, RootCAFileName)
 	// #nosec G306: CA certificate should be readable (public trust anchor).
-	if err := os.WriteFile(rootCAPath, result.RootCA, 0644); err != nil {
+	if err := enrollmentstate.WriteFileAtomic(rootCAPath, result.RootCA, 0644); err != nil {
 		return fmt.Errorf("failed to write root CA: %w", err)
 	}
 
 	// Save CA chain (readable for verification).
 	chainPath := filepath.Join(m.certsDir, CAChainFileName)
 	// #nosec G306: CA chain should be readable (public certificates).
-	if err := os.WriteFile(chainPath, result.CAChain, 0644); err != nil {
+	if err := enrollmentstate.WriteFileAtomic(chainPath, result.CAChain, 0644); err != nil {
 		return fmt.Errorf("failed to write CA chain: %w", err)
+	}
+
+	// Fix ownership of files as well as the directory when running as root.
+	for _, path := range []string{certPath, keyPath, rootCAPath, chainPath} {
+		if err := privilege.FixFileOwnership(path); err != nil {
+			m.logger.Warn().Err(err).Msg("Failed to fix certificate file ownership")
+		}
 	}
 
 	// Fix ownership if running as root.
@@ -235,8 +258,11 @@ func (m *Manager) SaveAgentID(agentID string) error {
 
 	agentIDPath := filepath.Join(m.certsDir, AgentIDFileName)
 	// #nosec G306: Agent ID is not secret, readable for inspection.
-	if err := os.WriteFile(agentIDPath, []byte(agentID), 0644); err != nil {
+	if err := enrollmentstate.WriteFileAtomic(agentIDPath, []byte(agentID), 0644); err != nil {
 		return fmt.Errorf("failed to write agent ID: %w", err)
+	}
+	if err := privilege.FixFileOwnership(agentIDPath); err != nil {
+		m.logger.Warn().Err(err).Msg("Failed to fix agent ID ownership")
 	}
 
 	return nil

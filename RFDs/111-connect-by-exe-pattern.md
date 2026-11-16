@@ -304,13 +304,13 @@ Error: service "worker" cannot specify both a port and --exe-pattern
 
 ### Phase 4: E2E and documentation
 
-- [x] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md`: document
+- [x] Update `docs/user/README.md` and `docs/CLI_REFERENCE.md`: document
       `--exe-pattern`, the mutual-exclusion rule with `--port`, and example
       usage
-- [x] Update `docs/SERVICE_DISCOVERY.md`: document process-liveness health
+- [x] Update `docs/user/services.md`: document process-liveness health
       checking and how explicit exe-pattern connects interact with RFD 102's
       automatic discovery
-- [x] Update `docs/AGENT.md`: document `coral connect --exe-pattern` and the
+- [x] Update `docs/user/services.md`: document `coral connect --exe-pattern` and the
       `services:` config-file equivalent (not a `--connect` startup flag,
       which `coral agent start` doesn't have — see readiness gaps)
 - [x] E2E test: `coral connect worker --exe-pattern <pattern>` against a
@@ -476,8 +476,8 @@ Operational:
 - ✅ `ProcessCandidate.ExePathPattern` carries the literal regex through to
   `generateBeylaConfig`, which emits it verbatim instead of a name-derived
   `.*name.*` rule.
-- ✅ Docs: `docs/CLI.md`, `docs/CLI_REFERENCE.md`, `docs/SERVICE_DISCOVERY.md`,
-  `docs/AGENT.md`.
+- ✅ Docs: `docs/user/README.md`, `docs/CLI_REFERENCE.md`, `docs/user/services.md`,
+  `docs/user/services.md`.
 - ✅ E2E: `tests/e2e/distributed/service_exe_pattern_test.go` (`ExePatternSuite`),
   reusing RFD 102's `worker-app` fixture — connect/resolve/Beyla-rule flow,
   kill/restart PID recovery, and wire-level mutual-exclusion validation.

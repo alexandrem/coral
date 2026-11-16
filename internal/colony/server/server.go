@@ -10,10 +10,8 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/ca"
@@ -216,40 +214,7 @@ func (s *Server) ListAgents(
 				RuntimeContext: e.RuntimeContext, // RFD 018: Runtime context
 			}
 
-			// If agent is healthy/degraded, try to query real-time services.
-			if status == registry.StatusHealthy || status == registry.StatusDegraded {
-				// Create agent client.
-				// Agent listens on DefaultAgentPort for mesh traffic.
-				client := colony.GetAgentClient(e)
-
-				// Short timeout for real-time query.
-				queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)
-				defer cancel()
-
-				resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-				if err == nil {
-					// Update services from real-time response.
-					realTimeServices := make([]*meshv1.ServiceInfo, 0, len(resp.Msg.Services))
-					for _, svcStatus := range resp.Msg.Services {
-						realTimeServices = append(realTimeServices, &meshv1.ServiceInfo{
-							Name:           svcStatus.Name,
-							Port:           svcStatus.Port,
-							HealthEndpoint: svcStatus.HealthEndpoint,
-							ServiceType:    svcStatus.ServiceType,
-							Labels:         svcStatus.Labels,
-							ProcessId:      svcStatus.ProcessId,
-							BinaryPath:     svcStatus.BinaryPath,
-							BinaryHash:     svcStatus.BinaryHash,
-						})
-					}
-					agent.Services = realTimeServices
-				} else {
-					s.logger.Debug().
-						Err(err).
-						Str("agent_id", e.AgentID).
-						Msg("Failed to query agent services in real-time, using registry fallback")
-				}
-			}
+			refreshAgentServices(ctx, agent, colony.GetAgentClient(e))
 
 			agents[index] = agent
 		}()

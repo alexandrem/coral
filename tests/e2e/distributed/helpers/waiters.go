@@ -21,20 +21,26 @@ func WaitForHTTPEndpoint(ctx context.Context, url string, timeout time.Duration)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	client := &http.Client{Timeout: 2 * time.Second}
+	// Agent /status gathers live WireGuard diagnostics, which can take more
+	// than two seconds locally. Allow those requests to finish; the context
+	// still bounds the overall readiness wait.
+	client := &http.Client{Timeout: 5 * time.Second}
+	var lastErr error
 
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for HTTP endpoint %s: %w", url, ctx.Err())
+			return fmt.Errorf("timeout waiting for HTTP endpoint %s (last probe: %v): %w", url, lastErr, ctx.Err())
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 			if err != nil {
+				lastErr = err
 				continue
 			}
 
 			resp, err := client.Do(req)
 			if err != nil {
+				lastErr = err
 				continue
 			}
 			resp.Body.Close()
@@ -42,6 +48,7 @@ func WaitForHTTPEndpoint(ctx context.Context, url string, timeout time.Duration)
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
+			lastErr = fmt.Errorf("HTTP %s", resp.Status)
 		}
 	}
 }

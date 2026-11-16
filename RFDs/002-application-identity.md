@@ -224,7 +224,7 @@ Layer 3: Colony secret authentication (RFD 002)
 default_colony: my-shop-production-a3f2e1
 
 discovery:
-    endpoint: https://discovery.coral.io
+    endpoint: https://discovery.coralmesh.dev
 
 ai:
     provider: anthropic
@@ -342,7 +342,7 @@ default_colony: <colony-id>  # Optional
 
 # Discovery service configuration
 discovery:
-    endpoint: https://discovery.coral.io  # RFD 001 discovery service
+    endpoint: https://discovery.coralmesh.dev  # RFD 001 discovery service
     timeout: 10s
 
 # AI provider settings
@@ -415,7 +415,7 @@ storage:
 coral init <app-name> [flags]
   --env <environment>     # Environment name (default: "dev")
   --storage <path>        # Storage directory (default: ".coral")
-  --discovery <url>       # Discovery service URL (default: https://discovery.coral.io)
+  --discovery <url>       # Discovery service URL (default: https://discovery.coralmesh.dev)
 
 # Example output:
 $ coral init my-shop --env production
@@ -480,7 +480,7 @@ Current Colony:
   Application: my-shop
   Environment: production
   Storage: ~/projects/my-shop/.coral
-  Discovery: https://discovery.coral.io (mesh_id: my-shop-production-a3f2e1)
+  Discovery: https://discovery.coralmesh.dev (mesh_id: my-shop-production-a3f2e1)
 
 ---
 
@@ -497,7 +497,7 @@ $ coral colony export my-shop-production-a3f2e1 --format env
 
 export CORAL_COLONY_ID="my-shop-production-a3f2e1"
 export CORAL_COLONY_SECRET="abc123-secure-random-token-xyz789"
-export CORAL_DISCOVERY_ENDPOINT="https://discovery.coral.io"
+export CORAL_DISCOVERY_ENDPOINT="https://discovery.coralmesh.dev"
 
 # To use in your shell:
 #   eval $(coral colony export my-shop-production-a3f2e1)
@@ -514,7 +514,7 @@ type: Opaque
 stringData:
   colony-id: my-shop-production-a3f2e1
   colony-secret: abc123-secure-random-token-xyz789
-  discovery-endpoint: https://discovery.coral.io
+  discovery-endpoint: https://discovery.coralmesh.dev
 
 ---
 

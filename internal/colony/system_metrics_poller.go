@@ -4,12 +4,14 @@ import (
 	"context"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -17,6 +19,11 @@ import (
 )
 
 const systemMetricsDataType = "system_metrics"
+
+// systemMetricsSettleDelay is how long after a minute ends before it is
+// considered complete. It leaves time for the agent to store samples that were
+// collected at the end of the minute.
+const systemMetricsSettleDelay = 10 * time.Second
 
 // SystemMetricsPoller periodically queries agents for system metrics data.
 // This implements the pull-based system metrics architecture from RFD 071.
@@ -28,6 +35,7 @@ type SystemMetricsPoller struct {
 	pollInterval  time.Duration
 	retentionDays int // How long to keep system metrics summaries (default: 30 days).
 	logger        zerolog.Logger
+	clientFactory func(agent *registry.Entry) agentv1connect.AgentServiceClient
 }
 
 // NewSystemMetricsPoller creates a new system metrics poller.
@@ -59,6 +67,7 @@ func NewSystemMetricsPoller(
 		pollInterval:  pollInterval,
 		retentionDays: retentionDays,
 		logger:        componentLogger,
+		clientFactory: GetAgentClient,
 	}
 }
 
@@ -75,8 +84,10 @@ func (p *SystemMetricsPoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
-	now := time.Now()
-	startTime := now.Add(-p.pollInterval)
+	// Only aggregate minutes that have ended. Each summary row is upserted on
+	// its minute, so aggregating a partial minute would let the next poll
+	// overwrite it with the rest of the samples.
+	cutoff := time.Now().Add(-systemMetricsSettleDelay).Truncate(time.Minute)
 
 	totalMetrics := 0
 	allSummaries := make([]database.SystemMetricsSummary, 0)
@@ -88,14 +99,17 @@ func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
 	}
 	pendingCheckpoints := make(map[string]checkpointUpdate)
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
-		metrics, sessionID, maxSeqID, err := p.pollAgent(ctx, agent)
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
+		metrics, sessionID, maxSeqID, err := p.pollAgent(ctx, agent, cutoff)
 		if err != nil {
 			return err
 		}
 
 		// Aggregate metrics into 1-minute buckets.
-		summaries := p.aggregateMetrics(agent.AgentID, metrics, startTime, now)
+		summaries := aggregateSystemMetrics(agent.AgentID, metrics)
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		allSummaries = append(allSummaries, summaries...)
 
 		if maxSeqID > 0 {
@@ -140,10 +154,16 @@ func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
 }
 
 // pollAgent queries a single agent using checkpoint-based polling (RFD 089).
-// Returns metrics, session_id, max_seq_id, and any error. The caller is
-// responsible for committing the checkpoint only after the metrics have been
-// durably stored.
-func (p *SystemMetricsPoller) pollAgent(ctx context.Context, agent *registry.Entry) ([]*agentv1.SystemMetric, string, uint64, error) {
+// It returns only the metrics of complete minutes (see completeMinutesPrefix),
+// together with the session_id, the max seq_id of the returned metrics, and
+// any error. Metrics of the remaining minutes are fetched again by the next
+// poll. The caller is responsible for committing the checkpoint only after the
+// metrics have been durably stored.
+func (p *SystemMetricsPoller) pollAgent(
+	ctx context.Context,
+	agent *registry.Entry,
+	cutoff time.Time,
+) ([]*agentv1.SystemMetric, string, uint64, error) {
 	// Get checkpoint for this agent.
 	checkpoint, err := p.db.GetPollingCheckpoint(ctx, agent.AgentID, systemMetricsDataType)
 	if err != nil {
@@ -158,7 +178,7 @@ func (p *SystemMetricsPoller) pollAgent(ctx context.Context, agent *registry.Ent
 	}
 
 	// Query agent with sequence-based request.
-	client := GetAgentClient(agent)
+	client := p.clientFactory(agent)
 	req := connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
 		StartSeqId:  startSeqID,
 		MaxRecords:  int32(constants.DefaultColonyQueryMaxRecords),
@@ -196,40 +216,75 @@ func (p *SystemMetricsPoller) pollAgent(ctx context.Context, agent *registry.Ent
 		}
 	}
 
+	// Keep complete minutes only. Gap detection runs on the same prefix,
+	// because the rest is fetched again by the next poll.
+	truncated := len(resp.Msg.Metrics) >= int(req.Msg.MaxRecords)
+	metrics := resp.Msg.Metrics[:completeMinutesPrefix(resp.Msg.Metrics, cutoff, truncated)]
+	if len(metrics) == 0 {
+		return nil, resp.Msg.SessionId, 0, nil
+	}
+
 	// Detect gaps in sequence IDs (RFD 089).
-	if len(resp.Msg.Metrics) > 0 {
-		seqIDs := make([]uint64, len(resp.Msg.Metrics))
-		timestamps := make([]int64, len(resp.Msg.Metrics))
-		for i, m := range resp.Msg.Metrics {
-			seqIDs[i] = m.SeqId
-			timestamps[i] = m.Timestamp
-		}
-		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
-			p.logger.Warn().
-				Str("agent", agent.AgentID).
-				Uint64("gap_start", gap.StartSeqID).
-				Uint64("gap_end", gap.EndSeqID).
-				Msg("Detected system metrics sequence gap")
-			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, systemMetricsDataType, gap.StartSeqID, gap.EndSeqID)
+	seqIDs := make([]uint64, len(metrics))
+	timestamps := make([]int64, len(metrics))
+	for i, m := range metrics {
+		seqIDs[i] = m.SeqId
+		timestamps[i] = m.Timestamp
+	}
+	for _, gap := range poller.DetectGaps(req.Msg.StartSeqId, seqIDs, timestamps) {
+		p.logger.Warn().
+			Str("agent", agent.AgentID).
+			Uint64("gap_start", gap.StartSeqID).
+			Uint64("gap_end", gap.EndSeqID).
+			Msg("Detected system metrics sequence gap")
+		_ = p.db.RecordSequenceGap(ctx, agent.AgentID, systemMetricsDataType, gap.StartSeqID, gap.EndSeqID)
+	}
+
+	return metrics, resp.Msg.SessionId, metrics[len(metrics)-1].SeqId, nil
+}
+
+// completeMinutesPrefix returns how many leading metrics belong to complete
+// minutes, i.e. minutes before cutoff. Metrics must be ordered by seq_id; the
+// agent assigns seq_ids in collection order, so minutes are contiguous.
+//
+// When the response was truncated by the record limit, its last minute may
+// continue in the next response and is held back too, unless it is the only
+// minute in the response (holding it back would stall polling).
+func completeMinutesPrefix(metrics []*agentv1.SystemMetric, cutoff time.Time, truncated bool) int {
+	if len(metrics) == 0 {
+		return 0
+	}
+
+	if truncated {
+		last := systemMetricMinute(metrics[len(metrics)-1])
+		if last.Before(cutoff) && last.After(systemMetricMinute(metrics[0])) {
+			cutoff = last
 		}
 	}
 
-	return resp.Msg.Metrics, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
+	for i, m := range metrics {
+		if !systemMetricMinute(m).Before(cutoff) {
+			return i
+		}
+	}
+	return len(metrics)
 }
 
-// aggregateMetrics aggregates metrics into 1-minute buckets with min/max/avg/p95 calculations.
-func (p *SystemMetricsPoller) aggregateMetrics(
-	agentID string,
-	metrics []*agentv1.SystemMetric,
-	startTime, endTime time.Time,
-) []database.SystemMetricsSummary {
+// systemMetricMinute returns the 1-minute bucket containing the metric's own timestamp.
+func systemMetricMinute(m *agentv1.SystemMetric) time.Time {
+	return time.UnixMilli(m.Timestamp).Truncate(time.Minute)
+}
+
+// aggregateSystemMetrics groups metrics by 1-minute bucket (of each metric's
+// own timestamp), name and attributes, and computes min/max/avg/p95/delta for
+// each group. It is shared by SystemMetricsPoller and GapRecoveryService.
+func aggregateSystemMetrics(agentID string, metrics []*agentv1.SystemMetric) []database.SystemMetricsSummary {
 	if len(metrics) == 0 {
 		return nil
 	}
 
-	// Group metrics by metric name and attributes.
-	// Key format: "metric_name|attributes_json"
 	type metricKey struct {
+		bucketTime time.Time
 		name       string
 		attributes string
 	}
@@ -244,38 +299,30 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 
 	for _, metric := range metrics {
 		key := metricKey{
+			bucketTime: systemMetricMinute(metric),
 			name:       metric.Name,
 			attributes: metric.Attributes,
 		}
 
-		if _, exists := grouped[key]; !exists {
-			grouped[key] = &metricGroup{
-				values:     make([]float64, 0),
+		group, exists := grouped[key]
+		if !exists {
+			group = &metricGroup{
 				unit:       metric.Unit,
 				metricType: metric.MetricType,
 			}
+			grouped[key] = group
 		}
 
-		grouped[key].values = append(grouped[key].values, metric.Value)
+		group.values = append(group.values, metric.Value)
 	}
-
-	// Aggregate each group into a summary.
-	// Bucket time is truncated to the start of the minute for consistency.
-	bucketTime := startTime.Truncate(time.Minute)
 
 	summaries := make([]database.SystemMetricsSummary, 0, len(grouped))
 
 	for key, group := range grouped {
-		if len(group.values) == 0 {
-			continue
-		}
-
-		// Sort values for percentile calculation.
-		sortedValues := make([]float64, len(group.values))
-		copy(sortedValues, group.values)
+		// Sort values for percentile calculation. Each group owns its slice.
+		sortedValues := group.values
 		sort.Float64s(sortedValues)
 
-		// Calculate min, max, avg.
 		minVal := sortedValues[0]
 		maxVal := sortedValues[len(sortedValues)-1]
 		sum := 0.0
@@ -284,18 +331,16 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 		}
 		avgVal := sum / float64(len(sortedValues))
 
-		// Calculate p95.
 		p95Val := calculatePercentile(sortedValues, 0.95)
 
-		// Calculate delta for counters.
 		// For counter metrics, delta is the difference between max and min (total change in window).
 		deltaVal := 0.0
 		if group.metricType == "counter" || group.metricType == "delta" {
 			deltaVal = maxVal - minVal
 		}
 
-		summary := database.SystemMetricsSummary{
-			BucketTime:  bucketTime,
+		summaries = append(summaries, database.SystemMetricsSummary{
+			BucketTime:  key.bucketTime,
 			AgentID:     agentID,
 			MetricName:  key.name,
 			MinValue:    minVal,
@@ -303,13 +348,11 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 			AvgValue:    avgVal,
 			P95Value:    p95Val,
 			DeltaValue:  deltaVal,
-			SampleCount: uint64(len(group.values)),
+			SampleCount: uint64(len(sortedValues)),
 			Unit:        group.unit,
 			MetricType:  group.metricType,
 			Attributes:  key.attributes,
-		}
-
-		summaries = append(summaries, summary)
+		})
 	}
 
 	return summaries

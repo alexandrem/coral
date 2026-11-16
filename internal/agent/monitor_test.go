@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
@@ -146,4 +149,58 @@ func TestServiceMonitor_LivenessCheck_RecoversOnMatch(t *testing.T) {
 	status := monitor.GetStatus()
 	assert.Equal(t, ServiceStatusHealthy, status.Status)
 	assert.Equal(t, 0, monitor.missedLiveness)
+}
+
+func TestServiceMonitor_CheckHTTPHealth_IPv4Loopback(t *testing.T) {
+	// Listen strictly on IPv4 127.0.0.1
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	server := &http.Server{Handler: mux}
+	go func() { _ = server.Serve(ln) }()
+	defer func() { _ = server.Close() }()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:           "api-ipv4",
+		Port:           int32(port),
+		HealthEndpoint: "/health",
+		ServiceType:    "http",
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+	monitor.checkTimeout = 2 * time.Second
+
+	err = monitor.checkHTTPHealth(context.Background())
+	assert.NoError(t, err)
+}
+
+func TestServiceMonitor_CheckTCPHealth_IPv4Loopback(t *testing.T) {
+	// Listen strictly on IPv4 127.0.0.1
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	logger := zerolog.Nop()
+	service := &meshv1.ServiceInfo{
+		Name:        "tcp-ipv4",
+		Port:        int32(port),
+		ServiceType: "tcp",
+	}
+
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
+	monitor.checkTimeout = 2 * time.Second
+
+	err = monitor.checkTCPHealth(context.Background())
+	assert.NoError(t, err)
 }

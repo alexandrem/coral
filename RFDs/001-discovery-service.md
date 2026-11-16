@@ -88,7 +88,7 @@ but much simpler.
 ```
 ┌─────────────────────────────────────────────┐
 │         Discovery Service                   │
-│         (discovery.coral.io)                │
+│     (discovery.coralmesh.dev)               │
 │                                             │
 │  In-Memory Registry:                        │
 │  ┌────────────────────────────────────┐     │
@@ -136,14 +136,14 @@ but much simpler.
 ```yaml
 # Colony config
 discovery:
-    endpoint: https://discovery.coral.io
+    endpoint: https://discovery.coralmesh.dev
     mesh_id: my-app-prod
     register_interval: 60s  # Heartbeat frequency
     timeout: 10s
 
 # Agent config
 discovery:
-    endpoint: https://discovery.coral.io
+    endpoint: https://discovery.coralmesh.dev
     mesh_id: my-app-prod
     lookup_interval: 300s  # Re-lookup if colony changes
     timeout: 10s

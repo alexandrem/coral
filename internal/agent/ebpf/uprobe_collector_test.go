@@ -3,6 +3,8 @@
 package ebpf
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 	"unsafe"
 
@@ -35,6 +37,59 @@ func TestUprobeEventStructLayout(t *testing.T) {
 	assert.Equal(t, uintptr(12), unsafe.Offsetof(event.Tid), "Tid offset")
 	assert.Equal(t, uintptr(16), unsafe.Offsetof(event.EventType), "EventType offset")
 	assert.Equal(t, uintptr(24), unsafe.Offsetof(event.DurationNs), "DurationNs offset")
+}
+
+func TestDecodeUprobeEventMatchesBinaryRead(t *testing.T) {
+	want := uprobeEvent{
+		TimestampNs: 0x0102030405060708,
+		Pid:         4242,
+		Tid:         4243,
+		EventType:   1,
+		DurationNs:  987654321,
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, binary.Write(&buf, binary.LittleEndian, &want))
+	require.Equal(t, uprobeEventSize, buf.Len())
+
+	// Trailing bytes (ring buffer records may be padded) must be ignored.
+	data := append(buf.Bytes(), 0xff, 0xff, 0xff, 0xff)
+
+	var got uprobeEvent
+	require.NoError(t, decodeUprobeEvent(data, &got))
+	assert.Equal(t, want, got)
+
+	var viaReflection uprobeEvent
+	require.NoError(t, binary.Read(bytes.NewReader(data), binary.LittleEndian, &viaReflection))
+	assert.Equal(t, viaReflection, got)
+}
+
+func TestDecodeUprobeEventShortRecord(t *testing.T) {
+	var ev uprobeEvent
+	assert.Error(t, decodeUprobeEvent(make([]byte, uprobeEventSize-1), &ev))
+	assert.Error(t, decodeUprobeEvent(nil, &ev))
+}
+
+func BenchmarkDecodeUprobeEvent(b *testing.B) {
+	data := make([]byte, uprobeEventSize)
+	var ev uprobeEvent
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if err := decodeUprobeEvent(data, &ev); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDecodeUprobeEventBinaryRead(b *testing.B) {
+	data := make([]byte, uprobeEventSize)
+	var ev uprobeEvent
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if err := binary.Read(bytes.NewBuffer(data), binary.LittleEndian, &ev); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestUprobeFilterConfigStructLayout(t *testing.T) {

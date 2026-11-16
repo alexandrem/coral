@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/privilege"
@@ -43,9 +45,13 @@ type Database struct {
 	connectionsTable         *duckdb.Table[ServiceConnection]
 	topologyConnectionsTable *duckdb.Table[TopologyConnection] // RFD 033: L4 network topology.
 
-	// Cache state for GetServiceConnections (RFD 092).
+	// Cache state for GetServiceConnections (RFD 092). connectionsMu serializes
+	// MaterializeConnections runs; connectionsFlight collapses concurrent cache
+	// refreshes into one run; connectionsLastMaterialized holds the Unix
+	// nanosecond time of the last successful refresh.
 	connectionsMu               sync.Mutex
-	connectionsLastMaterialized time.Time
+	connectionsFlight           singleflight.Group
+	connectionsLastMaterialized atomic.Int64
 	connectionsCacheTTL         time.Duration
 }
 

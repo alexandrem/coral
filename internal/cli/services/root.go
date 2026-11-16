@@ -15,6 +15,7 @@ func NewCmd() *cobra.Command {
 		Use:   "services",
 		Short: "List and manage services",
 		Long:  "List services across the colony, on a specific agent, or on the local agent.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd, options)
 		},
@@ -24,10 +25,12 @@ func NewCmd() *cobra.Command {
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List services",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd, options)
 		},
 	}
+	addListFlags(list, options)
 	cmd.AddCommand(list)
 	cmd.AddCommand(NewWatchCmd())
 	return cmd
@@ -38,16 +41,20 @@ func NewCmd() *cobra.Command {
 // behaviorally identical.
 func NewWatchCmd() *cobra.Command {
 	cmd := agent.NewConnectCmd()
-	cmd.Use = "watch <service-spec>..."
+	cmd.Use = "watch [service-spec...]"
 	cmd.Short = "Watch and enrich one or more services"
 	cmd.Long = "Register services for enriched observation by a running Coral agent."
+	cmd.Example = `  coral services watch api:8080:/health --agent agent-1
+  coral services watch api:8080:/health --service payments --dry-run
+  coral services watch api:8080:/health --service payments --concurrency 4 --report watch.json
+  coral services watch --retry-failed watch.json --format json`
 	return cmd
 }
 
 // NewConnectAliasCmd creates the permanent hidden coral connect alias.
 func NewConnectAliasCmd() *cobra.Command {
 	cmd := NewWatchCmd()
-	cmd.Use = "connect <service-spec>..."
+	cmd.Use = "connect [service-spec...]"
 	cmd.Hidden = true
 	return cmd
 }
@@ -60,6 +67,7 @@ func NewLegacyServiceCmd() *cobra.Command {
 		Use:    "list",
 		Short:  "List services",
 		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd, options)
 		},

@@ -4,11 +4,14 @@ package startup
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -49,6 +52,10 @@ type BootstrapResult struct {
 	// Registration is set when RFD 109 completed mesh enrollment over the
 	// rendezvous dial-back connection.
 	Registration *meshv1.RegisterResponse
+
+	// MeshEnrollmentRestored distinguishes a restart from initial rendezvous
+	// enrollment, where the Colony initiates the first WireGuard handshake.
+	MeshEnrollmentRestored bool
 }
 
 // NewBootstrapPhase creates a new bootstrap phase handler.
@@ -130,6 +137,29 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 			}
 		} else {
 			bp.logger.Warn().Err(err).Msg("Failed to load existing certificate")
+		}
+	}
+
+	// Archive legacy, interrupted, expired, or mismatched bundles before
+	// replacing any credentials. Keep the active key in memory and persist it
+	// again below, so a retry retains the same identity.
+	needsRecovery := false
+	for _, name := range enrollmentCertificateFiles {
+		if _, err := os.Stat(filepath.Join(certManager.GetCertsDir(), name)); err == nil {
+			needsRecovery = true
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to inspect enrollment files: %w", err)
+		}
+	}
+	if cp, err := store.Load(); err == nil && cp.State == enrollmentstate.StateEnrolled {
+		needsRecovery = true
+	}
+	if needsRecovery {
+		bp.logger.Info().Str("event", "agent_enrollment_state_incomplete").
+			Str("agent_id", bp.agentID).Str("colony_id", bp.colonyID).
+			Msg("Recovering incomplete enrollment with fresh bootstrap")
+		if err := archiveEnrollment(store, "incomplete_enrollment"); err != nil {
+			return nil, fmt.Errorf("failed to archive incomplete enrollment: %w", err)
 		}
 	}
 
@@ -230,6 +260,16 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	// Record success metric.
 	metrics.RecordBootstrapAttempt(bootstrap.MetricResultSuccess, duration, bp.agentID, bp.colonyID, "")
 
+	return bp.saveBootstrapResult(certManager, store, result)
+}
+
+// saveBootstrapResult persists certificate files before committing the manifest.
+// A crash before the final commit leaves a pending identity for recovery.
+func (bp *BootstrapPhase) saveBootstrapResult(certManager *certs.Manager, store *enrollmentstate.Store, result *bootstrap.Result) (*BootstrapResult, error) {
+	if err := bp.validateBootstrapResult(result); err != nil {
+		return nil, fmt.Errorf("invalid bootstrap result: %w", err)
+	}
+
 	// Save the certificate.
 	if err := certManager.Save(result); err != nil {
 		bp.logger.Error().Err(err).Msg("Failed to save bootstrap certificate")
@@ -282,11 +322,49 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	}, nil
 }
 
+// Certificate files form one recoverable bundle with enrollment.json.
+var enrollmentCertificateFiles = []string{
+	certs.CertFileName, certs.KeyFileName, certs.RootCAFileName,
+	certs.CAChainFileName, certs.AgentIDFileName,
+}
+
+func archiveEnrollment(store *enrollmentstate.Store, reason string) error {
+	return store.ArchiveIncomplete(reason, enrollmentCertificateFiles...)
+}
+
+// validateBootstrapResult rejects mismatched identities and incomplete compound
+// assignments before certificate files or the enrollment marker are written.
+func (bp *BootstrapPhase) validateBootstrapResult(result *bootstrap.Result) error {
+	if result == nil {
+		return fmt.Errorf("missing certificate result")
+	}
+	pair, err := tls.X509KeyPair(result.Certificate, result.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("invalid certificate/key pair: %w", err)
+	}
+	cert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return fmt.Errorf("invalid certificate: %w", err)
+	}
+	expected, err := bootstrap.BuildAgentSPIFFEID(bp.colonyID, bp.agentID)
+	if err != nil || len(cert.URIs) != 1 || cert.URIs[0].String() != expected.String() ||
+		cert.Subject.CommonName != "agent."+bp.agentID+"."+bp.colonyID {
+		return fmt.Errorf("issued certificate identity does not match requested agent and colony")
+	}
+	if reg := result.Registration; reg != nil {
+		if !reg.Accepted {
+			return fmt.Errorf("compound registration was rejected")
+		}
+		return enrollmentstate.ValidateAssignment(reg.AssignedIp, reg.MeshSubnet)
+	}
+	return nil
+}
+
 // tryRestoreEnrollment returns a BootstrapResult reusing the existing
 // certificate and checkpoint if, and only if, both the certificate identity
 // and a committed checkpoint match the current startup identity and
-// certificate. Otherwise it archives whatever local state cannot be trusted
-// and returns nil so the caller falls through to compound enrollment.
+// certificate. Otherwise it returns nil; Execute archives the bundle before
+// falling through to fresh enrollment.
 func (bp *BootstrapPhase) tryRestoreEnrollment(store *enrollmentstate.Store, certManager *certs.Manager, info *certs.CertificateInfo) *BootstrapResult {
 	if !identityMatches(info, bp.agentID, bp.colonyID) {
 		bp.logger.Warn().
@@ -296,9 +374,6 @@ func (bp *BootstrapPhase) tryRestoreEnrollment(store *enrollmentstate.Store, cer
 			Str("agent_id", bp.agentID).
 			Str("colony_id", bp.colonyID).
 			Msg("Existing certificate identity does not match current startup identity; refusing reuse")
-		if err := store.ArchiveIncomplete("identity_mismatch"); err != nil {
-			bp.logger.Warn().Err(err).Msg("Failed to archive mismatched enrollment state")
-		}
 		return nil
 	}
 
@@ -314,9 +389,6 @@ func (bp *BootstrapPhase) tryRestoreEnrollment(store *enrollmentstate.Store, cer
 			Str("event", "agent_enrollment_state_incomplete").
 			Err(err).
 			Msg("Certificate exists without a usable enrollment checkpoint")
-		if archErr := store.ArchiveIncomplete("missing_or_invalid_checkpoint"); archErr != nil {
-			bp.logger.Warn().Err(archErr).Msg("Failed to archive incomplete enrollment state")
-		}
 		return nil
 	}
 
@@ -325,9 +397,6 @@ func (bp *BootstrapPhase) tryRestoreEnrollment(store *enrollmentstate.Store, cer
 			Str("event", "agent_enrollment_state_incomplete").
 			Err(err).
 			Msg("Enrollment checkpoint does not match the current certificate and identity")
-		if archErr := store.ArchiveIncomplete("checkpoint_mismatch"); archErr != nil {
-			bp.logger.Warn().Err(archErr).Msg("Failed to archive mismatched enrollment state")
-		}
 		return nil
 	}
 
@@ -338,8 +407,9 @@ func (bp *BootstrapPhase) tryRestoreEnrollment(store *enrollmentstate.Store, cer
 		Msg("Restored mesh enrollment from checkpoint")
 
 	return &BootstrapResult{
-		CertManager:  certManager,
-		Bootstrapped: false,
+		CertManager:            certManager,
+		Bootstrapped:           false,
+		MeshEnrollmentRestored: true,
 		Registration: &meshv1.RegisterResponse{
 			Accepted:   true,
 			AssignedIp: cp.AssignedIP,
@@ -351,7 +421,8 @@ func (bp *BootstrapPhase) tryRestoreEnrollment(store *enrollmentstate.Store, cer
 // identityMatches reports whether a loaded certificate's Agent ID and
 // Colony ID match the identity selected for the current startup.
 func identityMatches(info *certs.CertificateInfo, agentID, colonyID string) bool {
-	return info.AgentID == agentID && info.ColonyID == colonyID
+	expected, err := bootstrap.BuildAgentSPIFFEID(colonyID, agentID)
+	return err == nil && info != nil && info.AgentID == agentID && info.ColonyID == colonyID && info.SPIFFEID == expected.String()
 }
 
 // validateCheckpoint reports an error if the checkpoint is not a complete,
@@ -373,13 +444,7 @@ func validateCheckpoint(cp *enrollmentstate.Checkpoint, agentID, colonyID, wgPub
 	if cp.CertificateSerial != certSerial {
 		return fmt.Errorf("checkpoint certificate serial does not match the loaded certificate")
 	}
-	if net.ParseIP(cp.AssignedIP) == nil {
-		return fmt.Errorf("checkpoint assigned IP %q is invalid", cp.AssignedIP)
-	}
-	if _, _, err := net.ParseCIDR(cp.MeshSubnet); err != nil {
-		return fmt.Errorf("checkpoint mesh subnet %q is invalid: %w", cp.MeshSubnet, err)
-	}
-	return nil
+	return enrollmentstate.ValidateAssignment(cp.AssignedIP, cp.MeshSubnet)
 }
 
 // certSHA256Hex returns the hex-encoded SHA-256 hash of the certificate

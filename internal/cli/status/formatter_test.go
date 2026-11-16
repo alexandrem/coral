@@ -146,3 +146,15 @@ func TestStatusOutput(t *testing.T) {
 		t.Errorf("len(Colonies) = %d, want %d", len(output.Colonies), 1)
 	}
 }
+
+func TestSummaryDoesNotCountFailuresAsStopped(t *testing.T) {
+	result := summarizeColonies([]ColonyStatusInfo{
+		{Status: "running", Running: true},
+		{Status: "stopped"},
+		{Status: "unreachable"},
+		{Status: "unknown"},
+	})
+	if result.Total != 4 || result.Running != 1 || result.Stopped != 1 || result.Unreachable != 1 || result.Unknown != 1 {
+		t.Fatalf("unexpected summary: %+v", result)
+	}
+}

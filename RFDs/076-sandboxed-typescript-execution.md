@@ -621,7 +621,7 @@ if (unhealthy.length >= 2) {
 - [x] Write user documentation for `coral query` and `coral run` commands
   → CLI_REFERENCE.md updated with both sections
 - [x] Add SDK reference documentation
-  → docs/SDK_REFERENCE.md (comprehensive API reference)
+  → docs/user/sdk-reference.md (comprehensive API reference)
 - [x] Add TypeScript scripting guide
   → docs/TYPESCRIPT_SCRIPTING.md (patterns, examples, deployment)
 - [x] Implement `--watch` mode for `coral run`
@@ -734,7 +734,7 @@ comprehensive documentation.
     - sdk-demo-monitor.ts - Full SDK demonstration
 - ✅ Documentation complete:
     - CLI_REFERENCE.md updated with `coral run` and focused query commands
-    - SDK reference: docs/SDK_REFERENCE.md (comprehensive API documentation)
+    - SDK reference: docs/user/sdk-reference.md (comprehensive API documentation)
     - Scripting guide: docs/TYPESCRIPT_SCRIPTING.md (patterns, examples, best
       practices)
     - Community script repository: Deferred to future work

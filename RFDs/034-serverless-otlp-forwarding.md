@@ -324,7 +324,7 @@ wireguard:
 
 discovery:
     enabled: true
-    endpoint: "https://discovery.coral.io"
+    endpoint: "https://discovery.coralmesh.dev"
     bootstrap_token_file: /etc/coral/bootstrap.token
 ```
 

@@ -14,8 +14,8 @@ import (
 )
 
 // DiscoveryServiceSuite tests the Discovery service implementation.
-// It can run against either the local Go discovery service or the deployed
-// Cloudflare Workers service by setting CORAL_WORKERS_DISCOVERY_ENDPOINT.
+// It uses the fixture's discovery endpoint by default, or an explicit
+// Cloudflare Workers endpoint set with CORAL_WORKERS_DISCOVERY_ENDPOINT.
 //
 // This suite consolidates:
 // - RPC tests (register, lookup, health)
@@ -25,7 +25,7 @@ type DiscoveryServiceSuite struct {
 	E2EDistributedSuite
 
 	// workersEndpoint is the URL of the Workers discovery service.
-	// If empty, tests use the fixture's local discovery endpoint.
+	// If empty, tests use the fixture's discovery endpoint (local or public).
 	workersEndpoint string
 
 	// isWorkersMode indicates if we're testing against Workers (vs local Go).
@@ -43,7 +43,7 @@ func (s *DiscoveryServiceSuite) SetupSuite() {
 	if s.isWorkersMode {
 		s.T().Logf("Testing against Workers discovery service: %s", s.workersEndpoint)
 	} else {
-		s.T().Log("Testing against local Go discovery service")
+		s.T().Logf("Testing against fixture discovery service: %s", s.fixture.DiscoveryEndpoint)
 	}
 }
 
@@ -367,9 +367,12 @@ func (s *DiscoveryServiceSuite) TestRelayNotImplemented() {
 
 // TestTTLExpiration tests registration TTL expiration.
 // Requires a short DEFAULT_TTL_SECONDS (e.g. 10) in the e2e environment.
-// Skipped for deployed Workers where TTL is typically 5 minutes.
+// Requires the local discovery overlay; public discovery typically uses a 5-minute TTL.
 func (s *DiscoveryServiceSuite) TestTTLExpiration() {
 	s.skipIfWorkers("TTL too long for Workers")
+	if !s.fixture.UsesLocalDiscovery() {
+		s.T().Skip("TTL expiration requires local discovery with a short TTL; start it with make local-up")
+	}
 
 	endpoint := s.getDiscoveryEndpoint()
 	s.T().Logf("Testing TTL expiration against %s", endpoint)

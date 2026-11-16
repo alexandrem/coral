@@ -27,7 +27,7 @@ storage path, completing the dual `.coral` directory architecture where
 
 **Current behavior/limitations:**
 
-- DuckDB storage layer is architecturally designed (see `docs/STORAGE.md`) but
+- DuckDB storage layer is architecturally designed (see `docs/architecture/data-ownership.md`) but
   not implemented.
 - TODO comment exists in `internal/cli/colony/colony.go:126`: "Initialize DuckDB
   storage at cfg.StoragePath".
@@ -105,7 +105,7 @@ management, and lifecycle operations.
       connecting).
     - Before gRPC server startup (handlers will need database access).
 
-- **Schema from `docs/STORAGE.md`**
+- **Schema from `docs/architecture/data-ownership.md`**
     - Six core tables: `services`, `metric_summaries`, `events`, `insights`,
       `service_connections`, `baselines`.
     - Idempotent initialization: `CREATE TABLE IF NOT EXISTS` for safe restarts.
@@ -272,7 +272,7 @@ coral colony start
 ### Phase 2: Schema Initialization
 
 - [ ] Implement `schema.go`: `initSchema()` function.
-- [ ] Define DDL statements for six tables (from `docs/STORAGE.md`).
+- [ ] Define DDL statements for six tables (from `docs/architecture/data-ownership.md`).
 - [ ] Add indexes for common query patterns (service_id, timestamp).
 - [ ] Wrap schema creation in transaction for atomicity.
 - [ ] Add unit tests for schema initialization (idempotency, table existence).
@@ -305,7 +305,7 @@ coral colony start
 
 ## Database Schema
 
-**Complete schema as specified in `docs/STORAGE.md`:**
+**Complete schema as specified in `docs/architecture/data-ownership.md`:**
 
 ```sql
 -- Services in the mesh

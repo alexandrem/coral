@@ -16,12 +16,36 @@ type Output struct {
 		Healthy  bool   `json:"healthy"`
 	} `json:"discovery"`
 	Colonies []ColonyStatusInfo `json:"colonies"`
-	Summary  struct {
-		Total   int `json:"total"`
-		Running int `json:"running"`
-		Stopped int `json:"stopped"`
-	} `json:"summary"`
-	Version string `json:"version"`
+	Summary  ColonySummary      `json:"summary"`
+	Version  string             `json:"version"`
+}
+
+// ColonySummary keeps failed observations separate from confirmed process state.
+type ColonySummary struct {
+	Total       int `json:"total"`
+	Running     int `json:"running"`
+	Stopped     int `json:"stopped"`
+	Unreachable int `json:"unreachable"`
+	Unknown     int `json:"unknown"`
+}
+
+func summarizeColonies(colonies []ColonyStatusInfo) ColonySummary {
+	summary := ColonySummary{Total: len(colonies)}
+	for _, info := range colonies {
+		switch {
+		case info.Status == "unreachable":
+			summary.Unreachable++
+		case info.Status == "unknown":
+			summary.Unknown++
+		case info.Running:
+			summary.Running++
+		case info.Status == "stopped":
+			summary.Stopped++
+		default:
+			summary.Unknown++
+		}
+	}
+	return summary
 }
 
 // Formatter handles formatting status output.
@@ -37,7 +61,7 @@ func NewFormatter(globalConfig *config.GlobalConfig) *Formatter {
 }
 
 // OutputJSON outputs the status in JSON format.
-func (f *Formatter) OutputJSON(colonies []ColonyStatusInfo, discoveryHealthy bool, runningCount, stoppedCount int) error {
+func (f *Formatter) OutputJSON(colonies []ColonyStatusInfo, discoveryHealthy bool) error {
 	output := Output{
 		Colonies: colonies,
 		Version:  version.Version,
@@ -46,9 +70,7 @@ func (f *Formatter) OutputJSON(colonies []ColonyStatusInfo, discoveryHealthy boo
 	output.Discovery.Endpoint = f.globalConfig.Discovery.Endpoint
 	output.Discovery.Healthy = discoveryHealthy
 
-	output.Summary.Total = len(colonies)
-	output.Summary.Running = runningCount
-	output.Summary.Stopped = stoppedCount
+	output.Summary = summarizeColonies(colonies)
 
 	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
@@ -60,7 +82,7 @@ func (f *Formatter) OutputJSON(colonies []ColonyStatusInfo, discoveryHealthy boo
 }
 
 // OutputTable outputs the status in human-readable table format.
-func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bool, runningCount, stoppedCount int, verbose bool) error {
+func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bool, verbose bool) error {
 	fmt.Println("Coral Environment Status")
 	fmt.Println("========================")
 	fmt.Println()
@@ -73,7 +95,8 @@ func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bo
 	fmt.Printf("Discovery: %s (%s)\n", f.globalConfig.Discovery.Endpoint, healthStatus)
 
 	// Summary section
-	fmt.Printf("Colonies:  %d total (%d running, %d stopped)\n", len(colonies), runningCount, stoppedCount)
+	summary := summarizeColonies(colonies)
+	fmt.Printf("Colonies:  %d total (%d running, %d stopped, %d unreachable, %d unknown)\n", summary.Total, summary.Running, summary.Stopped, summary.Unreachable, summary.Unknown)
 	fmt.Printf("Version:   coral %s\n", version.Version)
 	fmt.Println()
 
@@ -146,12 +169,9 @@ func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bo
 				colonyIDDisplay, envStr, info.Status, uptimeStr, agentsStr, networkStr, meshIP, pubkey)
 		} else {
 			// Normal mode: show endpoints
-			endpointsStr := "-"
-			if info.Running {
-				endpointsStr = fmt.Sprintf("localhost:%d, %s:%d", info.ConnectPort, info.MeshIPv4, info.ConnectPort)
-				if info.PublicEndpointURL != "" {
-					endpointsStr += ", " + info.PublicEndpointURL
-				}
+			endpointsStr := info.Endpoint
+			if endpointsStr == "" {
+				endpointsStr = "-"
 			}
 
 			fmt.Printf("%-25s %-8s %-11s %-9s %-7s %-14s %s\n",
@@ -178,13 +198,11 @@ func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bo
 	if verbose {
 		fmt.Println("Endpoints:")
 		for _, info := range colonies {
-			if info.Running {
-				endpointLine := fmt.Sprintf("http://localhost:%d (local), http://%s:%d (mesh)",
-					info.ConnectPort, info.MeshIPv4, info.ConnectPort)
-				if info.PublicEndpointURL != "" {
-					endpointLine += fmt.Sprintf(", %s (public)", info.PublicEndpointURL)
-				}
-				fmt.Printf("  %-16s %s\n", info.ColonyID+":", endpointLine)
+			if info.Endpoint != "" {
+				fmt.Printf("  %-16s %s\n", info.ColonyID+":", info.Endpoint)
+			}
+			if info.Error != "" {
+				fmt.Printf("  %-16s %s\n", "Reason:", info.Error)
 			}
 		}
 		fmt.Println()

@@ -5,10 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
-
-	"github.com/coral-mesh/coral/internal/retry"
 )
 
 // Service represents a service registered in the colony.
@@ -75,7 +72,8 @@ func (d *Database) GetServiceByName(ctx context.Context, serviceName string) (*S
 
 // UpsertService creates or updates a service in the database.
 // Uses separate tables for metadata (services) and heartbeats (service_heartbeats).
-// Wraps both operations in a retry block to handle concurrent upserts gracefully.
+// Both writes are idempotent upserts that retry their own transaction
+// conflicts, so the sequence needs no retry of its own.
 func (d *Database) UpsertService(ctx context.Context, service *Service) error {
 	if service.RegisteredAt.IsZero() {
 		service.RegisteredAt = time.Now()
@@ -84,46 +82,19 @@ func (d *Database) UpsertService(ctx context.Context, service *Service) error {
 		service.LastSeen = time.Now()
 	}
 
-	// Retry the entire multi-operation sequence to handle concurrent conflicts.
-	cfg := retry.Config{
-		MaxRetries:     10,
-		InitialBackoff: 10 * time.Millisecond,
-		MaxBackoff:     500 * time.Millisecond,
-		Jitter:         0.1,
+	if err := d.servicesTable.Upsert(ctx, service); err != nil {
+		return fmt.Errorf("failed to upsert service: %w", err)
 	}
 
-	return retry.Do(ctx, cfg, func() error {
-		// 1. Upsert Service Metadata
-		if err := d.servicesTable.Upsert(ctx, service); err != nil {
-			return fmt.Errorf("failed to upsert service: %w", err)
-		}
-
-		// 2. Upsert Heartbeat
-		heartbeat := &ServiceHeartbeat{
-			ServiceID: service.ID,
-			LastSeen:  service.LastSeen,
-		}
-		if err := d.heartbeatsTable.Upsert(ctx, heartbeat); err != nil {
-			return fmt.Errorf("failed to upsert heartbeat: %w", err)
-		}
-
-		return nil
-	}, isTransactionConflict)
-}
-
-// isTransactionConflict checks if an error is a DuckDB transaction conflict.
-func isTransactionConflict(err error) bool {
-	if err == nil {
-		return false
+	heartbeat := &ServiceHeartbeat{
+		ServiceID: service.ID,
+		LastSeen:  service.LastSeen,
 	}
-	msg := err.Error()
-	// Detect various DuckDB transaction conflict patterns
-	return strings.Contains(msg, "Conflict on update") ||
-		strings.Contains(msg, "conflict") ||
-		strings.Contains(msg, "transaction") ||
-		strings.Contains(msg, "serialization") ||
-		strings.Contains(msg, "TransactionContext Error") ||
-		(strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "constraint violated"))
+	if err := d.heartbeatsTable.Upsert(ctx, heartbeat); err != nil {
+		return fmt.Errorf("failed to upsert heartbeat: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateServiceLastSeen updates the last_seen timestamp for all services belonging to an agent.

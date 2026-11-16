@@ -342,8 +342,8 @@ dispatch. Only the empty-string fallback changes.
 - [x] Correct the relevant command-group name from `service` to `services`.
 - [x] Test that `triage` and `services` appear and unrelated top-level commands
       remain excluded.
-- [x] Update `docs/CLI.md`, `docs/CLI_REFERENCE.md`, and
-      `docs/engineering/11_mcp_and_llm_interfacing.md`.
+- [x] Update `docs/user/README.md`, `docs/CLI_REFERENCE.md`, and
+      `docs/architecture/mcp-and-llm.md`.
 
 ## Testing Strategy
 

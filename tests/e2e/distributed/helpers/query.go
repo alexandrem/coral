@@ -74,6 +74,29 @@ func QueryAgentEbpfMetrics(
 	return resp.Msg, nil
 }
 
+// QueryAgentEbpfTraces queries an agent's live Beyla storage for metrics and
+// trace spans with seq_id greater than startSeqID. Unlike reading the agent
+// database file over HTTP, this sees rows not yet checkpointed from the WAL.
+func QueryAgentEbpfTraces(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	startSeqID uint64,
+	maxRecords int32,
+) (*agentv1.QueryEbpfMetricsResponse, error) {
+	req := connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
+		TracesStartSeqId: startSeqID,
+		MaxRecords:       maxRecords,
+		IncludeTraces:    true,
+	})
+
+	resp, err := client.QueryEbpfMetrics(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query eBPF traces: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
 // QueryUprobeEvents queries uprobe events for a session.
 func QueryUprobeEvents(
 	ctx context.Context,

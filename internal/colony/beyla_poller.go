@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -103,12 +104,15 @@ func (p *BeylaPoller) PollOnce(ctx context.Context) error {
 	totalSQLMetrics := 0
 	totalTraces := 0
 
-	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
+	var resultsMu sync.Mutex
+	successCount, errorCount := poller.ForEachHealthyAgent(ctx, p.registry, p.logger, func(agent *registry.Entry) error {
 		httpCount, grpcCount, sqlCount, traceCount, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
 
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 		totalHTTPMetrics += httpCount
 		totalGRPCMetrics += grpcCount
 		totalSQLMetrics += sqlCount
@@ -257,7 +261,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = m.SeqId
 			timestamps[i] = m.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(httpSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.HttpStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla HTTP sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaHTTPDataType, gap.StartSeqID, gap.EndSeqID)
 		}
@@ -280,7 +284,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = m.SeqId
 			timestamps[i] = m.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(grpcSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.GrpcStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla gRPC sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaGRPCDataType, gap.StartSeqID, gap.EndSeqID)
 		}
@@ -303,7 +307,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = m.SeqId
 			timestamps[i] = m.Timestamp
 		}
-		for _, gap := range poller.DetectGaps(sqlSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.SqlStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla SQL sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaSQLDataType, gap.StartSeqID, gap.EndSeqID)
 		}
@@ -326,7 +330,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 			seqIDs[i] = s.SeqId
 			timestamps[i] = s.StartTime
 		}
-		for _, gap := range poller.DetectGaps(tracesSeqID, seqIDs, timestamps) {
+		for _, gap := range poller.DetectGaps(req.Msg.TracesStartSeqId, seqIDs, timestamps) {
 			p.logger.Warn().Str("agent", agent.AgentID).Uint64("gap_start", gap.StartSeqID).Uint64("gap_end", gap.EndSeqID).Msg("Detected Beyla traces sequence gap")
 			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, beylaTracesDataType, gap.StartSeqID, gap.EndSeqID)
 		}

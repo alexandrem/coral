@@ -334,7 +334,7 @@ namespaces never cross-attribute ports.
   silently under-reporting container discovery or logging per-PID.
 - ✅ Deterministic output: namespace IDs and PIDs are sorted before scanning
   and emitting candidates.
-- ✅ Deployment documentation (`docs/AGENT_DEPLOYMENT.md`): required
+- ✅ Deployment documentation (`docs/user/deployment.md`): required
   visibility, `hidepid` caveat, and the namespace-local (not host-published)
   port behavior for Compose port mappings.
 - ✅ Unit tests: host-only discovery preserved; container namespace listener

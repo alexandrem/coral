@@ -1,6 +1,7 @@
 package duckdb
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -435,4 +436,26 @@ func TestBuilder_EmptyFiltersSkipped(t *testing.T) {
 	assert.Contains(t, q, "http_method = ?")
 	assert.NotContains(t, q, "http_route")
 	assert.Len(t, args, 1) // Only http_method
+}
+
+func TestBuilder_BuildIsIdempotent(t *testing.T) {
+	b := NewQueryBuilder("test_table").
+		Eq("service_name", "my-service").
+		Between("status", 200, 299).
+		Limit(10)
+
+	q1, args1, err := b.Build()
+	require.NoError(t, err)
+	q2, args2, err := b.Build()
+	require.NoError(t, err)
+
+	assert.Equal(t, q1, q2)
+	assert.Equal(t, []interface{}{"my-service", 200, 299, 10}, args1)
+	assert.Equal(t, args1, args2)
+	assert.Equal(t, strings.Count(q2, "?"), len(args2))
+
+	// Mutating a returned slice must not affect subsequent builds.
+	args1[0] = "mutated"
+	_, args3 := b.MustBuild()
+	assert.Equal(t, "my-service", args3[0])
 }

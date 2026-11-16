@@ -213,7 +213,7 @@ func (s *DebugService) UpdateProbeFilter(
 		SampleRate:    req.Filter.SampleRate,
 	}
 
-	if err := s.agent.ebpfManager.UpdateFilter(req.CollectorId, filter); err != nil {
+	if err := s.agent.ebpfManager.UpdateFilter(req.CollectorId, filter); err != nil { //nolint:staticcheck // SA4023: Non-Linux stub always returns an error; Linux requires this check.
 		s.logger.Error().Err(err).Str("collector_id", req.CollectorId).Msg("Failed to update probe filter")
 		return nil, fmt.Errorf("failed to update probe filter: %w", err)
 	}

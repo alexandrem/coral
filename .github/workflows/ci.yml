@@ -8,8 +8,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Let an in-progress test run finish; newer runs for the same ref wait.
-  cancel-in-progress: false
+  # A newer commit supersedes validation of the same branch or pull request.
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -23,14 +23,71 @@ env:
   GO_VERSION: "1.25.1"
 
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run-ci: ${{ steps.classify.outputs.run-ci }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the full pull request diff
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          # Always validate main: a docs push may supersede an untested code push.
+          run_ci = True
+          base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
+          if os.environ["EVENT_NAME"] == "pull_request" and all(
+              re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (base, head)
+          ):
+              try:
+                  changed = subprocess.check_output([
+                      "git", "diff", "--name-only", "--no-renames", "-z",
+                      f"{base}...{head}", "--",
+                  ]).split(b"\0")
+                  paths = [os.fsdecode(path) for path in changed if path]
+                  root_docs = {"README.md", "LICENSE", "CLAUDE.md", "CONTRIBUTING.md",
+                               "CODE_OF_CONDUCT.md", "SECURITY.md"}
+                  def documentation(path):
+                      return path in root_docs or (
+                          path.startswith(("docs/", "RFDs/", ".github/ISSUE_TEMPLATE/"))
+                          and path.endswith(".md")
+                      )
+                  # Unknown paths, empty diffs, and failed comparisons run full CI.
+                  # Markdown elsewhere can be embedded in the application.
+                  run_ci = not paths or not all(documentation(path) for path in paths)
+              except subprocess.CalledProcessError:
+                  print("Could not classify the diff; running full CI.")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"run-ci={str(run_ci).lower()}\n")
+          print("Running full CI." if run_ci else "Only documentation changed; skipping heavy checks.")
+          PY
+
   # ──────────────────────────────────────────────────────────────
-  # Single source of truth: caches modules + build cache + tools
+  # Shared modules and tools; compilation caches are saved by test and e2e.
   # ──────────────────────────────────────────────────────────────
   go-env:
     name: Cache Go modules & tools
+    needs: changes
+    if: needs.changes.outputs.run-ci == 'true'
     runs-on: ubuntu-latest
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
+      build-cache-prefix: ${{ steps.mod.outputs.build-cache-prefix }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
       generated-cache-key: ${{ steps.generated.outputs.cache-key }}
     steps:
@@ -43,45 +100,58 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      # ── Go modules cache key (100% reliable) ──
-      - name: Go mod cache key
+      - name: Go cache keys
         id: mod
         run: |
-          echo "cache-key=go-mod-v5-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}" >> $GITHUB_OUTPUT
+          echo "cache-key=go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}" >> "$GITHUB_OUTPUT"
+          echo "build-cache-prefix=go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Go modules & build cache
+      - name: Cache Go modules
         uses: actions/cache@v4
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
           key: ${{ steps.mod.outputs.cache-key }}
           restore-keys: |
-            go-mod-v5-${{ runner.os }}-
+            go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-
 
-      # ── Go tools cache key (100% reliable) ──
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.mod.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ steps.mod.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ steps.mod.outputs.build-cache-prefix }}-
+
       - name: Go tools cache key
         id: tools
         run: |
-          echo "cache-key=go-tools-v4-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}" >> $GITHUB_OUTPUT
+          echo "cache-key=go-tools-v5-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('Makefile') }}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Go tools
+        id: cache-tools
         uses: actions/cache@v4
         with:
           path: ~/go/bin
           key: ${{ steps.tools.outputs.cache-key }}
-          restore-keys: |
-            go-tools-v4-${{ runner.os }}-
 
-      # ── Generated files cache (deno binaries + generated code) ──
+      # Cache only exact generator inputs; stale embedded binaries are unsafe.
       - name: Generated files cache key
         id: generated
+        shell: bash
+        env:
+          GENERATOR_HASH: >-
+            ${{ hashFiles('proto/**/*.proto', 'buf.yaml', 'buf.gen.yaml', 'buf.lock',
+                'Makefile', 'go.mod', 'go.sum', '.github/apt-packages.txt',
+                'scripts/download-deno.sh', 'scripts/download-beyla.sh',
+                'internal/**/generate.go', 'internal/agent/debug/uprobe.go',
+                'internal/agent/debug/cpu_profiler.go',
+                'internal/agent/**/*.c', 'internal/agent/**/*.h') }}
         run: |
-          # Invalidate generated output when any generator input or tool version changes.
-          DENO_VERSION=$(grep "DENO_VERSION=" scripts/download-deno.sh | cut -d= -f2 | tr -d '"' || echo "2.0.6")
-          PROTO_HASH=${{ hashFiles('proto/**/*.proto', 'scripts/download-deno.sh') }}
-          GENERATOR_HASH=${{ hashFiles('buf.yaml', 'buf.gen.yaml', 'Makefile', 'go.mod', 'go.sum') }}
-          echo "cache-key=generated-v3-${{ runner.os }}-${DENO_VERSION}-${PROTO_HASH}-${GENERATOR_HASH}" >> $GITHUB_OUTPUT
+          clang_version=$(clang --version)
+          llvm_version=$(llvm-strip --version)
+          toolchain_hash=$(printf '%s\n%s\n' "$clang_version" "$llvm_version" | sha256sum | cut -d ' ' -f 1)
+          echo "cache-key=generated-v4-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${toolchain_hash}-${GENERATOR_HASH}" >> "$GITHUB_OUTPUT"
 
       - name: Cache generated files
         id: cache-generated
@@ -89,15 +159,14 @@ jobs:
         with:
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
             coral/**/*.connect.go
           key: ${{ steps.generated.outputs.cache-key }}
-          restore-keys: |
-            generated-v3-${{ runner.os }}-
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -106,10 +175,14 @@ jobs:
           cache: false
 
       - name: Install Go tools
+        if: steps.cache-tools.outputs.cache-hit != 'true'
         run: make install-tools || make install-tools  # retry once if needed
 
       - name: Download modules
-        run: go mod download
+        run: |
+          go mod download
+          (cd tests/integration && go mod download)
+          (cd tests/e2e/distributed && go mod download)
 
       - name: Generate files (if not cached)
         if: steps.cache-generated.outputs.cache-hit != 'true'
@@ -133,9 +206,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -147,8 +218,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -160,6 +232,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      # Cache entries are immutable: refresh compiled packages for each commit.
+      # Prefer this commit's cache, then the most recent compatible commit.
+      - name: Cache Go build outputs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -210,9 +293,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -224,8 +305,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -237,6 +319,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -261,9 +352,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -275,8 +364,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -288,6 +378,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -311,10 +410,10 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────────────────
-  # E2E: Build Binary
+  # E2E: Build binaries and images once, then test on the same runner.
   # ──────────────────────────────────────────────────────────────
-  build-e2e-binary:
-    name: Build binary for E2E
+  e2e:
+    name: Build E2E test apps & run tests
     needs: [go-env, test, static-analysis, integration-tests]
     runs-on: ubuntu-latest
     steps:
@@ -328,9 +427,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
 
       - uses: actions/cache/restore@v4
         with:
@@ -342,8 +439,9 @@ jobs:
           key: ${{ needs.go-env.outputs.generated-cache-key }}
           path: |
             internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
+            internal/agent/beyla/binaries
+            internal/agent/ebpf/bpfgen/*_bpf*.go
+            internal/agent/ebpf/bpfgen/*_bpf*.o
             internal/agent/debug/*_bpf*.go
             internal/agent/debug/*_bpf*.o
             coral/**/*.pb.go
@@ -355,6 +453,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Cache Go build outputs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ needs.go-env.outputs.build-cache-prefix }}-${{ github.sha }}-
+            ${{ needs.go-env.outputs.build-cache-prefix }}-
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -370,43 +477,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ──────────────────────────────────────────────────────────────
-  # Build (and push) Production Container Images (colony, agent)
-  # On PRs: build only. On merge to main: push sha-<short> + main tags.
-  # ──────────────────────────────────────────────────────────────
-  build-containers:
-    name: Build production containers
-    # Runs in parallel with build-e2e-binary after tests pass.
-    # Does not need the pre-built binary — Dockerfile.colony and Dockerfile.agent
-    # each build from source internally via make build-colony / make build-agent.
-    needs: [go-env, test, static-analysis, integration-tests]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/cache/restore@v4
-        with:
-          key: ${{ needs.go-env.outputs.generated-cache-key }}
-          path: |
-            internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
-            internal/agent/debug/*_bpf*.go
-            internal/agent/debug/*_bpf*.o
-            coral/**/*.pb.go
-            coral/**/*.connect.go
-          fail-on-cache-miss: true
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ghcr.io
-        if: github.event_name == 'push'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Colony image metadata
         id: meta-colony
@@ -426,91 +498,71 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=main,enable=${{ github.event_name == 'push' }}
 
-      - name: Build and push coral-colony
+      - name: Build and load coral-colony
         uses: docker/build-push-action@v6
         with:
           context: .
           file: build/Dockerfile.colony
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta-colony.outputs.tags }}
+          load: true
+          tags: |
+            coral-colony:e2e
+            ${{ steps.meta-colony.outputs.tags }}
           labels: ${{ steps.meta-colony.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=colony
+          cache-to: type=gha,scope=colony,mode=max
         timeout-minutes: 15
 
-      - name: Build and push coral-agent
+      - name: Build and load coral-agent
         uses: docker/build-push-action@v6
         with:
           context: .
           file: build/Dockerfile.agent
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta-agent.outputs.tags }}
+          load: true
+          tags: |
+            coral-agent:e2e
+            ${{ steps.meta-agent.outputs.tags }}
           labels: ${{ steps.meta-agent.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,scope=agent,mode=max
         timeout-minutes: 15
-
-  # ──────────────────────────────────────────────────────────────
-  # E2E: Build Test Containers & Run Tests
-  # ──────────────────────────────────────────────────────────────
-  e2e:
-    name: Build E2E test apps & run tests
-    needs: [go-env, build-e2e-binary, build-containers]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/cache/restore@v4
-        with:
-          key: ${{ needs.go-env.outputs.generated-cache-key }}
-          path: |
-            internal/cli/run/binaries
-            internal/agent/ebpf/bpf_bpf*.go
-            internal/agent/ebpf/bpf_bpf*.o
-            internal/agent/debug/*_bpf*.go
-            internal/agent/debug/*_bpf*.o
-            coral/**/*.pb.go
-            coral/**/*.connect.go
-          fail-on-cache-miss: true
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Download coral binary
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-amd64-binaries
-          path: bin/
 
       - name: Add coral binary to PATH
         run: |
           chmod +x bin/linux_amd64/coral
           echo "${{ github.workspace }}/bin/linux_amd64" >> $GITHUB_PATH
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build production images (from cache)
-        run: docker compose build colony agent-0 agent-1
-        timeout-minutes: 5
-        env:
-          DOCKER_BUILDKIT: 1
-
-      - name: Build E2E test apps (cpu-app, otel-app, sdk-app, memory-app)
-        run: cd tests/e2e/distributed && make build
+      - name: Build E2E test apps
+        run: cd tests/e2e/distributed && make build-apps
         timeout-minutes: 15
         env:
           DOCKER_BUILDKIT: 1
 
       - name: Start E2E services
-        run: cd tests/e2e/distributed && make local-up
+        run: cd tests/e2e/distributed && make local-up COMPOSE_UP_FLAGS=--no-build
 
       - name: Run E2E tests
         run: cd tests/e2e/distributed && make test
         timeout-minutes: 30
+
+      - name: Log in to ghcr.io
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish the images that passed E2E without rebuilding them.
+      - name: Push tested production images
+        if: github.event_name == 'push'
+        env:
+          COLONY_TAGS: ${{ steps.meta-colony.outputs.tags }}
+          AGENT_TAGS: ${{ steps.meta-agent.outputs.tags }}
+        run: |
+          printf '%s\n%s\n' "$COLONY_TAGS" "$AGENT_TAGS" | while IFS= read -r image; do
+            docker push "$image"
+          done
+        timeout-minutes: 10
 
       - name: Collect logs on failure
         if: failure()
@@ -536,15 +588,14 @@ jobs:
   # Build
   # ──────────────────────────────────────────────────────────────
   build:
-    needs: [go-env, e2e]
+    # Match the E2E prerequisites so macOS builds run alongside it.
+    # Linux binaries are already built and uploaded by e2e.
+    needs: [go-env, test, static-analysis, integration-tests]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact-os: linux
-            artifact-arch: amd64
-          - os: macos-15  # Intel Mac for amd64
+          - os: macos-15-intel
             artifact-os: darwin
             artifact-arch: amd64
           - os: macos-latest  # Apple Silicon for arm64
@@ -554,30 +605,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install APT packages (Linux only)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
-
-      - name: Install Homebrew packages (macOS only)
-        if: runner.os == 'macOS'
+      - name: Install Homebrew packages
         run: |
           brew install llvm
-
-      - uses: actions/cache/restore@v4
-        if: runner.os == 'Linux'
-        with:
-          key: ${{ needs.go-env.outputs.mod-cache-key }}
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-
-      - uses: actions/cache/restore@v4
-        if: runner.os == 'Linux'
-        with:
-          key: ${{ needs.go-env.outputs.tools-cache-key }}
-          path: ~/go/bin
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -585,32 +616,43 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
+      - name: Cache macOS Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: |
+            go-mod-v6-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-
+
+      - name: Cache macOS Go build outputs
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/go-build
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}-${{ matrix.artifact-arch }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}-${{ matrix.artifact-arch }}-
+
+      - name: Cache macOS Go tools
+        id: cache-tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-tools-v5-${{ runner.os }}-${{ runner.arch }}-go${{ env.GO_VERSION }}-${{ hashFiles('Makefile') }}
+
       - name: Install Go tools
-        if: runner.os != 'Linux'
+        if: steps.cache-tools.outputs.cache-hit != 'true'
         run: make install-tools || make install-tools  # retry once if needed
 
       - name: Download modules
-        if: runner.os != 'Linux'
         run: go mod download
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      # Reuse Linux binary from e2e job, build for other platforms
-      - name: Download Linux binary from e2e
-        if: runner.os == 'Linux'
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-amd64-binaries
-          path: bin/
-
       - name: Build
-        if: runner.os != 'Linux'
         run: make build
 
-      # Linux binary was already uploaded by build-e2e-binary; only upload for macOS.
       - name: Upload binaries
-        if: runner.os != 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-os }}-${{ matrix.artifact-arch }}-binaries
@@ -622,6 +664,8 @@ jobs:
   # Security scanning
   # ------------------------------------------------------------
   security:
+    needs: changes
+    if: needs.changes.outputs.run-ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -643,6 +687,8 @@ jobs:
   # Dependency checks
   # ------------------------------------------------------------
   dependencies:
+    needs: changes
+    if: needs.changes.outputs.run-ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -658,3 +704,33 @@ jobs:
           # but we check if it *would* change anything.
           go mod tidy
           git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum need tidying"; exit 1)
+
+  # Require this check in branch protection; it also runs for docs-only PRs.
+  ci-result:
+    name: CI result
+    if: always()
+    needs: [changes, go-env, test, integration-tests, static-analysis, e2e, build, security, dependencies]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all expected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          results = json.loads(os.environ["RESULTS"])
+          changes = results.pop("changes")
+          run_ci = changes["outputs"].get("run-ci")
+          if changes["result"] != "success" or run_ci not in {"true", "false"}:
+              raise SystemExit("Change classification did not succeed.")
+          expected = "success" if run_ci == "true" else "skipped"
+          unexpected = {name: job["result"] for name, job in results.items()
+                        if job["result"] != expected}
+          if unexpected:
+              raise SystemExit(f"Expected {expected} checks, got: {unexpected}")
+          print("All required checks passed." if run_ci == "true"
+                else "Documentation-only PR; heavy checks were intentionally skipped.")
+          PY

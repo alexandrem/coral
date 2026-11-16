@@ -593,8 +593,8 @@ func (a *Agent) Resolve(serviceName string) (string, error) {
 	}
 
 	// TODO: Support remote pods (Node Agent mode)
-	// For now, assume sidecar mode (localhost)
-	return fmt.Sprintf("localhost:%d", entry.Port), nil
+	// For now, assume sidecar mode (127.0.0.1)
+	return fmt.Sprintf("127.0.0.1:%d", entry.Port), nil
 }
 
 // ResolveSDK resolves service name to SDK debug address (ServiceResolver interface).

@@ -321,11 +321,11 @@ External clients (Claude Desktop) — unchanged:
 - [ ] E2E test: session with no integrations configured — behaviour identical
       to pre-RFD baseline.
 - [ ] Add `coral terminal` sidebar provider status section.
-- [ ] Update `docs/MCP.md` with integration gateway architecture.
+- [ ] Update `docs/user/ai-assistants.md` with integration gateway architecture.
 - [ ] Update `docs/CLI_REFERENCE.md` with `coral integration` commands.
-- [ ] Update `docs/AGENT.md` with investigation tools reference and
+- [ ] Update `docs/user/services.md` with investigation tools reference and
       `coral_integration_query` escape hatch.
-- [ ] Update `docs/CONFIG.md` with `integrations` config block.
+- [ ] Update `docs/user/configuration-reference.md` with `integrations` config block.
 
 ## API Changes
 

@@ -2,6 +2,10 @@ package distributed
 
 import (
 	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
@@ -129,7 +133,7 @@ func (s *CLIDebugSuite) TestDebugSessionGetNotFound() {
 //
 // Validates:
 // - Command executes without transport error (data may or may not exist)
-// - JSON format flag is accepted
+// - Unsupported formats fail instead of silently returning folded stacks
 func (s *CLIDebugSuite) TestQueryCPUProfileCommand() {
 	s.T().Log("Testing 'coral query cpu-profile' command...")
 
@@ -148,9 +152,16 @@ func (s *CLIDebugSuite) TestQueryCPUProfileCommand() {
 	}
 	s.T().Log(out)
 
-	// JSON format flag — must be accepted without error.
+	// Historical CPU profiles support folded and SVG output, not JSON.
 	jsonResult := s.cliEnv.Run(s.ctx, "query", "cpu-profile", "--service", "otel-app", "--format", "json")
-	jsonResult.MustSucceed(s.T())
+	jsonResult.MustFail(s.T())
+	s.Require().Contains(jsonResult.Output, "unknown format")
+
+	// SVG format flag — must be accepted and, when historical data exists,
+	// render a real interactive flame graph rather than just being ignored.
+	svgResult := s.cliEnv.Run(s.ctx, "query", "cpu-profile", "--service", "otel-app", "--format", "svg")
+	svgResult.MustSucceed(s.T())
+	assertValidFlameGraphSVG(s.T(), svgResult.Output)
 
 	s.T().Log("✓ query cpu-profile validated")
 }
@@ -182,5 +193,31 @@ func (s *CLIDebugSuite) TestQueryMemoryProfileCommand() {
 	foldedResult := s.cliEnv.Run(s.ctx, "query", "memory-profile", "--service", "otel-app", "--format", "folded")
 	foldedResult.MustSucceed(s.T())
 
+	// SVG format — must be accepted and, when historical data exists,
+	// render a real interactive flame graph rather than just being ignored.
+	svgResult := s.cliEnv.Run(s.ctx, "query", "memory-profile", "--service", "otel-app", "--format", "svg")
+	svgResult.MustSucceed(s.T())
+	assertValidFlameGraphSVG(s.T(), svgResult.Output)
+
 	s.T().Log("✓ query memory-profile validated")
+}
+
+// assertValidFlameGraphSVG performs a light structural check on flame graph
+// SVG output. Historical profile data comes from continuous background
+// profiling polled on an interval, so it may not have landed yet when this
+// runs — that's a legitimate "no data" outcome, not a failure. When data is
+// present, the output must actually be a rendered SVG flame graph (with the
+// embedded zoom/search script), not just folded text left untouched by the
+// --format flag.
+func assertValidFlameGraphSVG(t *testing.T, output string) {
+	t.Helper()
+
+	if strings.Contains(output, "No historical") {
+		t.Log("No historical profile data available yet — skipping SVG structure check")
+		return
+	}
+
+	require.Contains(t, output, "<svg", "svg format output should contain an <svg> element")
+	require.Contains(t, output, "</svg>", "svg format output should be a well-formed SVG document")
+	require.Contains(t, output, "<script", "flame graph SVG should embed interactive zoom/search JS")
 }

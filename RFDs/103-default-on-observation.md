@@ -161,7 +161,7 @@ coral agent start --monitor-all
       warning emitted
 - [x] Integration test: send synthetic OTLP span for port 3000; assert
       `onBeylaServiceObserved` fires with correct port and name
-- [x] Update `docs/AGENT.md`: document default-on behaviour and
+- [x] Update `docs/user/services.md`: document default-on behaviour and
       `--no-monitor-all`
 - [x] Update `docs/CLI_REFERENCE.md`: document flag changes
 

@@ -725,12 +725,14 @@ func (m *Manager) consumeMetrics() {
 			return
 
 		case <-ticker.C:
-			// Query recent metrics from Beyla's OTLP receiver.
-			metrics := m.otlpReceiver.QueryMetrics(m.ctx)
+			// Drain buffered metrics from Beyla's OTLP receiver. Draining
+			// (rather than copy-then-clear) ensures each batch is stored
+			// once and none exported mid-cycle are lost.
+			metrics := m.otlpReceiver.DrainMetrics()
 
-			// Also query metrics from shared OTLP receiver (user application metrics).
+			// Also drain the shared OTLP receiver (user application metrics).
 			if m.sharedOTLPReceiver != nil {
-				sharedMetrics := m.sharedOTLPReceiver.QueryMetrics(m.ctx)
+				sharedMetrics := m.sharedOTLPReceiver.DrainMetrics()
 				metrics = append(metrics, sharedMetrics...)
 				m.logger.Debug().
 					Int("beyla_metrics", len(metrics)-len(sharedMetrics)).
@@ -770,9 +772,6 @@ func (m *Manager) consumeMetrics() {
 					}
 				}
 			}
-
-			// Clear processed metrics from buffer.
-			m.otlpReceiver.ClearMetrics()
 
 			m.logger.Debug().Int("batch_count", len(metrics)).Msg("Processed Beyla metrics")
 		}
@@ -872,6 +871,13 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		{ExePath: ".*coral-colony.*"},
 		{ExePath: ".*beyla.*"},
 	}
+
+	// Keep instrumenting services that export their own OTel telemetry.
+	// Beyla's default (true) stops instrumenting a process once it observes
+	// that process publishing OTLP data, which drops the CLIENT spans that
+	// topology materialization needs for any SDK-instrumented caller.
+	excludeOtelInstrumented := false
+	cfg.Discovery.ExcludeOtelInstrumentedServices = &excludeOtelInstrumented
 
 	// Discovery: process candidates merged by DiscoveryManager — static
 	// (config file + `coral connect`), and, in MonitorAll mode,

@@ -236,6 +236,11 @@ func (f *ComposeFixture) GetDiscoveryEndpoint(ctx context.Context) (string, erro
 	return f.DiscoveryEndpoint, nil
 }
 
+// UsesLocalDiscovery reports whether the fixture uses the local discovery overlay.
+func (f *ComposeFixture) UsesLocalDiscovery() bool {
+	return f.DiscoveryEndpoint == localDiscoveryEndpoint
+}
+
 // GetColonyEndpoint returns the colony gRPC endpoint.
 func (f *ComposeFixture) GetColonyEndpoint(ctx context.Context) (string, error) {
 	return f.ColonyEndpoint, nil
@@ -300,6 +305,18 @@ func (f *ComposeFixture) GetBeylaConfig(ctx context.Context, agentName string) (
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to read beyla config from %s: %w\nOutput: %s", containerName, err, string(output))
+	}
+	return string(output), nil
+}
+
+// GetContainerLogs returns the full stdout and stderr log of a compose service
+// container.
+func (f *ComposeFixture) GetContainerLogs(ctx context.Context, serviceName string) (string, error) {
+	containerName := fmt.Sprintf("coral-e2e-%s-1", serviceName)
+	cmd := exec.CommandContext(ctx, "docker", "logs", containerName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to read logs from %s: %w", containerName, err)
 	}
 	return string(output), nil
 }

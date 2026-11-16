@@ -1,6 +1,16 @@
 package startup
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+)
 
 func TestParseAgentWireGuardPort(t *testing.T) {
 	tests := []struct {
@@ -39,5 +49,44 @@ func TestResolveAgentWireGuardPortDefaultsToDiscoverablePort(t *testing.T) {
 	}
 	if got != 51820 {
 		t.Fatalf("resolveAgentWireGuardPort(\"\") = %d, want 51820", got)
+	}
+}
+
+func TestNetworkIdentityRecovery(t *testing.T) {
+	for _, failure := range []string{"agent mismatch", "colony mismatch", "invalid key"} {
+		t.Run(failure, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := &config.AgentConfig{}
+			cfg.Agent.Bootstrap.CertsDir = dir
+			resolved := &config.ResolvedConfig{ColonyID: "colony-1"}
+			network := NewNetworkInitializer(zerolog.Nop(), resolved, cfg, nil, "agent-1")
+			original, err := network.loadOrGenerateAgentKeys()
+			require.NoError(t, err)
+			store := enrollmentstate.NewStore(dir, zerolog.Nop())
+			switch failure {
+			case "agent mismatch":
+				network.agentID = "agent-2"
+			case "colony mismatch":
+				resolved.ColonyID = "colony-2"
+			case "invalid key":
+				cp, err := store.Load()
+				require.NoError(t, err)
+				cp.WireGuardPrivateKey = "corrupt"
+				data, err := json.Marshal(cp)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, enrollmentstate.CheckpointFileName), data, 0600))
+			}
+			recovered, err := network.loadOrGenerateAgentKeys()
+			require.NoError(t, err)
+			require.NotEqual(t, original.PublicKey, recovered.PublicKey)
+			pending, err := store.Load()
+			require.NoError(t, err)
+			require.Equal(t, network.agentID, pending.AgentID)
+			require.Equal(t, resolved.ColonyID, pending.ColonyID)
+			require.Equal(t, recovered.PublicKey, pending.WireGuardPublicKey)
+			restarted, err := network.loadOrGenerateAgentKeys()
+			require.NoError(t, err)
+			require.Equal(t, recovered, restarted)
+		})
 	}
 }

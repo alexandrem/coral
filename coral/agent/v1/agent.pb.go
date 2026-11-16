@@ -3886,7 +3886,11 @@ func (x *ShellExecResponse) GetError() string {
 
 type ContainerExecRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Container name (optional in sidecar mode - defaults to main container).
+	// Container selector: exact, case-sensitive process name (even if hex-looking),
+	// id:<hex prefix> of any non-empty length, or pid:<positive PID visible to agent>.
+	// Name and ID matches must identify a single container.
+	// Empty selects the lowest visible PID excluding the agent in sidecar mode;
+	// rejected in the host PID namespace.
 	ContainerName string `protobuf:"bytes,1,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
 	// Command as array (no shell interpretation).
 	// Example: ["cat", "/app/config.yaml"] or ["ls", "-la", "/etc/nginx"]

@@ -44,7 +44,7 @@ colony. The config is stored at ~/.coral/colonies/<colony-name>/config.yaml.
 Two modes are supported:
 
 1. Discovery Mode (Recommended): Fetch endpoint and CA from Discovery Service
-   Requires colony ID and CA fingerprint (get from colony owner via 'coral colony export')
+   Requires colony ID and CA fingerprint (get from colony owner via 'coral colony ca status')
    The fingerprint is used to cryptographically verify the CA certificate.
 
 2. Manual Mode: Specify endpoint and CA directly
@@ -83,7 +83,7 @@ Examples:
 			if fromDiscovery {
 				// Discovery mode validation.
 				if colonyID == "" || caFingerprint == "" {
-					return fmt.Errorf("--colony-id and --ca-fingerprint are required with --from-discovery\n\nUsage:\n  coral colony add-remote %s \\\n      --from-discovery \\\n      --colony-id <colony-id> \\\n      --ca-fingerprint <sha256:...>\n\nGet these values from the colony owner (coral colony export)", colonyName)
+					return fmt.Errorf("--colony-id and --ca-fingerprint are required with --from-discovery\n\nUsage:\n  coral colony add-remote %s \\\n      --from-discovery \\\n      --colony-id <colony-id> \\\n      --ca-fingerprint <sha256:...>\n\nGet these values from the colony owner (coral colony ca status)", colonyName)
 				}
 				if insecure {
 					return fmt.Errorf("--insecure cannot be used with --from-discovery\n\nThe --from-discovery flow requires fingerprint verification for security.\nUse --insecure only with manual mode (--endpoint + --ca-file) for testing")

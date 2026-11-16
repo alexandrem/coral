@@ -196,7 +196,7 @@ No configuration changes required. Feature is automatic and always enabled.
 - [x] Add integration tests with different capability sets
 - [x] Test with all deployment modes (Restricted, eBPF Minimal, eBPF Full,
   DaemonSet)
-- [ ] Update docs/CLI.md with new status output examples
+- [ ] Update docs/user/README.md with new status output examples
 - [ ] Update deployments/k8s/README.md with validation examples
 
 ## API Changes

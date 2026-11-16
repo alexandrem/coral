@@ -4,6 +4,7 @@ package startup
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
@@ -361,11 +362,15 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 			b.configResult.ServiceSpecs,
 			b.agentID,
 		)
+		// A restarted Agent must initiate using current Discovery information.
+		// The Colony may retain its old NAT mapping and handshake state. Only
+		// initial compound enrollment relies on a Colony-initiated handshake.
+		colonyEndpoint := b.bootstrapResult.colonyPeerEndpoint(connMgr)
 		if err := networkInitializer.ConfigureMesh(
 			b.networkResult,
 			registration.AssignedIp,
 			registration.MeshSubnet,
-			"",
+			colonyEndpoint,
 		); err != nil {
 			return fmt.Errorf("failed to configure mesh from compound bootstrap registration: %w", err)
 		}
@@ -373,7 +378,8 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 		b.logger.Info().
 			Str("agent_id", b.agentID).
 			Str("mesh_ip", registration.AssignedIp).
-			Msg("Agent enrolled through rendezvous bootstrap; skipped ordinary colony registration")
+			Bool("mesh_enrollment_restored", b.bootstrapResult.MeshEnrollmentRestored).
+			Msg("Applied mesh enrollment; skipped ordinary colony registration")
 		return nil
 	}
 
@@ -438,6 +444,28 @@ func (b *AgentServerBuilder) RegisterWithColony() error {
 	}
 
 	return nil
+}
+
+// colonyPeerEndpoint selects a live endpoint on restart. Initial rendezvous
+// enrollment and Colonies advertising only loopback or mesh addresses rely on
+// the Colony's handshake and WireGuard roaming.
+func (result *BootstrapResult) colonyPeerEndpoint(cm *ConnectionManager) string {
+	if !result.MeshEnrollmentRestored {
+		return ""
+	}
+	endpoint := cm.GetColonyEndpoint()
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return ""
+	}
+	info := cm.GetColonyInfo()
+	ip := net.ParseIP(host)
+	if host == "localhost" || (ip != nil && (ip.IsLoopback() || ip.IsUnspecified() ||
+		ip.Equal(net.ParseIP(info.MeshIPv4)) || ip.Equal(net.ParseIP(info.MeshIPv6)))) {
+		cm.SetCurrentEndpoint("")
+		return ""
+	}
+	return endpoint
 }
 
 // commitOrdinaryEnrollment persists the enrollment checkpoint after an

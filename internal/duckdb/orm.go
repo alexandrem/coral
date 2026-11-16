@@ -3,11 +3,14 @@ package duckdb
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
+
+	duckdbDriver "github.com/marcboeker/go-duckdb"
 
 	"github.com/coral-mesh/coral/internal/retry"
 )
@@ -27,14 +30,31 @@ type Table[T any] struct {
 	pkColumns       []string
 	immutableFields map[string]bool // Fields that can't be updated
 	fieldMap        map[string]int  // Map column name to field index
+
+	// stageExprs holds, per column, the SELECT expression that types the
+	// column of the BatchUpsert staging table. It is nil when a field type
+	// is not supported by the appender, in which case BatchUpsert falls back
+	// to row-by-row prepared statements.
+	stageExprs []string
 }
+
+// stageSeqColumn records each row's position within a BatchUpsert batch so
+// that duplicate keys resolve in input order.
+const stageSeqColumn = "coral_stage_seq"
+
+var (
+	timeType        = reflect.TypeOf(time.Time{})
+	int64SliceType  = reflect.TypeOf([]int64(nil))
+	byteSliceType   = reflect.TypeOf([]byte(nil))
+	driverValuerTyp = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+)
 
 // NewTable creates a new Table[T] instance.
 // T must be a struct with `duckdb` tags.
 func NewTable[T any](db Execer, tableName string) *Table[T] {
 	var zero T
 	t := reflect.TypeOf(zero)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
@@ -45,6 +65,7 @@ func NewTable[T any](db Execer, tableName string) *Table[T] {
 	var pkColumns []string
 	immutableFields := make(map[string]bool)
 	fieldMap := make(map[string]int)
+	stageExprs := []string{}
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -57,6 +78,14 @@ func NewTable[T any](db Execer, tableName string) *Table[T] {
 		colName := strings.TrimSpace(parts[0])
 		columns = append(columns, colName)
 		fieldMap[colName] = i
+
+		if stageExprs != nil {
+			if expr, ok := stagingColumnExpr(field.Type, colName); ok {
+				stageExprs = append(stageExprs, expr)
+			} else {
+				stageExprs = nil
+			}
+		}
 
 		for _, p := range parts[1:] {
 			opt := strings.TrimSpace(p)
@@ -76,7 +105,108 @@ func NewTable[T any](db Execer, tableName string) *Table[T] {
 		pkColumns:       pkColumns,
 		immutableFields: immutableFields,
 		fieldMap:        fieldMap,
+		stageExprs:      stageExprs,
 	}
+}
+
+// stagingColumnExpr returns the SELECT expression that types a staging table
+// column for a field of type rt. Types mirror what database/sql's default
+// converter hands to the DuckDB driver on the prepared-statement path, so that
+// INSERT ... SELECT from the staging table applies the same casts. time.Time
+// takes the target column's type, as the driver binds it against the
+// parameter type. It reports false for types the appender cannot take.
+func stagingColumnExpr(rt reflect.Type, col string) (string, bool) {
+	if rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	if rt.Implements(driverValuerTyp) || reflect.PointerTo(rt).Implements(driverValuerTyp) {
+		return "", false
+	}
+
+	var sqlType string
+	switch rt {
+	case timeType:
+		return quoteIdent(col), true
+	case int64SliceType:
+		sqlType = "BIGINT[]"
+	case byteSliceType:
+		sqlType = "BLOB"
+	default:
+		switch rt.Kind() {
+		case reflect.Bool:
+			sqlType = "BOOLEAN"
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			sqlType = "BIGINT"
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			sqlType = "UBIGINT"
+		case reflect.Float32, reflect.Float64:
+			sqlType = "DOUBLE"
+		case reflect.String:
+			sqlType = "VARCHAR"
+		default:
+			return "", false
+		}
+	}
+	return fmt.Sprintf("CAST(NULL AS %s) AS %s", sqlType, quoteIdent(col)), true
+}
+
+// appenderValue converts a struct field to a value accepted by the DuckDB
+// appender for the staging column built by stagingColumnExpr.
+func appenderValue(v reflect.Value) driver.Value {
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Bool:
+		return v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint()
+	case reflect.Float32, reflect.Float64:
+		return v.Float()
+	case reflect.String:
+		return v.String()
+	default:
+		return v.Interface()
+	}
+}
+
+// quoteIdent quotes a SQL identifier.
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// onConflictClause returns the ON CONFLICT clause for upserts, or "" when the
+// table has no primary key. PK and immutable columns are never updated.
+func (t *Table[T]) onConflictClause() string {
+	if len(t.pkColumns) == 0 {
+		return ""
+	}
+	updates := make([]string, 0, len(t.columns))
+	for _, col := range t.columns {
+		if !t.isPK(col) && !t.immutableFields[col] {
+			updates = append(updates, fmt.Sprintf("%s = excluded.%s", col, col))
+		}
+	}
+	action := "DO NOTHING"
+	if len(updates) > 0 {
+		action = "DO UPDATE SET " + strings.Join(updates, ", ")
+	}
+	return fmt.Sprintf(" ON CONFLICT (%s) %s", strings.Join(t.pkColumns, ", "), action)
+}
+
+// isPK reports whether col is part of the primary key.
+func (t *Table[T]) isPK(col string) bool {
+	for _, pk := range t.pkColumns {
+		if pk == col {
+			return true
+		}
+	}
+	return false
 }
 
 // convertFieldValue converts a Go value to a DuckDB-compatible parameter.
@@ -99,7 +229,7 @@ func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
 	updates := make([]string, 0, len(t.columns))
 
 	val := reflect.ValueOf(item)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 
@@ -148,10 +278,10 @@ func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		_, err := t.db.ExecContext(ctx, query, values...)
 		return err
-	}, isTransactionConflict)
+	})
 }
 
 // Insert inserts a new item into the database.
@@ -162,7 +292,7 @@ func (t *Table[T]) Insert(ctx context.Context, item *T) error {
 	values := make([]interface{}, len(t.columns))
 
 	val := reflect.ValueOf(item)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 
@@ -187,58 +317,30 @@ func (t *Table[T]) Insert(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		_, err := t.db.ExecContext(ctx, query, values...)
 		return err
-	}, isTransactionConflict)
+	})
 }
 
-// BatchUpsert inserts multiple items in a single transaction using prepared statements.
-// This is critical for performance.
+// BatchUpsert inserts or updates multiple items atomically.
+//
+// On a *sql.DB backed by the DuckDB driver, rows are streamed through the
+// DuckDB appender into a connection-local staging table and merged into the
+// target with a single INSERT ... SELECT ... ON CONFLICT statement. When a
+// batch holds several items with the same primary key, the result matches
+// applying them one by one: mutable columns take the last item's values and
+// immutable columns keep the first item's values.
+//
+// Inside a *sql.Tx, or when a field type is not supported by the appender, it
+// falls back to executing a prepared statement per item. Inside a *sql.Tx,
+// conflicts are not retried: DuckDB aborts the transaction on its first error,
+// so the caller must retry the whole transaction.
 func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 	if len(items) == 0 {
 		return nil
 	}
 
-	// 1. Construct Query (Same as Upsert)
-	placeholders := make([]string, len(t.columns))
-	updates := make([]string, 0, len(t.columns))
-
-	for i, col := range t.columns {
-		placeholders[i] = "?"
-		// Exclude PKs and immutable fields from update set
-		isPK := false
-		for _, pk := range t.pkColumns {
-			if pk == col {
-				isPK = true
-				break
-			}
-		}
-		// Skip if it's a PK or marked as immutable
-		if !isPK && !t.immutableFields[col] {
-			updates = append(updates, fmt.Sprintf("%s = excluded.%s", col, col))
-		}
-	}
-
-	// #nosec G201 - table and column names are not user input, they come from struct tags
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		t.tableName,
-		strings.Join(t.columns, ", "),
-		strings.Join(placeholders, ", "),
-	)
-
-	if len(t.pkColumns) > 0 {
-		conflictTarget := strings.Join(t.pkColumns, ", ")
-		updateClause := ""
-		if len(updates) > 0 {
-			updateClause = fmt.Sprintf("DO UPDATE SET %s", strings.Join(updates, ", "))
-		} else {
-			updateClause = "DO NOTHING"
-		}
-		query += fmt.Sprintf(" ON CONFLICT (%s) %s", conflictTarget, updateClause)
-	}
-
-	// 2. Retry mechanism for conflicts
 	cfg := retry.Config{
 		MaxRetries:     30,
 		InitialBackoff: 10 * time.Millisecond,
@@ -246,7 +348,127 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	if db, ok := t.db.(*sql.DB); ok && t.stageExprs != nil {
+		err := retry.Do(ctx, cfg, func() error {
+			return t.batchUpsertStaged(ctx, db, items)
+		}, IsTransactionConflict)
+		if !errors.Is(err, errAppenderUnavailable) {
+			return err
+		}
+	}
+
+	return t.batchUpsertPrepared(ctx, cfg, items)
+}
+
+// errAppenderUnavailable reports that the underlying driver connection is not
+// a DuckDB connection, so the appender cannot be used.
+var errAppenderUnavailable = errors.New("duckdb appender unavailable")
+
+// stageTable returns the name of the connection-local staging table.
+func (t *Table[T]) stageTable() string {
+	return quoteIdent("coral_stage_" + t.tableName)
+}
+
+// batchUpsertStaged implements BatchUpsert through a staging table filled by
+// the DuckDB appender.
+func (t *Table[T]) batchUpsertStaged(ctx context.Context, db *sql.DB, items []*T) error {
+	// Temp tables and the appender are bound to a single connection.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("get conn: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	stage := t.stageTable()
+
+	// #nosec G201 - table and column names are not user input, they come from struct tags
+	createStage := fmt.Sprintf("CREATE OR REPLACE TEMP TABLE %s AS SELECT %s, CAST(NULL AS BIGINT) AS %s FROM %s LIMIT 0",
+		stage, strings.Join(t.stageExprs, ", "), stageSeqColumn, t.tableName)
+	if _, err := conn.ExecContext(ctx, createStage); err != nil {
+		return fmt.Errorf("create staging table: %w", err)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS "+stage)
+	}()
+
+	err = conn.Raw(func(driverConn any) error {
+		dc, ok := driverConn.(*duckdbDriver.Conn)
+		if !ok {
+			return errAppenderUnavailable
+		}
+		appender, err := duckdbDriver.NewAppenderFromConn(dc, "", "coral_stage_"+t.tableName)
+		if err != nil {
+			return fmt.Errorf("create appender: %w", err)
+		}
+
+		row := make([]driver.Value, len(t.columns)+1)
+		for seq, item := range items {
+			val := reflect.ValueOf(item).Elem()
+			for i, col := range t.columns {
+				row[i] = appenderValue(val.Field(t.fieldMap[col]))
+			}
+			row[len(t.columns)] = int64(seq)
+			if err := appender.AppendRow(row...); err != nil {
+				return errors.Join(fmt.Errorf("append row: %w", err), appender.Close())
+			}
+		}
+		if err := appender.Close(); err != nil {
+			return fmt.Errorf("flush appender: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if _, err := conn.ExecContext(ctx, t.mergeStageQuery(stage)); err != nil {
+		return fmt.Errorf("merge staged rows: %w", err)
+	}
+	return nil
+}
+
+// mergeStageQuery builds the INSERT ... SELECT that moves staged rows into the
+// target table. With a primary key, rows sharing a key are collapsed first,
+// because a single INSERT cannot update the same row twice.
+func (t *Table[T]) mergeStageQuery(stage string) string {
+	cols := strings.Join(t.columns, ", ")
+
+	if len(t.pkColumns) == 0 {
+		// #nosec G201 - table and column names are not user input, they come from struct tags
+		return fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s ORDER BY %s",
+			t.tableName, cols, cols, stage, stageSeqColumn)
+	}
+
+	partition := "PARTITION BY " + strings.Join(t.pkColumns, ", ")
+	selects := make([]string, len(t.columns))
+	for i, col := range t.columns {
+		if t.immutableFields[col] && !t.isPK(col) {
+			selects[i] = fmt.Sprintf("first_value(%s) OVER (%s ORDER BY %s) AS %s",
+				col, partition, stageSeqColumn, col)
+		} else {
+			selects[i] = col
+		}
+	}
+
+	// #nosec G201 - table and column names are not user input, they come from struct tags
+	return fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM (SELECT %s, row_number() OVER (%s ORDER BY %s DESC) AS coral_stage_rn FROM %s) WHERE coral_stage_rn = 1%s",
+		t.tableName, cols, cols, strings.Join(selects, ", "), partition, stageSeqColumn, stage, t.onConflictClause())
+}
+
+// batchUpsertPrepared implements BatchUpsert with one prepared statement
+// execution per item inside a transaction.
+func (t *Table[T]) batchUpsertPrepared(ctx context.Context, cfg retry.Config, items []*T) error {
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(t.columns)), ", ")
+
+	// #nosec G201 - table and column names are not user input, they come from struct tags
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)%s",
+		t.tableName,
+		strings.Join(t.columns, ", "),
+		placeholders,
+		t.onConflictClause(),
+	)
+
+	return t.withRetry(ctx, cfg, func() error {
 		// 3. Transact
 		// Check if db is already a Tx or a DB
 		var tx *sql.Tx
@@ -283,7 +505,7 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 		for _, item := range items {
 			values := make([]interface{}, len(t.columns))
 			val := reflect.ValueOf(item)
-			if val.Kind() == reflect.Ptr {
+			if val.Kind() == reflect.Pointer {
 				val = val.Elem()
 			}
 
@@ -306,7 +528,7 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 		}
 
 		return nil
-	}, isTransactionConflict)
+	})
 }
 
 // Get retrieves a single item by its value in the first PK column.
@@ -337,7 +559,7 @@ func (t *Table[T]) Update(ctx context.Context, item *T) error {
 	}
 
 	val := reflect.ValueOf(item)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 
@@ -387,7 +609,7 @@ func (t *Table[T]) Update(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		result, err := t.db.ExecContext(ctx, query, values...)
 		if err != nil {
 			return err
@@ -401,7 +623,7 @@ func (t *Table[T]) Update(ctx context.Context, item *T) error {
 			return fmt.Errorf("no rows updated (record may not exist)")
 		}
 		return nil
-	}, isTransactionConflict)
+	})
 }
 
 // UpdateFields updates specific fields of an item by PK.
@@ -452,7 +674,7 @@ func (t *Table[T]) UpdateFields(ctx context.Context, pk any, fieldUpdates map[st
 		Jitter:         0.1,
 	}
 
-	return retry.Do(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, func() error {
 		result, err := t.db.ExecContext(ctx, query, values...)
 		if err != nil {
 			return err
@@ -465,7 +687,7 @@ func (t *Table[T]) UpdateFields(ctx context.Context, pk any, fieldUpdates map[st
 			return fmt.Errorf("no rows updated (record may not exist)")
 		}
 		return nil
-	}, isTransactionConflict)
+	})
 }
 
 // Delete removes an item by its value in the first PK column.
@@ -546,16 +768,34 @@ func (t *Table[T]) scanRows(rows *sql.Rows) (*T, error) {
 	return &item, nil
 }
 
-func isTransactionConflict(err error) bool {
-	if err == nil {
+// withRetry runs fn, retrying it with cfg while it fails with a transaction
+// conflict.
+//
+// When the table is bound to a caller's *sql.Tx, fn runs exactly once: DuckDB
+// aborts a transaction on its first error, so further attempts inside the same
+// transaction can only fail with "Current transaction is aborted". Callers that
+// own the transaction must retry at the boundary where they begin it.
+func (t *Table[T]) withRetry(ctx context.Context, cfg retry.Config, fn func() error) error {
+	if _, inTx := t.db.(*sql.Tx); inTx {
+		return fn()
+	}
+	return retry.Do(ctx, cfg, fn, IsTransactionConflict)
+}
+
+// IsTransactionConflict reports whether err is a transient DuckDB
+// optimistic-concurrency failure that succeeds when retried in a new
+// transaction.
+//
+// It matches TransactionContext errors that report a write-write conflict
+// ("Conflict on update!", "Conflict on tuple deletion!", "Catalog write-write
+// conflict ...") or a commit that lost a race to insert the same primary key.
+// Other TransactionContext errors, such as "Current transaction is aborted",
+// are permanent and are not matched, nor are errors from other sources.
+func IsTransactionConflict(err error) bool {
+	var dErr *duckdbDriver.Error
+	if !errors.As(err, &dErr) || dErr.Type != duckdbDriver.ErrorTypeTransaction {
 		return false
 	}
-	msg := err.Error()
-	// Detect various DuckDB transaction conflict patterns
-	return strings.Contains(msg, "Conflict on update") ||
-		strings.Contains(msg, "conflict") ||
-		strings.Contains(msg, "transaction") ||
-		strings.Contains(msg, "serialization") ||
-		strings.Contains(msg, "TransactionContext Error") ||
-		(strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "constraint violated"))
+	return strings.Contains(strings.ToLower(dErr.Msg), "conflict") ||
+		strings.Contains(dErr.Msg, "PRIMARY KEY or UNIQUE constraint violated")
 }

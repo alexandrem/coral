@@ -133,9 +133,9 @@ coral colony service list         → hidden alias → coral services
       implementation
 - [x] `coral services --local` and `coral services --agent <id>` command paths
       render agent-scope output including `TIER` and `PID`
-- [x] Update `docs/CLI.md` and `docs/CLI_REFERENCE.md`: document
+- [x] Update `docs/user/README.md` and `docs/CLI_REFERENCE.md`: document
       `coral services`, `coral services watch`, note aliases
-- [x] Update `docs/SERVICE_DISCOVERY.md`: document discovery-to-service flow
+- [x] Update `docs/user/services.md`: document discovery-to-service flow
 
 ## API Changes
 
