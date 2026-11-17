@@ -155,6 +155,25 @@ func TestExtractColonyFromSAN(t *testing.T) {
 			expectedID:  "my-app-prod-a3f2e1",
 			expectedSAN: "spiffe://coral/colony/my-app-prod-a3f2e1",
 		},
+		{
+			name:        "agent identity cannot identify a colony",
+			colonyID:    "my-app-prod/agent/web-1",
+			expectError: true,
+		},
+		{
+			name:        "extra path segment",
+			colonyID:    "my-app-prod/extra",
+			expectError: true,
+		},
+		{
+			name:        "trailing slash",
+			colonyID:    "my-app-prod/",
+			expectError: true,
+		},
+		{
+			name:        "empty colony ID",
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -229,6 +248,16 @@ func TestValidateConnectionState(t *testing.T) {
 		assert.Contains(t, result.ServerSPIFFEID, "spiffe://coral/colony/"+colonyID)
 	})
 
+	t.Run("verified root omitted from peer certificates", func(t *testing.T) {
+		v := NewCAValidator(expectedFP, colonyID)
+		state := &tls.ConnectionState{
+			PeerCertificates: []*x509.Certificate{serverCert},
+			VerifiedChains:   [][]*x509.Certificate{{serverCert, ca}},
+		}
+		_, err := v.ValidateConnectionState(state)
+		require.NoError(t, err)
+	})
+
 	t.Run("fingerprint mismatch", func(t *testing.T) {
 		v := NewCAValidator("wrongfingerprint", colonyID)
 
@@ -292,6 +321,142 @@ func TestGetTLSConfig(t *testing.T) {
 	// Custom verification must run on every TLS connection.
 	assert.True(t, tlsConfig.InsecureSkipVerify)
 	assert.NotNil(t, tlsConfig.VerifyConnection)
+}
+
+// reissueTestCertificate signs and parses modified templates so verification tests
+// exercise the constraints encoded in DER, rather than modified in-memory fields.
+func reissueTestCertificate(t *testing.T, template, parent *x509.Certificate, parentKey *ecdsa.PrivateKey) *x509.Certificate {
+	t.Helper()
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, template.PublicKey, parentKey)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return cert
+}
+
+func TestValidateConnectionState_ChainConstraints(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		modifyRoot         func(*x509.Certificate)
+		modifyIntermediate func(*x509.Certificate)
+		modifyLeaf         func(*x509.Certificate)
+		extraIntermediate  bool
+		wantError          bool
+	}{
+		{name: "valid intermediate chain"},
+		{
+			name: "valid nested intermediate chain",
+			modifyRoot: func(cert *x509.Certificate) {
+				cert.MaxPathLen = 2
+			},
+			extraIntermediate: true,
+		},
+		{
+			name: "client-only leaf",
+			modifyLeaf: func(cert *x509.Certificate) {
+				cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+			},
+			wantError: true,
+		},
+		{
+			name: "client-only intermediate",
+			modifyIntermediate: func(cert *x509.Certificate) {
+				cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+			},
+			wantError: true,
+		},
+		{
+			name: "intermediate without basic constraints",
+			modifyIntermediate: func(cert *x509.Certificate) {
+				cert.BasicConstraintsValid = false
+			},
+			wantError: true,
+		},
+		{
+			name: "intermediate is not a CA",
+			modifyIntermediate: func(cert *x509.Certificate) {
+				cert.IsCA = false
+				cert.MaxPathLen = -1
+			},
+			wantError: true,
+		},
+		{
+			name: "root path length exceeded",
+			modifyRoot: func(cert *x509.Certificate) {
+				cert.MaxPathLen = 0
+				cert.MaxPathLenZero = true
+			},
+			wantError: true,
+		},
+		{
+			name: "intermediate path length exceeded",
+			modifyRoot: func(cert *x509.Certificate) {
+				cert.MaxPathLen = 2
+			},
+			modifyIntermediate: func(cert *x509.Certificate) {
+				cert.MaxPathLen = 0
+				cert.MaxPathLenZero = true
+			},
+			extraIntermediate: true,
+			wantError:         true,
+		},
+		{
+			name: "expired leaf",
+			modifyLeaf: func(cert *x509.Certificate) {
+				cert.NotBefore = time.Now().Add(-2 * time.Hour)
+				cert.NotAfter = time.Now().Add(-time.Hour)
+			},
+			wantError: true,
+		},
+		{
+			name: "intermediate not yet valid",
+			modifyIntermediate: func(cert *x509.Certificate) {
+				cert.NotBefore = time.Now().Add(time.Hour)
+			},
+			wantError: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, rootKey := generateTestCA(t, "root")
+			if tc.modifyRoot != nil {
+				tc.modifyRoot(root)
+				root = reissueTestCertificate(t, root, root, rootKey)
+			}
+			intermediate, intermediateKey := generateTestCA(t, "intermediate")
+			if tc.modifyIntermediate != nil {
+				tc.modifyIntermediate(intermediate)
+			}
+			intermediate = reissueTestCertificate(t, intermediate, root, rootKey)
+			chain := []*x509.Certificate{intermediate, root}
+			issuer, issuerKey := intermediate, intermediateKey
+			if tc.extraIntermediate {
+				subordinate, subordinateKey := generateTestCA(t, "subordinate")
+				subordinate = reissueTestCertificate(t, subordinate, issuer, issuerKey)
+				chain = append([]*x509.Certificate{subordinate}, chain...)
+				issuer, issuerKey = subordinate, subordinateKey
+			}
+			leaf, _ := generateTestServerCert(t, issuer, issuerKey, "test-colony")
+			if tc.modifyLeaf != nil {
+				tc.modifyLeaf(leaf)
+				leaf = reissueTestCertificate(t, leaf, issuer, issuerKey)
+			}
+			chain = append([]*x509.Certificate{leaf}, chain...)
+			validator := NewCAValidator(computeFingerprint(root), "test-colony")
+			for _, verified := range []bool{false, true} {
+				state := &tls.ConnectionState{PeerCertificates: chain}
+				if verified {
+					// A supplied chain must still satisfy the pinned server-auth policy.
+					state.VerifiedChains = [][]*x509.Certificate{chain}
+				}
+				_, err := validator.ValidateConnectionState(state)
+				if tc.wantError {
+					require.ErrorContains(t, err, "certificate chain validation failed", "VerifiedChains populated: %t", verified)
+				} else {
+					require.NoError(t, err, "VerifiedChains populated: %t", verified)
+				}
+			}
+		})
+	}
 }
 
 func TestFingerprintMismatchError(t *testing.T) {

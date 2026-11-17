@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // CAValidator validates the Root CA fingerprint and colony identity during TLS handshake.
@@ -119,52 +118,30 @@ func (v *CAValidator) ValidateConnectionState(state *tls.ConnectionState) (*Vali
 	}
 
 	// Validate certificate chain integrity.
-	if err := v.validateChainIntegrity(state); err != nil {
+	if err := v.validateChainIntegrity(state, rootCA); err != nil {
 		return result, fmt.Errorf("certificate chain validation failed: %w", err)
 	}
 
 	return result, nil
 }
 
-// validateChainIntegrity verifies the certificate chain is properly signed.
-func (v *CAValidator) validateChainIntegrity(state *tls.ConnectionState) error {
-	if len(state.VerifiedChains) == 0 {
-		// If using InsecureSkipVerify with manual validation, verify the chain ourselves.
-		return v.manualChainVerification(state.PeerCertificates)
+// validateChainIntegrity verifies server authentication against only the pinned root.
+func (v *CAValidator) validateChainIntegrity(state *tls.ConnectionState, rootCA *x509.Certificate) error {
+	roots := x509.NewCertPool()
+	roots.AddCert(rootCA)
+
+	intermediates := x509.NewCertPool()
+	for _, cert := range state.PeerCertificates[1:] {
+		intermediates.AddCert(cert)
 	}
 
-	// Chain was already verified by Go's TLS stack.
-	return nil
-}
-
-// manualChainVerification verifies the certificate chain when using InsecureSkipVerify.
-func (v *CAValidator) manualChainVerification(certs []*x509.Certificate) error {
-	if len(certs) == 0 {
-		return fmt.Errorf("no certificates to verify")
-	}
-
-	now := time.Now()
-	for i, cert := range certs {
-		// Idiom: Check expiration in manual verification
-		if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
-			return fmt.Errorf("certificate at index %d is expired or not yet valid", i)
-		}
-
-		if i < len(certs)-1 {
-			parent := certs[i+1]
-			if err := cert.CheckSignatureFrom(parent); err != nil {
-				return fmt.Errorf("certificate at index %d not signed by parent: %w", i, err)
-			}
-		}
-	}
-
-	// Verify the root is self-signed.
-	root := certs[len(certs)-1]
-	if err := root.CheckSignatureFrom(root); err != nil {
-		return fmt.Errorf("root certificate is not self-signed (chain might be incomplete): %w", err)
-	}
-
-	return nil
+	_, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		// The SPIFFE SAN above supplies identity; bootstrap does not use DNS names.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	return err
 }
 
 // GetTLSConfig returns a TLS config suitable for bootstrap connections.
@@ -200,7 +177,7 @@ func extractColonyFromSAN(cert *x509.Certificate) (string, string, error) {
 		path := strings.TrimPrefix(uri.Path, "/")
 		parts := strings.Split(path, "/")
 
-		if len(parts) >= 2 && parts[0] == "colony" {
+		if len(parts) == 2 && parts[0] == "colony" && parts[1] != "" {
 			return uri.String(), parts[1], nil
 		}
 	}

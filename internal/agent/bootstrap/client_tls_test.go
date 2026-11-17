@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -38,6 +39,10 @@ func TestClient_BootstrapValidatesRequestConnection(t *testing.T) {
 	wrongRoot, wrongRootKey := generateTestCA(t, "untrusted-root")
 	wrongRootLeaf, wrongRootLeafKey := generateTestServerCert(t, wrongRoot, wrongRootKey, "expected-colony")
 	wrongColonyLeaf, wrongColonyLeafKey := generateTestServerCert(t, root, rootKey, "wrong-colony")
+	agentLeaf, agentLeafKey := generateTestServerCert(t, root, rootKey, "expected-colony/agent/web-1")
+	clientLeaf, clientLeafKey := generateTestServerCert(t, root, rootKey, "expected-colony")
+	clientLeaf.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	clientLeaf = reissueTestCertificate(t, clientLeaf, root, rootKey)
 
 	for _, tc := range []struct {
 		name    string
@@ -61,6 +66,16 @@ func TestClient_BootstrapValidatesRequestConnection(t *testing.T) {
 		{
 			name:    "invalid chain",
 			cert:    tls.Certificate{Certificate: [][]byte{wrongRootLeaf.Raw, root.Raw}, PrivateKey: wrongRootLeafKey},
+			wantErr: "certificate chain validation failed",
+		},
+		{
+			name:    "agent identity with server auth",
+			cert:    tls.Certificate{Certificate: [][]byte{agentLeaf.Raw, root.Raw}, PrivateKey: agentLeafKey},
+			wantErr: "no valid Coral Colony SPIFFE ID",
+		},
+		{
+			name:    "colony identity with client-only auth",
+			cert:    tls.Certificate{Certificate: [][]byte{clientLeaf.Raw, root.Raw}, PrivateKey: clientLeafKey},
 			wantErr: "certificate chain validation failed",
 		},
 	} {
