@@ -289,8 +289,9 @@ func TestGetTLSConfig(t *testing.T) {
 	tlsConfig := v.GetTLSConfig()
 
 	assert.NotNil(t, tlsConfig)
-	// Should use InsecureSkipVerify for manual fingerprint validation.
+	// Custom verification must run on every TLS connection.
 	assert.True(t, tlsConfig.InsecureSkipVerify)
+	assert.NotNil(t, tlsConfig.VerifyConnection)
 }
 
 func TestFingerprintMismatchError(t *testing.T) {

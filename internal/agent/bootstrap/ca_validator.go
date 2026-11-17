@@ -168,11 +168,16 @@ func (v *CAValidator) manualChainVerification(certs []*x509.Certificate) error {
 }
 
 // GetTLSConfig returns a TLS config suitable for bootstrap connections.
-// It uses InsecureSkipVerify because we perform manual Root CA fingerprint validation.
+// VerifyConnection validates the pinned Root CA, colony identity, and chain
+// on every handshake, including resumed connections.
 func (v *CAValidator) GetTLSConfig() *tls.Config {
 	return &tls.Config{
-		// We skip automatic verification and perform manual fingerprint validation instead.
-		InsecureSkipVerify: true, // #nosec G402: Manual validation via fingerprint.
+		// Bootstrap trusts the pinned CA and SPIFFE identity rather than system roots and DNS.
+		InsecureSkipVerify: true, // #nosec G402: Custom validation in VerifyConnection.
+		VerifyConnection: func(state tls.ConnectionState) error {
+			_, err := v.ValidateConnectionState(&state)
+			return err
+		},
 	}
 }
 
