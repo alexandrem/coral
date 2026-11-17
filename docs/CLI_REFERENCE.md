@@ -1230,6 +1230,9 @@ succeeds with a message on stderr and leaves stdout empty.
 
 Query logs.
 
+> **IMPORTANT**: OTLP log ingestion and storage are not yet implemented. The Colony
+> RPC handler currently returns an empty log response.
+
 ```text
 coral query logs [service] [flags]
 ```
