@@ -166,13 +166,19 @@ A port whose remaining listeners share one network namespace is attributed to
 that namespace. Often they do not: a host can run production and staging
 copies of the `api` image, each listening on its own internal port 8080. The
 service key is the port alone, so it cannot say which copy `api` means. The
-agent then compares the watched name with each candidate's `OTEL_SERVICE_NAME`,
-or `SERVICE_NAME` when that is absent, read from the process environment, and
-attributes the port only if exactly one candidate matches. Otherwise it leaves
-the PID unset rather than guessing, and warns once until the port resolves.
-The environment is consulted only to break this tie. A single listener is
-attributed whatever its name, so setting the variable never hides a service
-that was found before.
+agent breaks the tie in two steps:
+
+1. A listener in the agent's own network namespace wins. In a sidecar
+   deployment the application shares that namespace, and it is the listener
+   the watch's health check reaches at `127.0.0.1`. Another container that
+   shares only the agent's PID namespace cannot displace it.
+2. Otherwise the agent compares the watched name with each candidate's
+   `OTEL_SERVICE_NAME`, or `SERVICE_NAME` when that is absent, read from the
+   process environment, and attributes the port only if exactly one matches.
+
+When neither step decides, the agent leaves the PID unset rather than
+guessing, and warns once until the port resolves. These rules apply only to a
+tie, so a single listener is attributed whatever its name and namespace.
 
 The tie-break identifies one process but not several services. Because the
 service key is still the port, the agent can watch only one of the copies;

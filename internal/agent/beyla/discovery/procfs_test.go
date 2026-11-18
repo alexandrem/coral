@@ -630,6 +630,25 @@ func TestFindPortOwners(t *testing.T) {
 			want:    PortOwner{PID: 3763261, Namespaces: 3},
 		},
 		{
+			// A sidecar shares the agent's network namespace while another
+			// container that shares only its PID namespace uses the same port.
+			name: "listener in the agent's own namespace wins",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "self", "ns"), 0o755); err != nil {
+					t.Fatalf("failed to create self ns dir: %v", err)
+				}
+				if err := os.Symlink(containerNS, filepath.Join(root, "self", "ns", "net")); err != nil {
+					t.Fatalf("failed to create self ns/net symlink: %v", err)
+				}
+
+				// Even a matching name does not outrank the agent's namespace.
+				listen(t, root, 701, "netns-app", otherNS, "OTEL_SERVICE_NAME=cpu-app\x00")
+				listen(t, root, 700, "cpu-app", containerNS, "")
+			},
+			service: "cpu-app",
+			want:    PortOwner{PID: 700, Namespaces: 2},
+		},
+		{
 			name: "same-port containers resolved by SERVICE_NAME",
 			setup: func(t *testing.T, root string) {
 				listen(t, root, 700, "api", containerNS, "SERVICE_NAME=api\x00")

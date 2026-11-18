@@ -135,9 +135,11 @@ type PortOwner struct {
 // process are ignored. Within a namespace, the lowest PID wins, which is the
 // parent when pre-fork workers share one socket. When listeners on a port
 // span several namespaces, such as containers that all use the same internal
-// port, the port resolves only if exactly one of them has OTEL_SERVICE_NAME,
-// or else SERVICE_NAME, equal to the name the port maps to. Every requested
-// port has an entry in the result.
+// port, the one in the caller's own network namespace wins, since that is the
+// listener a connection to 127.0.0.1:<port> reaches. Failing that, the port
+// resolves only if exactly one listener has OTEL_SERVICE_NAME, or else
+// SERVICE_NAME, equal to the name the port maps to. Every requested port has
+// an entry in the result.
 func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner, error) {
 	root := p.root()
 
@@ -177,11 +179,15 @@ func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner
 		}
 	}
 
+	// An unreadable namespace link only disables the own-namespace preference.
+	selfLink, _ := os.Readlink(filepath.Join(root, "self", "ns", "net"))
+	selfNS := netNamespaceID(selfLink)
+
 	owners := make(map[int]PortOwner, len(names))
 	for port, name := range names {
 		byNS := listeners[port]
 		owners[port] = PortOwner{
-			PID:        p.pickListener(root, byNS, name),
+			PID:        pickListener(root, byNS, selfNS, name),
 			Namespaces: len(byNS),
 		}
 	}
@@ -189,14 +195,17 @@ func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner
 }
 
 // pickListener chooses among one port's listeners, given as the lowest PID
-// in each network namespace. A single namespace wins outright. Otherwise the
-// one listener whose service-name environment variable equals name wins; it
-// returns 0 when none or several match.
-func (p *ProcFSProvider) pickListener(root string, byNS map[netNamespaceID]int, name string) int {
+// in each network namespace. A single namespace wins outright, then the
+// listener in selfNS, then the one listener whose service-name environment
+// variable equals name. It returns 0 when none of these applies.
+func pickListener(root string, byNS map[netNamespaceID]int, selfNS netNamespaceID, name string) int {
 	if len(byNS) == 1 {
 		for _, pid := range byNS {
 			return pid
 		}
+	}
+	if pid, ok := byNS[selfNS]; ok && selfNS != "" {
+		return pid
 	}
 	if name == "" {
 		return 0

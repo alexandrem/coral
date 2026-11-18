@@ -77,8 +77,10 @@ the application restarts. It stays `0` while nothing listens on the port.
 ### When several containers use the same port
 
 One host often runs several containers that listen on the same internal port,
-such as production and staging copies of one image. The port alone does not
-identify the service, so the PID stays `0` and the agent log warns once:
+such as production and staging copies of one image. When one of them shares
+the agent's network namespace, as a sidecar does, the agent picks that one.
+Otherwise the port alone does not identify the service, so the PID stays `0`
+and the agent log warns once:
 
 ```text
 Several containers listen on port 8080; set OTEL_SERVICE_NAME=api in the service's container to identify its process
