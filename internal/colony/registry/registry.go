@@ -146,6 +146,23 @@ func (r *Registry) LoadFromDatabase(ctx context.Context) error {
 	return nil
 }
 
+// RestoreMeshIPv4 fills in an agent's persisted mesh assignment without changing
+// cached services or recording a new heartbeat.
+func (r *Registry) RestoreMeshIPv4(agentID, meshIPv4 string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry := Entry{AgentID: agentID}
+	if existing, ok := r.entries[agentID]; ok {
+		if existing.MeshIPv4 != "" {
+			return
+		}
+		entry = *existing
+	}
+	entry.MeshIPv4 = meshIPv4
+	r.entries[agentID] = &entry
+}
+
 // Register adds or updates an agent registration.
 // For backward compatibility, componentName can be provided for single-service agents.
 // Multi-service agents should provide services instead.

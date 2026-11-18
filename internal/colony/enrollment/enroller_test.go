@@ -28,8 +28,89 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/jwks"
+	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/discovery"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
+
+type restorePeerDevice struct {
+	peerDevice
+	peer       *wireguard.PeerConfig
+	handshakes int
+}
+
+func (d *restorePeerDevice) GetPeer(key string) (*wireguard.PeerConfig, bool) {
+	return d.peer, d.peer != nil && d.peer.PublicKey == key
+}
+
+func (d *restorePeerDevice) AddPeer(peer *wireguard.PeerConfig) error {
+	d.peer = peer
+	return nil
+}
+
+func (d *restorePeerDevice) TriggerHandshake(string) error {
+	d.handshakes++
+	return nil
+}
+
+func TestRestorePeersRecoversRegistryWithMissingDiscoveryRecord(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	keys, err := NewKeyStore(store.db)
+	require.NoError(t, err)
+	const agentID, colonyID, ip = "agent-1", "colony-1", "100.64.0.3"
+	const endpoint, pubkey = "203.0.113.1:51820", "peer-key"
+	_, _, err = store.Claim(ctx, "record", "owner", DefaultLease)
+	require.NoError(t, err)
+	require.NoError(t, store.SetAuthorized(ctx, "record", "owner", agentID, colonyID, "ticket", time.Now().Add(time.Hour), "hash", DefaultLease))
+	require.NoError(t, store.SetIPAllocated(ctx, "record", "owner", endpoint, ip, "", pubkey, DefaultLease))
+	require.NoError(t, store.SetCompleted(ctx, "record", "owner", nil, nil, time.Now().Add(time.Hour), nil))
+	require.NoError(t, keys.SetCurrentPubkey(ctx, agentID, colonyID, pubkey))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":"not_found","message":"agent not found"}`))
+	}))
+	t.Cleanup(server.Close)
+	client := discovery.NewClient(server.URL)
+
+	t.Run("reinstall peer and registry address", func(t *testing.T) {
+		device := &restorePeerDevice{}
+		reg := registry.New(nil)
+		e := &Enroller{store: store, keys: keys, registry: reg, discoveryClient: client, wgDevice: device,
+			cfg: &config.ResolvedConfig{ColonyID: colonyID}, logger: zerolog.Nop()}
+		require.NoError(t, e.RestorePeers(ctx))
+		require.Equal(t, endpoint, device.peer.Endpoint)
+		require.Equal(t, []string{ip + "/32"}, device.peer.AllowedIPs)
+		require.Equal(t, 1, device.handshakes)
+		entry, err := reg.Get(agentID)
+		require.NoError(t, err)
+		require.Equal(t, ip, entry.MeshIPv4)
+		require.True(t, entry.LastSeen.IsZero())
+		require.NoError(t, reg.UpdateHeartbeat(agentID))
+	})
+
+	t.Run("keep existing peer and cached services", func(t *testing.T) {
+		existing := &wireguard.PeerConfig{PublicKey: pubkey, Endpoint: "203.0.113.2:51820", AllowedIPs: []string{ip + "/32"}}
+		device := &restorePeerDevice{peer: existing}
+		reg := registry.New(nil)
+		services := []*meshv1.ServiceInfo{{Name: "cached-service"}}
+		cached, err := reg.Register(agentID, "", "", "", services, nil, "")
+		require.NoError(t, err)
+		e := &Enroller{store: store, keys: keys, registry: reg, discoveryClient: client, wgDevice: device,
+			cfg: &config.ResolvedConfig{ColonyID: colonyID}, logger: zerolog.Nop()}
+		require.NoError(t, e.RestorePeers(ctx))
+		require.Same(t, existing, device.peer)
+		require.Zero(t, device.handshakes)
+		entry, err := reg.Get(agentID)
+		require.NoError(t, err)
+		require.Equal(t, ip, entry.MeshIPv4)
+		require.Equal(t, services, entry.Services)
+		require.Equal(t, cached.LastSeen, entry.LastSeen)
+	})
+}
 
 // testCA builds a real ca.Manager with a live JWKS server backing referral
 // ticket signature validation, and a PSK on file — the same construction
