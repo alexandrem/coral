@@ -1,7 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +13,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/beyla/discovery"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -593,4 +598,222 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 		err = agent.Stop()
 		assert.NoError(t, err)
 	})
+}
+
+// fakePortOwners is an in-memory portOwnerFinder. listening maps each port
+// to the PID holding its listening socket.
+type fakePortOwners struct {
+	mu        sync.Mutex
+	listening map[int]int
+	ambiguous map[int]bool
+	scans     int
+}
+
+func newFakePortOwners() *fakePortOwners {
+	return &fakePortOwners{listening: map[int]int{}, ambiguous: map[int]bool{}}
+}
+
+func (f *fakePortOwners) set(port, pid int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listening[port] = pid
+}
+
+func (f *fakePortOwners) scanCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.scans
+}
+
+func (f *fakePortOwners) FindPortOwners(names map[int]string) (map[int]discovery.PortOwner, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scans++
+	owners := make(map[int]discovery.PortOwner, len(names))
+	for port := range names {
+		switch {
+		case f.ambiguous[port]:
+			owners[port] = discovery.PortOwner{Namespaces: 2}
+		case f.listening[port] != 0:
+			owners[port] = discovery.PortOwner{PID: f.listening[port], Namespaces: 1}
+		default:
+			owners[port] = discovery.PortOwner{}
+		}
+	}
+	return owners, nil
+}
+
+func (f *fakePortOwners) ListensOn(pid, port int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return pid != 0 && f.listening[port] == pid
+}
+
+// newTestAgentWithPorts returns an agent whose port lookups use owners.
+func newTestAgentWithPorts(t *testing.T, owners *fakePortOwners, services ...*meshv1.ServiceInfo) *Agent {
+	t.Helper()
+	agent, err := New(Config{
+		Context:  context.Background(),
+		AgentID:  "test-agent",
+		Services: services,
+		Logger:   zerolog.Nop(),
+	})
+	require.NoError(t, err)
+	agent.portOwners = owners
+	return agent
+}
+
+func watchedOnly(entry *ServiceEntry) bool {
+	return entry.NamingSource == NamingSourceAuthoritative
+}
+
+func entryPID(a *Agent, port int32) int32 {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.services[serviceKey(port, "")].PID
+}
+
+// TestRefreshServicePIDs_BarePortWatch verifies a port-only service from the
+// config file gets its PID from the listening socket, without a monitor or
+// any traffic, and that the PID follows restarts and exits.
+func TestRefreshServicePIDs_BarePortWatch(t *testing.T) {
+	owners := newFakePortOwners()
+	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{Name: "api", Port: 8080})
+
+	owners.set(8080, 4242)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.EqualValues(t, 4242, entryPID(agent, 8080))
+	assert.Equal(t, 1, owners.scanCount())
+
+	// A PID that still listens is only re-verified, never re-scanned.
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Equal(t, 1, owners.scanCount())
+
+	handler := NewServiceHandler(agent, nil, nil, nil, nil, nil, nil)
+	resp, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Services, 1)
+	assert.EqualValues(t, 4242, resp.Msg.Services[0].ProcessId)
+
+	// The container restarts with a new PID.
+	owners.set(8080, 5555)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.EqualValues(t, 5555, entryPID(agent, 8080))
+
+	// The service stops: the stale PID must not be kept.
+	owners.set(8080, 0)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Zero(t, entryPID(agent, 8080))
+}
+
+// TestRefreshServicePIDs_AmbiguousPortLeftUnresolved verifies a port with
+// listeners in several network namespaces is not attributed to either, and
+// that the operator is warned once rather than on every refresh.
+func TestRefreshServicePIDs_AmbiguousPortLeftUnresolved(t *testing.T) {
+	owners := newFakePortOwners()
+	owners.ambiguous[8080] = true
+	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{Name: "api", Port: 8080})
+	var logs bytes.Buffer
+	agent.logger = zerolog.New(&logs)
+	warnings := func() int { return strings.Count(logs.String(), "OTEL_SERVICE_NAME=api") }
+
+	agent.refreshServicePIDs(watchedOnly)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Zero(t, entryPID(agent, 8080))
+	assert.Equal(t, 1, warnings())
+
+	// Once resolved, a later ambiguity is reported again.
+	owners.ambiguous[8080] = false
+	owners.set(8080, 4242)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.EqualValues(t, 4242, entryPID(agent, 8080))
+
+	owners.set(8080, 0)
+	owners.ambiguous[8080] = true
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Equal(t, 2, warnings())
+}
+
+// TestRefreshServicePIDs_UpdatesMonitor verifies a watched service with a
+// health endpoint reports the PID resolved from its listening socket.
+func TestRefreshServicePIDs_UpdatesMonitor(t *testing.T) {
+	owners := newFakePortOwners()
+	owners.set(3000, 777)
+	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{Name: "web", Port: 3000, HealthEndpoint: "/health"})
+
+	agent.refreshServicePIDs(watchedOnly)
+
+	agent.mu.RLock()
+	monitor := agent.services[serviceKey(3000, "")].Monitor
+	agent.mu.RUnlock()
+	require.NotNil(t, monitor)
+	assert.EqualValues(t, 777, monitor.GetStatus().ProcessID)
+}
+
+// TestConnectService_RequestsPIDRefresh verifies a runtime watch asks the
+// PID tracker to resolve the new service immediately.
+func TestConnectService_RequestsPIDRefresh(t *testing.T) {
+	agent := newTestAgentWithPorts(t, newFakePortOwners())
+
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{Name: "api", Port: 8080}))
+	require.NoError(t, agent.ConnectService(&meshv1.ServiceInfo{Name: "db", Port: 5432}))
+
+	// Requests coalesce; the tracker picks up both services in one refresh.
+	assert.Len(t, agent.pidRefresh, 1)
+}
+
+func TestResolveServicePID(t *testing.T) {
+	owners := newFakePortOwners()
+	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{Name: "api", Port: 8080})
+
+	t.Run("unknown service", func(t *testing.T) {
+		_, err := agent.ResolveServicePID("missing")
+		assert.True(t, errors.Is(err, errServiceNotFound), "err = %v", err)
+	})
+
+	t.Run("no listener", func(t *testing.T) {
+		_, err := agent.ResolveServicePID("api")
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, errServiceNotFound))
+	})
+
+	t.Run("resolves an unrecorded PID on demand", func(t *testing.T) {
+		owners.set(8080, 100)
+		pid, err := agent.ResolveServicePID("api")
+		require.NoError(t, err)
+		assert.EqualValues(t, 100, pid)
+	})
+
+	t.Run("verified PID is returned without a scan", func(t *testing.T) {
+		before := owners.scanCount()
+		pid, err := agent.ResolveServicePID("api")
+		require.NoError(t, err)
+		assert.EqualValues(t, 100, pid)
+		assert.Equal(t, before, owners.scanCount())
+	})
+
+	t.Run("stale PID is replaced", func(t *testing.T) {
+		owners.set(8080, 200)
+		pid, err := agent.ResolveServicePID("api")
+		require.NoError(t, err)
+		assert.EqualValues(t, 200, pid)
+		assert.EqualValues(t, 200, entryPID(agent, 8080))
+	})
+}
+
+// TestResolveServicePID_AutoObservedStalePID verifies a PID reported by
+// Beyla is checked too, not trusted blindly.
+func TestResolveServicePID_AutoObservedStalePID(t *testing.T) {
+	owners := newFakePortOwners()
+	agent := newTestAgentWithPorts(t, owners)
+	agent.onBeylaServiceObserved(6379, 111, "redis-server")
+
+	agent.mu.RLock()
+	name := agent.services[serviceKey(6379, "")].Name()
+	agent.mu.RUnlock()
+
+	owners.set(6379, 222)
+	pid, err := agent.ResolveServicePID(name)
+	require.NoError(t, err)
+	assert.EqualValues(t, 222, pid)
 }

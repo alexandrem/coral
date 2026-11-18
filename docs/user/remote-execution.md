@@ -3,7 +3,8 @@
 Choose the execution context before running a command. `coral shell` executes
 in the agent's environment. `coral exec` enters namespaces of a selected
 container process through Linux `nsenter`. Resolving a service to an agent
-chooses the node; it does not itself select the container process.
+chooses the node; on that node, the agent enters the service's own process
+unless you select another one.
 
 These operations run with the agent's privileges. Use a configured Colony and
 an agent reachable from the CLI for direct agent operations. A connection to
@@ -36,6 +37,19 @@ output file would be written before running a complex command.
 
 ## Select a container process
 
+When the agent tracks the service, `coral exec` without `--container` enters
+that service's process:
+
+```bash
+coral exec api -- cat /app/config.yaml
+```
+
+The agent finds a watched service's process from the socket listening on its
+port, in any network namespace it can see, and checks that the process still
+holds that socket before entering it. Check the `PID` column of
+`coral services list --agent '<agent-id>'` if the target is in doubt. To
+choose a different process, select it explicitly:
+
 ```bash
 coral exec api --container nginx -- cat /etc/nginx/nginx.conf
 coral exec api --container id:3f1c9a7e2b4d -- ls /app
@@ -50,9 +64,11 @@ Selectors are explicit:
 | `nginx` | Exact case-sensitive process name from `/proc/<pid>/comm`, not a Docker or Kubernetes container name |
 | `id:<prefix>` | Container ID prefix found in the process's cgroup |
 | `pid:<number>` | Positive PID as seen by the agent |
-| Omitted | Lowest visible PID other than the agent in sidecar mode; refused in host PID mode |
+| Omitted | The service's process when the agent tracks it; otherwise the lowest visible PID other than the agent in sidecar mode, refused in host PID mode |
 
-Name and ID matches must identify one container. A collision fails instead of
+The service's process gets the same checks as `pid:<number>`. If the agent
+does not track the service or has not found its process, the command behaves
+as if no service were given. Name and ID matches must identify one container. A collision fails instead of
 choosing arbitrarily; use a longer ID prefix or an explicit PID. Processes in
 the host init mount namespace are refused. In shared-PID Kubernetes pods the
 lowest PID can be `pause`, so select the application explicitly.

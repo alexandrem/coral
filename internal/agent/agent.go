@@ -3,8 +3,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"runtime"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/codes"
@@ -18,8 +21,21 @@ import (
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/coral-mesh/coral/internal/agent/naming"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/sys/proc"
 )
+
+// errServiceNotFound is returned by ResolveServicePID when the agent has no
+// service with the requested name.
+var errServiceNotFound = errors.New("service not found")
+
+// portOwnerFinder resolves listening ports to the host processes that own
+// them, across every visible network namespace. It is implemented by
+// discovery.ProcFSProvider and replaced in tests.
+type portOwnerFinder interface {
+	FindPortOwners(names map[int]string) (map[int]discovery.PortOwner, error)
+	ListensOn(pid, port int) bool
+}
 
 // AgentStatus represents the overall agent health status.
 type AgentStatus string
@@ -64,6 +80,10 @@ type Agent struct {
 	continuousProfiler       cpuProfiler         // RFD 072: Continuous CPU profiler.
 	continuousMemoryProfiler memProfiler         // RFD 077: Continuous memory profiler.
 	functionCache            *FunctionCache      // RFD 063: Function discovery cache
+	portOwners               portOwnerFinder     // Resolves watched ports to host PIDs.
+	pidRefresh               chan struct{}       // Requests an immediate PID refresh.
+	pidRefreshMu             sync.Mutex          // Serializes PID refreshes so concurrent callers share one scan.
+	ambiguousPorts           map[string]bool     // Service keys already warned as ambiguous; guarded by pidRefreshMu.
 	logger                   zerolog.Logger
 	mu                       sync.RWMutex
 	ctx                      context.Context
@@ -136,6 +156,9 @@ func New(config Config) (*Agent, error) {
 		beylaManager:      beylaManager,
 		correlationEngine: corrEngine,
 		functionCache:     config.FunctionCache,
+		portOwners:        discovery.NewProcFSProvider(config.Logger),
+		pidRefresh:        make(chan struct{}, 1),
+		ambiguousPorts:    make(map[string]bool),
 		logger:            config.Logger.With().Str("agent_id", config.AgentID).Logger(),
 		ctx:               ctx,
 		cancel:            cancel,
@@ -191,6 +214,13 @@ func (a *Agent) Start() error {
 		if err := entry.Monitor.Start(); err != nil {
 			a.logger.Error().Err(err).Str("service", entry.Name()).Msg("Failed to start service monitor")
 		}
+	}
+
+	// Resolve watched services' PIDs from their listening sockets right
+	// away, without waiting for traffic or a health check, and keep them
+	// current across restarts.
+	if runtime.GOOS == "linux" {
+		go a.trackServicePIDs()
 	}
 
 	return nil
@@ -329,6 +359,207 @@ func (a *Agent) onBeylaServiceObserved(port int32, pid int32, observedName strin
 		Msg("Observed service via Beyla OTLP feedback")
 }
 
+// trackServicePIDs keeps the PIDs of watched port-based services current
+// until the agent stops. It refreshes immediately, then on every tick and
+// whenever ConnectService requests it.
+func (a *Agent) trackServicePIDs() {
+	ticker := time.NewTicker(constants.DefaultServicePIDRefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		a.refreshServicePIDs(func(entry *ServiceEntry) bool {
+			return entry.NamingSource == NamingSourceAuthoritative
+		})
+
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+		case <-a.pidRefresh:
+		}
+	}
+}
+
+// pidUpdate is a PID change for one service, applied by refreshServicePIDs.
+type pidUpdate struct {
+	key        string
+	entry      *ServiceEntry
+	pid        int32
+	binaryPath string
+}
+
+// refreshServicePIDs verifies the recorded PID of every port-based entry
+// selected by include, and re-resolves those that no longer listen on their
+// port with one scan across all visible network namespaces. A port that no
+// process, or processes in several namespaces, listen on clears the entry's
+// PID so a stale or ambiguous process is never reported. Monitors and the
+// continuous profiler are told about each newly resolved PID.
+func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
+	a.pidRefreshMu.Lock()
+	defer a.pidRefreshMu.Unlock()
+
+	type target struct {
+		key   string
+		entry *ServiceEntry
+		name  string
+		port  int
+		pid   int
+	}
+
+	a.mu.RLock()
+	var targets []target
+	for key, entry := range a.services {
+		if entry.Port == 0 || !include(entry) {
+			continue
+		}
+		targets = append(targets, target{key: key, entry: entry, name: entry.Name(), port: int(entry.Port), pid: int(entry.PID)})
+	}
+	a.mu.RUnlock()
+
+	// Scanning every process's descriptors is costly, so only ports whose
+	// recorded PID no longer listens on them are re-resolved.
+	var stale []target
+	stalePorts := make(map[int]string)
+	for _, t := range targets {
+		if t.pid > 0 && a.portOwners.ListensOn(t.pid, t.port) {
+			continue
+		}
+		stale = append(stale, t)
+		stalePorts[t.port] = t.name
+	}
+	if len(stale) == 0 {
+		return
+	}
+
+	owners, err := a.portOwners.FindPortOwners(stalePorts)
+	if err != nil {
+		a.logger.Debug().Err(err).Msg("Failed to resolve service PIDs from listening sockets")
+		return
+	}
+
+	updates := make([]pidUpdate, 0, len(stale))
+	for _, t := range stale {
+		owner := owners[t.port]
+		// Warn once per episode: the condition persists until the operator
+		// acts, and refreshes run every few seconds.
+		if owner.PID == 0 && owner.Namespaces > 1 {
+			if !a.ambiguousPorts[t.key] {
+				a.ambiguousPorts[t.key] = true
+				a.logger.Warn().
+					Str("service", t.name).
+					Int("port", t.port).
+					Int("namespaces", owner.Namespaces).
+					Msgf("Several containers listen on port %d; set OTEL_SERVICE_NAME=%s in the service's container to identify its process", t.port, t.name)
+			}
+		} else {
+			delete(a.ambiguousPorts, t.key)
+		}
+		update := pidUpdate{key: t.key, entry: t.entry, pid: int32(owner.PID)} //nolint:gosec // G115: PIDs fit in int32.
+		if owner.PID > 0 {
+			if path, err := proc.GetBinaryPath(owner.PID); err == nil {
+				update.binaryPath = path
+			}
+		}
+		updates = append(updates, update)
+	}
+
+	type notification struct {
+		name       string
+		monitor    *ServiceMonitor
+		pid        int32
+		binaryPath string
+		profile    bool
+	}
+	var notify []notification
+
+	a.mu.Lock()
+	for _, u := range updates {
+		// The entry may have been disconnected or replaced during the scan.
+		if a.services[u.key] != u.entry || u.entry.PID == u.pid {
+			continue
+		}
+		u.entry.PID = u.pid
+		u.entry.BinaryPath = u.binaryPath
+		if u.pid == 0 {
+			a.logger.Info().Str("service", u.entry.Name()).Int32("port", u.entry.Port).Msg("Service process no longer found")
+			continue
+		}
+		a.logger.Info().
+			Str("service", u.entry.Name()).
+			Int32("port", u.entry.Port).
+			Int32("pid", u.pid).
+			Str("binary", u.binaryPath).
+			Msg("Resolved service process")
+		notify = append(notify, notification{
+			name:       u.entry.Name(),
+			monitor:    u.entry.Monitor,
+			pid:        u.pid,
+			binaryPath: u.binaryPath,
+			// Only watched services are continuously profiled.
+			profile: u.entry.NamingSource == NamingSourceAuthoritative && u.binaryPath != "",
+		})
+	}
+	a.mu.Unlock()
+
+	// Callbacks take their own locks, so they run after a.mu is released.
+	for _, n := range notify {
+		if n.monitor != nil {
+			n.monitor.setProcessInfo(n.pid, n.binaryPath)
+		}
+		if n.profile {
+			a.onProcessDiscovered(n.name, n.pid, n.binaryPath)
+		}
+	}
+}
+
+// ResolveServicePID returns the host PID of the named service after checking
+// that the PID still belongs to it. For a port-based service, the recorded
+// PID must still listen on the service's port, or the port is resolved
+// again; for an exe_pattern service, the pattern is matched again. It
+// returns errServiceNotFound if the agent has no service with that name.
+func (a *Agent) ResolveServicePID(name string) (int32, error) {
+	a.mu.RLock()
+	entry, ok := a.findByNameLocked(name)
+	var port, pid int32
+	var exePattern string
+	if ok {
+		port, pid, exePattern = entry.Port, entry.PID, entry.ExePattern
+	}
+	a.mu.RUnlock()
+
+	if !ok {
+		return 0, fmt.Errorf("%w: %s", errServiceNotFound, name)
+	}
+
+	if port == 0 {
+		if exePattern == "" {
+			return 0, fmt.Errorf("service %s has neither a port nor an executable pattern", name)
+		}
+		pid, err := proc.FindPidByExePattern(exePattern)
+		if err != nil {
+			return 0, err
+		}
+		if pid == 0 {
+			return 0, fmt.Errorf("no running process matches pattern %q for service %s", exePattern, name)
+		}
+		return pid, nil
+	}
+
+	if pid > 0 && a.portOwners.ListensOn(int(pid), int(port)) {
+		return pid, nil
+	}
+
+	a.refreshServicePIDs(func(e *ServiceEntry) bool { return e == entry })
+
+	a.mu.RLock()
+	pid = entry.PID
+	a.mu.RUnlock()
+	if pid == 0 {
+		return 0, fmt.Errorf("no single process found listening on port %d for service %s", port, name)
+	}
+	return pid, nil
+}
+
 // GetContext returns the agent's context.
 func (a *Agent) GetContext() context.Context {
 	return a.ctx
@@ -464,6 +695,12 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 		Str("service", service.Name).
 		Int32("port", service.Port).
 		Msg("Service connected")
+
+	// Look up the new service's PID now rather than on the next tick.
+	select {
+	case a.pidRefresh <- struct{}{}:
+	default:
+	}
 
 	// Update Beyla discovery with the new service (RFD 053/102).
 	if a.beylaManager != nil {

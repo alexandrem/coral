@@ -20,9 +20,19 @@ import (
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
+// servicePIDResolver resolves a service name to its verified host PID. It is
+// implemented by Agent.
+type servicePIDResolver interface {
+	ResolveServicePID(name string) (int32, error)
+}
+
 // ContainerHandler implements the container exec RPC methods for the agent (RFD 056).
 type ContainerHandler struct {
 	logger logging.Logger
+
+	// services resolves a request's service name to its process; nil
+	// disables service-based targeting.
+	services servicePIDResolver
 
 	// procRoot is the procfs mount point, overridable in tests.
 	procRoot string
@@ -31,10 +41,12 @@ type ContainerHandler struct {
 	selfPID int
 }
 
-// NewContainerHandler creates a new container handler.
-func NewContainerHandler(logger logging.Logger) *ContainerHandler {
+// NewContainerHandler creates a new container handler that targets a
+// request's service through services when no container selector is given.
+func NewContainerHandler(logger logging.Logger, services servicePIDResolver) *ContainerHandler {
 	return &ContainerHandler{
 		logger:   logger,
+		services: services,
 		procRoot: "/proc",
 		selfPID:  os.Getpid(),
 	}
@@ -69,12 +81,13 @@ func (h *ContainerHandler) ContainerExec(
 	defer cancel()
 
 	// Detect container PID.
-	containerPID, err := h.detectContainerPID(input.ContainerName)
+	containerPID, err := h.resolveTarget(sessionID, input.ContainerName, input.ServiceName)
 	if err != nil {
 		h.logger.Error().
 			Err(err).
 			Str("session_id", sessionID).
 			Str("container_name", input.ContainerName).
+			Str("service", input.ServiceName).
 			Msg("Failed to detect container PID")
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("failed to detect container PID: %w", err))
 	}
@@ -200,6 +213,33 @@ func (h *ContainerHandler) ContainerExec(
 	}
 
 	return connect.NewResponse(resp), nil
+}
+
+// resolveTarget returns the PID whose namespaces the exec enters. An
+// explicit container selector always wins. Otherwise a service the agent
+// tracks is entered through its verified PID, with the same checks as a
+// pid:<n> selector. When there is no service, or its process cannot be
+// resolved, the empty-selector behavior applies.
+func (h *ContainerHandler) resolveTarget(sessionID, selector, serviceName string) (int, error) {
+	if strings.TrimSpace(selector) != "" || serviceName == "" || h.services == nil {
+		return h.detectContainerPID(selector)
+	}
+
+	pid, resolveErr := h.services.ResolveServicePID(serviceName)
+	if resolveErr == nil {
+		return h.detectContainerPID(fmt.Sprintf("%s%d", selectorPID, pid))
+	}
+
+	h.logger.Warn().
+		Err(resolveErr).
+		Str("session_id", sessionID).
+		Str("service", serviceName).
+		Msg("Service process not resolved; falling back to default container selection")
+	fallback, err := h.detectContainerPID("")
+	if err != nil {
+		return 0, fmt.Errorf("%w (service %q: %v)", err, serviceName, resolveErr)
+	}
+	return fallback, nil
 }
 
 // containerIDPattern matches the 64-hex container IDs that Docker,

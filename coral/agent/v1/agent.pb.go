@@ -3905,7 +3905,13 @@ type ContainerExecRequest struct {
 	Env map[string]string `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Namespaces to enter (default: ["mnt"] for sidecar mode).
 	// Options: "mnt", "pid", "net", "ipc", "uts", "cgroup"
-	Namespaces    []string `protobuf:"bytes,7,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
+	Namespaces []string `protobuf:"bytes,7,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
+	// Service the command targets. With an empty container_name, the agent
+	// enters the namespaces of this service's verified process, as if
+	// container_name were pid:<service PID>. If the agent does not track the
+	// service or cannot resolve its process, the empty-selector behavior
+	// applies instead.
+	ServiceName   string `protobuf:"bytes,8,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3987,6 +3993,13 @@ func (x *ContainerExecRequest) GetNamespaces() []string {
 		return x.Namespaces
 	}
 	return nil
+}
+
+func (x *ContainerExecRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
 }
 
 type ContainerExecResponse struct {
@@ -5038,7 +5051,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x1f\n" +
 	"\vduration_ms\x18\x05 \x01(\rR\n" +
 	"durationMs\x12\x14\n" +
-	"\x05error\x18\x06 \x01(\tR\x05error\"\xd3\x02\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\"\xf6\x02\n" +
 	"\x14ContainerExecRequest\x12%\n" +
 	"\x0econtainer_name\x18\x01 \x01(\tR\rcontainerName\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x17\n" +
@@ -5049,7 +5062,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x03env\x18\x06 \x03(\v2-.coral.agent.v1.ContainerExecRequest.EnvEntryR\x03env\x12\x1e\n" +
 	"\n" +
 	"namespaces\x18\a \x03(\tR\n" +
-	"namespaces\x1a6\n" +
+	"namespaces\x12!\n" +
+	"\fservice_name\x18\b \x01(\tR\vserviceName\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8e\x02\n" +

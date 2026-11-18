@@ -26,7 +26,7 @@ type ContinuousCPUProfiler struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	kernelSymbolizer *debug.KernelSymbolizer
-	activeServices   map[string]struct{} // Tracks services with active profiling loops.
+	activeServices   map[string]int // PID profiled by each service's active loop.
 	activeServicesMu sync.Mutex
 }
 
@@ -100,7 +100,7 @@ func NewContinuousCPUProfiler(
 		ctx:              ctx,
 		cancel:           cancel,
 		kernelSymbolizer: kernelSymbolizer,
-		activeServices:   make(map[string]struct{}),
+		activeServices:   make(map[string]int),
 	}
 
 	return profiler, nil
@@ -120,7 +120,7 @@ func (p *ContinuousCPUProfiler) Start(services []ServiceInfo) {
 	// Start profiling loop for each service.
 	p.activeServicesMu.Lock()
 	for _, service := range services {
-		p.activeServices[service.ServiceID] = struct{}{}
+		p.activeServices[service.ServiceID] = service.PID
 		go p.profileServiceLoop(service)
 	}
 	p.activeServicesMu.Unlock()
@@ -156,6 +156,12 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 			Str("service_id", service.ServiceID).
 			Int("pid", service.PID).
 			Msg("Failed to start persistent CPU profile session")
+		// Forget this PID so a later AddService for the service retries.
+		p.activeServicesMu.Lock()
+		if p.activeServices[service.ServiceID] == service.PID {
+			delete(p.activeServices, service.ServiceID)
+		}
+		p.activeServicesMu.Unlock()
 		return
 	}
 	defer func() { _ = session.Close() }()
@@ -178,12 +184,13 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 			return
 		case <-ticker.C:
 			p.activeServicesMu.Lock()
-			_, active := p.activeServices[service.ServiceID]
+			pid, active := p.activeServices[service.ServiceID]
 			p.activeServicesMu.Unlock()
-			if !active {
+			if !active || pid != service.PID {
 				p.logger.Info().
 					Str("service_id", service.ServiceID).
-					Msg("Stopping continuous profiling for service (removed)")
+					Int("pid", service.PID).
+					Msg("Stopping continuous profiling for service (removed or restarted)")
 				return
 			}
 
@@ -303,10 +310,11 @@ func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, 
 }
 
 // AddService adds a service to be profiled continuously.
-// It is safe to call multiple times for the same service; duplicates are ignored.
+// It is safe to call multiple times for the same service; a repeated PID is
+// ignored, and a new PID replaces the old one, as after a service restart.
 func (p *ContinuousCPUProfiler) AddService(serviceID string, pid int, binaryPath string) {
 	p.activeServicesMu.Lock()
-	if _, exists := p.activeServices[serviceID]; exists {
+	if current, exists := p.activeServices[serviceID]; exists && current == pid {
 		p.activeServicesMu.Unlock()
 		p.logger.Debug().
 			Str("service_id", serviceID).
@@ -314,7 +322,9 @@ func (p *ContinuousCPUProfiler) AddService(serviceID string, pid int, binaryPath
 			Msg("Service already being profiled, skipping")
 		return
 	}
-	p.activeServices[serviceID] = struct{}{}
+	// A different PID means the service restarted; the old loop sees the
+	// new PID on its next tick and exits.
+	p.activeServices[serviceID] = pid
 	p.activeServicesMu.Unlock()
 
 	service := ServiceInfo{

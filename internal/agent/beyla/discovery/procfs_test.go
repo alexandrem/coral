@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -533,4 +534,209 @@ func findCandidate(t *testing.T, candidates []ProcessCandidate, pid int) Process
 	}
 	t.Fatalf("no candidate found for PID %d in %+v", pid, candidates)
 	return ProcessCandidate{}
+}
+
+// TestFindPortOwners covers resolving a watched port to its host PID across
+// network namespaces.
+func TestFindPortOwners(t *testing.T) {
+	const (
+		containerNS = "net:[4026532500]"
+		otherNS     = "net:[4026532501]"
+	)
+
+	// listen adds a process in ns listening on 8080, with the given
+	// environment (NUL-separated, as in /proc/<pid>/environ).
+	listen := func(t *testing.T, root string, pid int, comm, ns, environ string) {
+		t.Helper()
+		addFakeProcessInNS(t, root, pid, comm, ns)
+		inode := strconv.Itoa(pid)
+		addFakeSocket(t, root, pid, 3, inode)
+		writeHostSocketTable(t, root, pid, false, [][3]string{{"00000000:1F90", "0A", inode}})
+		writeProcFile(t, root, fmt.Sprintf("%d/environ", pid), environ)
+	}
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, root string)
+		service string
+		want    PortOwner
+	}{
+		{
+			name: "container listener behind docker-proxy",
+			setup: func(t *testing.T, root string) {
+				// The published port's userland proxy listens in the host
+				// namespace; the application listens in its container.
+				addFakeProcess(t, root, 50, "docker-proxy")
+				addFakeSocket(t, root, 50, 3, "900")
+				writeHostSocketTable(t, root, 50, false, [][3]string{{"00000000:1F90", "0A", "900"}})
+
+				addFakeProcessInNS(t, root, 500, "api", containerNS)
+				addFakeSocket(t, root, 500, 3, "901")
+				writeHostSocketTable(t, root, 500, false, [][3]string{{"00000000:1F90", "0A", "901"}})
+			},
+			want: PortOwner{PID: 500, Namespaces: 1},
+		},
+		{
+			name: "swarm service behind dockerd's port reservation",
+			setup: func(t *testing.T, root string) {
+				addFakeProcess(t, root, 988, "dockerd")
+				addFakeSocket(t, root, 988, 90, "906")
+				writeHostSocketTable(t, root, 988, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "906"}})
+
+				addFakeProcessInNS(t, root, 3763261, "api", containerNS)
+				addFakeSocket(t, root, 3763261, 11, "907")
+				writeHostSocketTable(t, root, 3763261, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "907"}})
+			},
+			want: PortOwner{PID: 3763261, Namespaces: 1},
+		},
+		{
+			name: "pre-fork workers sharing one socket resolve to the parent",
+			setup: func(t *testing.T, root string) {
+				for _, pid := range []int{612, 610, 611} {
+					addFakeProcessInNS(t, root, pid, "gunicorn", containerNS)
+					addFakeSocket(t, root, pid, 5, "902")
+				}
+				writeHostSocketTable(t, root, 610, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "902"}})
+			},
+			want: PortOwner{PID: 610, Namespaces: 1},
+		},
+		{
+			name: "listeners in two namespaces are ambiguous",
+			setup: func(t *testing.T, root string) {
+				addFakeProcessInNS(t, root, 700, "api", containerNS)
+				addFakeSocket(t, root, 700, 3, "903")
+				writeHostSocketTable(t, root, 700, false, [][3]string{{"00000000:1F90", "0A", "903"}})
+
+				addFakeProcessInNS(t, root, 701, "api", otherNS)
+				addFakeSocket(t, root, 701, 3, "904")
+				writeHostSocketTable(t, root, 701, false, [][3]string{{"00000000:1F90", "0A", "904"}})
+			},
+			want: PortOwner{PID: 0, Namespaces: 2},
+		},
+		{
+			// Prod (Swarm) and staging (Compose) run the same image on one
+			// host, next to another application using the same port.
+			name: "same-port containers resolved by OTEL_SERVICE_NAME",
+			setup: func(t *testing.T, root string) {
+				addFakeProcess(t, root, 988, "dockerd")
+				addFakeSocket(t, root, 988, 90, "988")
+				writeHostSocketTable(t, root, 988, false, [][3]string{{"00000000:1F90", "0A", "988"}})
+
+				listen(t, root, 1416, "ui-server", "net:[4026532701]", "PATH=/bin\x00")
+				listen(t, root, 3744819, "api", "net:[4026532702]", "OTEL_SERVICE_NAME=showup-api-staging\x00")
+				listen(t, root, 3763261, "api", "net:[4026532703]", "PATH=/bin\x00OTEL_SERVICE_NAME=showup-api\x00")
+			},
+			service: "showup-api",
+			want:    PortOwner{PID: 3763261, Namespaces: 3},
+		},
+		{
+			// A sidecar shares the agent's network namespace while another
+			// container that shares only its PID namespace uses the same port.
+			name: "listener in the agent's own namespace wins",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "self", "ns"), 0o755); err != nil {
+					t.Fatalf("failed to create self ns dir: %v", err)
+				}
+				if err := os.Symlink(containerNS, filepath.Join(root, "self", "ns", "net")); err != nil {
+					t.Fatalf("failed to create self ns/net symlink: %v", err)
+				}
+
+				// Even a matching name does not outrank the agent's namespace.
+				listen(t, root, 701, "netns-app", otherNS, "OTEL_SERVICE_NAME=cpu-app\x00")
+				listen(t, root, 700, "cpu-app", containerNS, "")
+			},
+			service: "cpu-app",
+			want:    PortOwner{PID: 700, Namespaces: 2},
+		},
+		{
+			name: "same-port containers resolved by SERVICE_NAME",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "SERVICE_NAME=api\x00")
+				listen(t, root, 701, "api", otherNS, "SERVICE_NAME=api-staging\x00")
+			},
+			service: "api",
+			want:    PortOwner{PID: 700, Namespaces: 2},
+		},
+		{
+			name: "same-port containers with the same name stay ambiguous",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "OTEL_SERVICE_NAME=api\x00")
+				listen(t, root, 701, "api", otherNS, "OTEL_SERVICE_NAME=api\x00")
+			},
+			service: "api",
+			want:    PortOwner{PID: 0, Namespaces: 2},
+		},
+		{
+			name: "a single listener wins even when its name differs",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "OTEL_SERVICE_NAME=backend\x00")
+			},
+			service: "api",
+			want:    PortOwner{PID: 700, Namespaces: 1},
+		},
+		{
+			name: "no listener on the port",
+			setup: func(t *testing.T, root string) {
+				addFakeProcess(t, root, 100, "other")
+				addFakeSocket(t, root, 100, 3, "905")
+				writeHostSocketTable(t, root, 100, false, [][3]string{{"00000000:1F91", "0A", "905"}})
+			},
+			want: PortOwner{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			tt.setup(t, root)
+
+			owners, err := newTestProvider(root).FindPortOwners(map[int]string{8080: tt.service})
+			if err != nil {
+				t.Fatalf("FindPortOwners() error = %v", err)
+			}
+			got, ok := owners[8080]
+			if !ok {
+				t.Fatalf("FindPortOwners() has no entry for port 8080: %+v", owners)
+			}
+			if got != tt.want {
+				t.Errorf("FindPortOwners()[8080] = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestListensOn verifies the single-process check used to confirm a
+// recorded PID still owns its port.
+func TestListensOn(t *testing.T) {
+	root := t.TempDir()
+	const containerNS = "net:[4026532600]"
+
+	addFakeProcessInNS(t, root, 500, "api", containerNS)
+	addFakeSocket(t, root, 500, 3, "910")
+	writeHostSocketTable(t, root, 500, false, [][3]string{
+		{"00000000:1F90", "0A", "910"},
+		// Port 9090 is only connected, not listening.
+		{"00000000:2382", "01", "911"},
+	})
+	addFakeSocket(t, root, 500, 4, "911")
+
+	// PID 501 shares the namespace but holds no socket.
+	addFakeProcessInNS(t, root, 501, "sh", containerNS)
+	writeHostSocketTable(t, root, 501, false, [][3]string{{"00000000:1F90", "0A", "910"}})
+
+	p := newTestProvider(root)
+	tests := []struct {
+		pid, port int
+		want      bool
+	}{
+		{500, 8080, true},
+		{500, 9090, false},
+		{501, 8080, false},
+		{999, 8080, false}, // Exited process.
+	}
+	for _, tt := range tests {
+		if got := p.ListensOn(tt.pid, tt.port); got != tt.want {
+			t.Errorf("ListensOn(%d, %d) = %v, want %v", tt.pid, tt.port, got, tt.want)
+		}
+	}
 }

@@ -1,12 +1,15 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,4 +146,70 @@ func TestDetectContainerPID_OnlyAgentVisible(t *testing.T) {
 	_, err := h.detectContainerPID("")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no container PID found")
+}
+
+// fakeServicePIDs resolves service names from a fixed map.
+type fakeServicePIDs map[string]int32
+
+func (f fakeServicePIDs) ResolveServicePID(name string) (int32, error) {
+	pid, ok := f[name]
+	if !ok {
+		return 0, fmt.Errorf("%w: %s", errServiceNotFound, name)
+	}
+	if pid == 0 {
+		return 0, errors.New("no single process found listening on port")
+	}
+	return pid, nil
+}
+
+func TestResolveTarget_HostPIDMode(t *testing.T) {
+	h := newFakeProcHandler(t, 900, hostPIDProcs()...)
+	h.logger = zerolog.Nop()
+	h.services = fakeServicePIDs{"db": 520, "sshd": 300, "down": 0}
+
+	tests := []struct {
+		name     string
+		selector string
+		service  string
+		want     int
+		wantErr  string
+	}{
+		{name: "service process", service: "db", want: 520},
+		{name: "explicit selector wins", selector: "nginx", service: "db", want: 410},
+		{name: "service on the host is refused", service: "sshd", wantErr: "host mount namespace"},
+		{name: "unresolved service keeps the selector requirement", service: "down", wantErr: "container selector required"},
+		{name: "unknown service keeps the selector requirement", service: "web", wantErr: "service not found"},
+		{name: "no service", wantErr: "container selector required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pid, err := h.resolveTarget("session", tt.selector, tt.service)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, pid)
+		})
+	}
+}
+
+func TestResolveTarget_SidecarFallsBackWhenUnresolved(t *testing.T) {
+	h := newFakeProcHandler(t, 40,
+		fakeProc{pid: 1, comm: "node", mnt: "mnt:[1000]", cgroup: "0::/\n"},
+		fakeProc{pid: 7, comm: "worker", mnt: "mnt:[1000]", cgroup: "0::/\n"},
+		fakeProc{pid: 40, comm: "coral", mnt: "mnt:[2000]", cgroup: "0::/\n"},
+	)
+	h.logger = zerolog.Nop()
+	h.services = fakeServicePIDs{"worker": 7, "down": 0}
+
+	pid, err := h.resolveTarget("session", "", "worker")
+	require.NoError(t, err)
+	assert.Equal(t, 7, pid)
+
+	// Before the service's process is found, sidecar exec still works.
+	pid, err = h.resolveTarget("session", "", "down")
+	require.NoError(t, err)
+	assert.Equal(t, 1, pid)
 }

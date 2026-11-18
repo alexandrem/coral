@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -269,6 +270,41 @@ func TestUpdateProbeFilter(t *testing.T) {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "collector not found")
 			}
+		})
+	}
+}
+
+func TestResolveProfilePID(t *testing.T) {
+	owners := newFakePortOwners()
+	owners.set(8080, 300)
+	agent := newTestAgentWithPorts(t, owners,
+		&meshv1.ServiceInfo{Name: "api", Port: 8080},
+		&meshv1.ServiceInfo{Name: "down", Port: 9090},
+	)
+	s := NewDebugService(agent, zerolog.Nop())
+
+	tests := []struct {
+		name      string
+		service   string
+		requested int32
+		want      int32
+		wantErr   bool
+	}{
+		{name: "stale requested PID is replaced", service: "api", requested: 100, want: 300},
+		{name: "missing PID is resolved", service: "api", want: 300},
+		{name: "stopped service is not profiled at its old PID", service: "down", requested: 100, wantErr: true},
+		{name: "untracked service uses the requested PID", service: "legacy", requested: 100, want: 100},
+		{name: "untracked service without a PID", service: "legacy", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pid, err := s.resolveProfilePID(tt.service, tt.requested)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, pid)
 		})
 	}
 }

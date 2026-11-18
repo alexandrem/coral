@@ -102,6 +102,166 @@ func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error)
 	return candidates, nil
 }
 
+// portForwarders lists process names that listen on a port only to relay
+// connections to the real application, or to reserve it for one. Docker's
+// userland proxy relays a published container port, and dockerd itself holds
+// a never-accepted listener for each port a Swarm service publishes. They
+// never own a service.
+var portForwarders = map[string]bool{
+	"docker-proxy": true,
+	"dockerd":      true,
+	"rootlessport": true,
+	"rootlesskit":  true,
+	"slirp4netns":  true,
+	"pasta":        true,
+}
+
+// PortOwner is the process that owns a listening port, as resolved by
+// FindPortOwners.
+type PortOwner struct {
+	// PID is the lowest PID listening on the port in the network namespace
+	// that owns it. It is 0 when no namespace has a listener, or when
+	// several do and the expected name does not single one out.
+	PID int
+
+	// Namespaces counts the distinct network namespaces with a listener on
+	// the port.
+	Namespaces int
+}
+
+// FindPortOwners resolves each port in names to the process listening on
+// it, scanning every visible network namespace so containerized listeners
+// are found alongside host processes. Port forwarders and the calling
+// process are ignored. Within a namespace, the lowest PID wins, which is the
+// parent when pre-fork workers share one socket. When listeners on a port
+// span several namespaces, such as containers that all use the same internal
+// port, the one in the caller's own network namespace wins, since that is the
+// listener a connection to 127.0.0.1:<port> reaches. Failing that, the port
+// resolves only if exactly one listener has OTEL_SERVICE_NAME, or else
+// SERVICE_NAME, equal to the name the port maps to. Every requested port has
+// an entry in the result.
+func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner, error) {
+	root := p.root()
+
+	pids, err := listPids(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list processes: %w", err)
+	}
+	nsGroups, pidNamespace, _ := groupPIDsByNamespace(root, pids)
+	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace)
+
+	wanted := func(port int) bool {
+		_, ok := names[port]
+		return ok
+	}
+
+	// listeners[port][ns] is the lowest PID listening on port within ns.
+	listeners := make(map[int]map[netNamespaceID]int)
+	self := os.Getpid()
+	for pid, pidPorts := range portsByPID {
+		if pid == self || !slices.ContainsFunc(pidPorts, wanted) {
+			continue
+		}
+		if name, ok := readComm(root, pid); !ok || portForwarders[name] {
+			continue
+		}
+		ns := pidNamespace[pid]
+		for _, port := range pidPorts {
+			if !wanted(port) {
+				continue
+			}
+			if listeners[port] == nil {
+				listeners[port] = make(map[netNamespaceID]int)
+			}
+			if cur, ok := listeners[port][ns]; !ok || pid < cur {
+				listeners[port][ns] = pid
+			}
+		}
+	}
+
+	// An unreadable namespace link only disables the own-namespace preference.
+	selfLink, _ := os.Readlink(filepath.Join(root, "self", "ns", "net"))
+	selfNS := netNamespaceID(selfLink)
+
+	owners := make(map[int]PortOwner, len(names))
+	for port, name := range names {
+		byNS := listeners[port]
+		owners[port] = PortOwner{
+			PID:        pickListener(root, byNS, selfNS, name),
+			Namespaces: len(byNS),
+		}
+	}
+	return owners, nil
+}
+
+// pickListener chooses among one port's listeners, given as the lowest PID
+// in each network namespace. A single namespace wins outright, then the
+// listener in selfNS, then the one listener whose service-name environment
+// variable equals name. It returns 0 when none of these applies.
+func pickListener(root string, byNS map[netNamespaceID]int, selfNS netNamespaceID, name string) int {
+	if len(byNS) == 1 {
+		for _, pid := range byNS {
+			return pid
+		}
+	}
+	if pid, ok := byNS[selfNS]; ok && selfNS != "" {
+		return pid
+	}
+	if name == "" {
+		return 0
+	}
+
+	match := 0
+	for _, pid := range byNS {
+		if envName, _ := readServiceNameEnv(root, pid); envName != name {
+			continue
+		}
+		if match != 0 {
+			return 0
+		}
+		match = pid
+	}
+	return match
+}
+
+// ListensOn reports whether pid currently holds a listening socket on port
+// in its own network namespace. It reads only that process's socket table
+// and descriptors, so it is a cheap way to confirm that a PID returned by
+// FindPortOwners still belongs to the same listener.
+func (p *ProcFSProvider) ListensOn(pid, port int) bool {
+	pidRoot := filepath.Join(p.root(), strconv.Itoa(pid))
+
+	table, err := scanListeningSockets(pidRoot)
+	if err != nil {
+		return false
+	}
+	inodes := make(map[string]bool)
+	for inode, listenPort := range table {
+		if listenPort == port {
+			inodes[inode] = true
+		}
+	}
+	if len(inodes) == 0 {
+		return false
+	}
+
+	fdDir := filepath.Join(pidRoot, "fd")
+	entries, err := os.ReadDir(fdDir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		link, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if inode, ok := parseSocketInode(link); ok && inodes[inode] {
+			return true
+		}
+	}
+	return false
+}
+
 // listPids returns every numeric directory entry under root, sorted
 // ascending.
 func listPids(root string) ([]int, error) {

@@ -452,7 +452,7 @@ func (s *ServiceRegistry) createHTTPServers(
 	shellHandler := agent.NewShellHandler(s.logger)
 
 	// Create container handler (RFD 056).
-	containerHandler := agent.NewContainerHandler(s.logger)
+	containerHandler := agent.NewContainerHandler(s.logger, s.agentInstance)
 
 	// Create service handler and HTTP server for gRPC API.
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
