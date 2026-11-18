@@ -10,6 +10,8 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
@@ -188,36 +190,27 @@ func (s *Server) ListAgents(
 	agents := make([]*colonyv1.Agent, len(entries))
 	now := time.Now()
 
-	// Use a WaitGroup to query agents concurrently.
+	// Query services and runtime concurrently so one RPC cannot delay the other.
 	var wg sync.WaitGroup
-	wg.Add(len(entries))
-
 	for i, entry := range entries {
-		// Capture loop variables.
-		index := i
-		e := entry
+		status := registry.DetermineStatus(entry.LastSeen, now)
+		agent := &colonyv1.Agent{
+			AgentId:        entry.AgentID,
+			ComponentName:  entry.Name,
+			MeshIpv4:       entry.MeshIPv4,
+			MeshIpv6:       entry.MeshIPv6,
+			LastSeen:       timestamppb.New(entry.LastSeen),
+			Status:         string(status),
+			Services:       entry.Services,
+			RuntimeContext: entry.RuntimeContext,
+		}
+		agents[i] = agent
 
-		go func() {
-			defer wg.Done()
-
-			status := registry.DetermineStatus(e.LastSeen, now)
-
-			// Initialize agent with registry data.
-			agent := &colonyv1.Agent{
-				AgentId:        e.AgentID,
-				ComponentName:  e.Name,
-				MeshIpv4:       e.MeshIPv4,
-				MeshIpv6:       e.MeshIPv6,
-				LastSeen:       timestamppb.New(e.LastSeen),
-				Status:         string(status),
-				Services:       e.Services,       // Default to registry data
-				RuntimeContext: e.RuntimeContext, // RFD 018: Runtime context
-			}
-
-			refreshAgentServices(ctx, agent, colony.GetAgentClient(e))
-
-			agents[index] = agent
-		}()
+		client := colony.GetAgentClient(entry)
+		wg.Go(func() { refreshAgentServices(ctx, agent, client) })
+		if entry.MeshIPv4 != "" && (status == registry.StatusHealthy || status == registry.StatusDegraded) {
+			wg.Go(func() { refreshAgentRuntime(ctx, agent, client) })
+		}
 	}
 
 	// Wait for all queries to complete.
@@ -232,6 +225,22 @@ func (s *Server) ListAgents(
 		Msg("List agents response prepared")
 
 	return connect.NewResponse(resp), nil
+}
+
+// refreshAgentRuntime prefers live runtime data, including for agents that resumed
+// an existing enrollment. Registration data is the fallback if the RPC fails.
+func refreshAgentRuntime(ctx context.Context, agent *colonyv1.Agent, client agentv1connect.AgentServiceClient) {
+	queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)
+	defer cancel()
+
+	resp, err := client.GetRuntimeContext(queryCtx, connect.NewRequest(&agentv1.GetRuntimeContextRequest{}))
+	if err != nil {
+		return
+	}
+
+	// WireGuard telemetry is available through the direct agent status command.
+	resp.Msg.Wireguard = nil
+	agent.RuntimeContext = resp.Msg
 }
 
 // GetTopology handles topology request (RFD 092).

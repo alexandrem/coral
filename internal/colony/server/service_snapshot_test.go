@@ -16,12 +16,14 @@ import (
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 )
 
 type snapshotAgent struct {
 	agentv1connect.UnimplementedAgentServiceHandler
 	services []*agentv1.ServiceStatus
 	err      error
+	runtime  *agentv1.RuntimeContextResponse
 }
 
 func (a *snapshotAgent) ListServices(context.Context, *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error) {
@@ -29,6 +31,49 @@ func (a *snapshotAgent) ListServices(context.Context, *connect.Request[agentv1.L
 		return nil, a.err
 	}
 	return connect.NewResponse(&agentv1.ListServicesResponse{Services: a.services}), nil
+}
+
+func (a *snapshotAgent) GetRuntimeContext(context.Context, *connect.Request[agentv1.GetRuntimeContextRequest]) (*connect.Response[agentv1.RuntimeContextResponse], error) {
+	if a.runtime == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runtime context unavailable"))
+	}
+	return connect.NewResponse(a.runtime), nil
+}
+
+func TestRefreshAgentRuntime(t *testing.T) {
+	registered := &agentv1.RuntimeContextResponse{
+		RuntimeType: agentv1.RuntimeContext_RUNTIME_CONTEXT_DOCKER,
+		Version:     "v1",
+	}
+	live := &agentv1.RuntimeContextResponse{
+		RuntimeType: agentv1.RuntimeContext_RUNTIME_CONTEXT_NATIVE,
+		Version:     "v2",
+		Wireguard:   &networkv1.MeshTelemetry{},
+	}
+	for _, tt := range []struct {
+		name       string
+		registered *agentv1.RuntimeContextResponse
+		live       *agentv1.RuntimeContextResponse
+		want       *agentv1.RuntimeContextResponse
+	}{
+		{name: "restored enrollment without runtime context", live: live, want: live},
+		{name: "agent upgrade with stale registration", registered: registered, live: live, want: live},
+		{name: "runtime RPC unavailable", registered: registered, want: registered},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, handler := agentv1connect.NewAgentServiceHandler(&snapshotAgent{runtime: tt.live})
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			agent := &colonyv1.Agent{RuntimeContext: tt.registered}
+
+			refreshAgentRuntime(context.Background(), agent, agentv1connect.NewAgentServiceClient(server.Client(), server.URL))
+
+			require.NotNil(t, agent.RuntimeContext)
+			require.Equal(t, tt.want.GetRuntimeType(), agent.RuntimeContext.GetRuntimeType())
+			require.Equal(t, tt.want.GetVersion(), agent.RuntimeContext.GetVersion())
+			require.Nil(t, agent.RuntimeContext.GetWireguard())
+		})
+	}
 }
 
 func TestServiceSnapshotDoesNotConfuseChecksWithHeartbeat(t *testing.T) {
