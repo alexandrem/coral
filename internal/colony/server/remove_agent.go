@@ -30,7 +30,11 @@ func (s *Server) RemoveAgent(
 	if strings.TrimSpace(agentID) == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("agent ID is required"))
 	}
-	if colonyID := req.Msg.GetColonyId(); colonyID == "" || colonyID != s.config.ColonyID {
+	colonyID := req.Msg.GetColonyId()
+	if colonyID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("colony ID is required"))
+	}
+	if colonyID != s.config.ColonyID {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("connected to colony %q, expected %q", s.config.ColonyID, colonyID))
 	}
@@ -40,6 +44,8 @@ func (s *Server) RemoveAgent(
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent %q not found", agentID))
 	case errors.Is(err, registry.ErrAgentActive):
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("cannot remove agent %q: %w", agentID, err))
+	case errors.Is(err, registry.ErrAgentRemoving):
+		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("agent %q is already being removed", agentID))
 	case err != nil:
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

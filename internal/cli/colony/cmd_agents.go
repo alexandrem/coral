@@ -152,12 +152,19 @@ is unhealthy. Remote removal requires an admin API token.`,
 
 			expectedColonyID := selectedColonyID
 			// Remote profiles created by add-remote use a local alias as their ID.
-			if cfg.Remote.Endpoint != "" && cfg.Discovery.MeshID == "" {
+			if cfg.Remote.ColonyID != "" {
+				expectedColonyID = cfg.Remote.ColonyID
+			} else if cfg.Remote.Endpoint != "" && cfg.Discovery.MeshID == "" {
+				// Older profiles do not record the remote ID, so it cannot be verified.
 				status, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 				if err != nil {
 					return fmt.Errorf("failed to identify remote colony: %w", err)
 				}
 				expectedColonyID = status.Msg.GetColonyId()
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+					"Warning: profile %q does not record the remote colony ID; using %q as reported by the endpoint.\n"+
+						"Re-add the profile with --colony-id to verify the target colony.\n",
+					selectedColonyID, expectedColonyID)
 			}
 
 			agentID := args[0]

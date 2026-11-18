@@ -212,6 +212,8 @@ Examples:
 				}
 			}
 
+			remoteConfig.ColonyID = colonyID
+
 			// Create colony config.
 			colonyConfig := config.ColonyConfig{
 				Version:   config.SchemaVersion,
@@ -265,7 +267,7 @@ Examples:
 
 	// Discovery mode flags (RFD 085).
 	cmd.Flags().BoolVar(&fromDiscovery, "from-discovery", false, "Fetch endpoint and CA from Discovery Service")
-	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID (required with --from-discovery)")
+	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Remote colony ID, used to verify admin commands reach the intended colony (required with --from-discovery)")
 	cmd.Flags().StringVar(&caFingerprint, "ca-fingerprint", "", "CA fingerprint for verification (required with --from-discovery, format: sha256:hex)")
 	cmd.Flags().StringVar(&discoveryEndpoint, "discovery-endpoint", "", "Override Discovery Service URL")
 

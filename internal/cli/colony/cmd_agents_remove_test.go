@@ -54,11 +54,19 @@ func TestRemoveAgentClearsInventoryAndMeshTargets(t *testing.T) {
 		Remote:   config.RemoteConfig{Endpoint: httpServer.URL},
 	}))
 
+	require.NoError(t, loader.SaveColonyConfig(&config.ColonyConfig{
+		ColonyID: "pinned-alias",
+		Remote:   config.RemoteConfig{Endpoint: httpServer.URL, ColonyID: "other-colony"},
+	}))
+
+	var stderr bytes.Buffer
 	remove := func(args ...string) (string, error) {
 		cmd := NewColonyCmd()
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		var out bytes.Buffer
 		cmd.SetOut(&out)
+		stderr.Reset()
+		cmd.SetErr(&stderr)
 		cmd.SetArgs(append([]string{"agents"}, args...))
 		err := cmd.Execute()
 		return out.String(), err
@@ -75,11 +83,14 @@ func TestRemoveAgentClearsInventoryAndMeshTargets(t *testing.T) {
 	_, err = client.RemoveAgent(ctx, connect.NewRequest(&colonyv1.RemoveAgentRequest{AgentId: retiredID, ColonyId: "wrong-colony"}))
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 
+	_, err = remove("remove", retiredID, "--colony", "pinned-alias")
+	require.ErrorContains(t, err, `expected "other-colony"`, "a recorded remote colony ID is enforced")
 	_, err = remove("--colony", "local-alias", "remove", activeID)
 	require.ErrorContains(t, err, "heartbeat is healthy or degraded")
 	out, err := remove("remove", retiredID, "--colony", "local-alias")
 	require.NoError(t, err)
 	require.Contains(t, out, `Removed agent "worker" from colony "test-colony"`)
+	require.Contains(t, stderr.String(), "does not record the remote colony ID")
 	_, err = remove("remove", retiredID, "--colony", "local-alias")
 	require.NoError(t, err, "retrying a completed removal is safe")
 
@@ -109,7 +120,8 @@ func TestRemoveAgentClearsInventoryAndMeshTargets(t *testing.T) {
 
 	_, err = reloaded.Register(retiredID, "", "", "", nil, nil, "")
 	require.NoError(t, err)
-	removed, err := reloaded.IsRemoved(ctx, retiredID)
-	require.NoError(t, err)
-	require.False(t, removed, "a fresh registration clears the removal marker")
+	require.Eventually(t, func() bool {
+		removed, err := reloaded.IsRemoved(ctx, retiredID)
+		return err == nil && !removed
+	}, 5*time.Second, 10*time.Millisecond, "a fresh registration clears the removal marker")
 }

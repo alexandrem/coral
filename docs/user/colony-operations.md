@@ -91,7 +91,8 @@ coral colony agents remove '<agent-id>' --colony '<colony-id>'
 ```
 
 Use the Colony host or connect through its public HTTPS endpoint with an admin
-API token. The command clears the agent and its cached services from inventory
+API token. Add remote profiles with `--colony-id` so the command can confirm
+it reaches the intended Colony. The command clears the agent and its cached services from inventory
 and subsequent fleet diagnostics. It preserves historical telemetry, the mesh
 IP allocation, and enrollment credentials. An agent that registers again will
 return to inventory.

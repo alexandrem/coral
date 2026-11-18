@@ -181,6 +181,10 @@ type RemoteConfig struct {
 	// Example: "https://colony.example.com:8443"
 	Endpoint string `yaml:"endpoint,omitempty" env:"CORAL_COLONY_ENDPOINT"`
 
+	// ColonyID is the remote colony's actual ID. The local profile name may
+	// differ, so commands use this to confirm they reach the intended colony.
+	ColonyID string `yaml:"colony_id,omitempty"`
+
 	// CertificateAuthority is the path to the CA certificate file for TLS verification.
 	// Example: "~/.coral/ca/production-ca.crt"
 	CertificateAuthority string `yaml:"certificate_authority,omitempty" env:"CORAL_CA_FILE"`

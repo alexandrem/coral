@@ -214,3 +214,40 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		assert.False(t, entry.LastSeen.IsZero(), "Valid agent should have non-zero timestamp")
 	})
 }
+
+func TestRegistry_RemoveDoesNotBlockOtherAgents(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logging.New(logging.Config{Level: "error"}))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	reg := New(db)
+	reg.entries["stale"] = &Entry{AgentID: "stale", LastSeen: time.Now().Add(-time.Hour)}
+	reg.mu.Lock()
+	done := reg.beginPersistence("stale")
+	reg.mu.Unlock()
+
+	removed := make(chan error, 1)
+	go func() { removed <- reg.Remove(ctx, "stale") }()
+	require.Eventually(t, func() bool {
+		reg.mu.RLock()
+		defer reg.mu.RUnlock()
+		_, removing := reg.removing["stale"]
+		return removing
+	}, time.Second, time.Millisecond)
+
+	_, err = reg.Register("other", "", "", "", nil, nil, "")
+	require.NoError(t, err, "other agents can register while a removal waits")
+	_, err = reg.Register("stale", "", "", "", nil, nil, "")
+	require.ErrorIs(t, err, ErrAgentRemoving)
+	require.ErrorIs(t, reg.Remove(ctx, "stale"), ErrAgentRemoving)
+	require.NoError(t, reg.RestoreMeshIPv4(ctx, "stale", "100.64.0.9"))
+	_, err = reg.Get("stale")
+	require.Error(t, err, "mesh restoration cannot re-add an agent being removed")
+
+	done()
+	require.NoError(t, <-removed)
+	isRemoved, err := reg.IsRemoved(ctx, "stale")
+	require.NoError(t, err)
+	require.True(t, isRemoved)
+}

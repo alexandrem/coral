@@ -29,6 +29,7 @@ const (
 var (
 	ErrAgentNotFound = errors.New("agent not found")
 	ErrAgentActive   = errors.New("agent heartbeat is healthy or degraded")
+	ErrAgentRemoving = errors.New("agent removal in progress")
 )
 
 // Entry represents a registered agent in the colony.
@@ -49,6 +50,7 @@ type Registry struct {
 	mu            sync.RWMutex
 	entries       map[string]*Entry
 	pendingWrites map[string]*sync.WaitGroup
+	removing      map[string]struct{}
 	db            *database.Database
 }
 
@@ -57,6 +59,7 @@ func New(db *database.Database) *Registry {
 	return &Registry{
 		entries:       make(map[string]*Entry),
 		pendingWrites: make(map[string]*sync.WaitGroup),
+		removing:      make(map[string]struct{}),
 		db:            db,
 	}
 }
@@ -175,6 +178,9 @@ func (r *Registry) RestoreMeshIPv4(ctx context.Context, agentID, meshIPv4 string
 		}
 		entry = *existing
 	} else {
+		if _, removing := r.removing[agentID]; removing {
+			return nil
+		}
 		removed, err := r.IsRemoved(ctx, agentID)
 		if err != nil || removed {
 			return err
@@ -186,12 +192,19 @@ func (r *Registry) RestoreMeshIPv4(ctx context.Context, agentID, meshIPv4 string
 }
 
 // Remove deletes an unhealthy agent's registration. Retrying a successful removal is safe.
+//
+// The entry leaves the in-memory registry before pending writes are awaited,
+// so no new writes can start and other agents are not blocked meanwhile. The
+// entry is restored if the removal cannot be persisted.
 func (r *Registry) Remove(ctx context.Context, agentID string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
+	if _, removing := r.removing[agentID]; removing {
+		r.mu.Unlock()
+		return ErrAgentRemoving
+	}
 	entry, exists := r.entries[agentID]
 	if !exists {
+		r.mu.Unlock()
 		removed, err := r.IsRemoved(ctx, agentID)
 		if err != nil || removed {
 			return err
@@ -199,18 +212,29 @@ func (r *Registry) Remove(ctx context.Context, agentID string) error {
 		return ErrAgentNotFound
 	}
 	if DetermineStatus(entry.LastSeen, time.Now()) != StatusUnhealthy {
+		r.mu.Unlock()
 		return ErrAgentActive
 	}
+	pending := r.pendingWrites[agentID]
+	delete(r.entries, agentID)
+	r.removing[agentID] = struct{}{}
+	r.mu.Unlock()
 
+	var err error
 	if r.db != nil {
-		if pending := r.pendingWrites[agentID]; pending != nil {
+		if pending != nil {
 			pending.Wait()
 		}
-		if err := r.db.RemoveAgentRegistration(ctx, agentID); err != nil {
-			return fmt.Errorf("persist agent removal: %w", err)
-		}
+		err = r.db.RemoveAgentRegistration(ctx, agentID)
 	}
-	delete(r.entries, agentID)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.removing, agentID)
+	if err != nil {
+		r.entries[agentID] = entry
+		return fmt.Errorf("persist agent removal: %w", err)
+	}
 	delete(r.pendingWrites, agentID)
 	return nil
 }
@@ -232,10 +256,15 @@ func (r *Registry) Register(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if _, removing := r.removing[agentID]; removing {
+		return nil, ErrAgentRemoving
+	}
+
 	now := time.Now()
 
 	// Check if agent already exists.
 	var entry *Entry
+	isNew := false
 	if existing, ok := r.entries[agentID]; ok {
 		// Update existing entry.
 		existing.Name = name
@@ -247,13 +276,7 @@ func (r *Registry) Register(
 		existing.ProtocolVersion = protocolVersion
 		entry = existing
 	} else {
-		if r.db != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyServiceQueryTimeout)
-			defer cancel()
-			if err := r.db.ClearAgentRemoval(ctx, agentID); err != nil {
-				return nil, fmt.Errorf("clear prior agent removal: %w", err)
-			}
-		}
+		isNew = true
 		// Create new entry.
 		entry = &Entry{
 			AgentID:         agentID,
@@ -282,6 +305,14 @@ func (r *Registry) Register(
 
 			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyAgentQueryTimeout)
 			defer cancel()
+
+			// A new registration supersedes an earlier removal. Removal waits for
+			// this write, so a later removal always records its marker afterwards.
+			if isNew {
+				if err := r.db.ClearAgentRemoval(ctx, agentID); err != nil {
+					log.Warn().Err(err).Str("agent_id", agentID).Msg("Failed to clear prior agent removal")
+				}
+			}
 
 			// Handle legacy agents that only provide ComponentName (name)
 			if len(services) == 0 && agentName != "" {
