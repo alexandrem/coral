@@ -117,7 +117,7 @@ func TestRestorePeersRecoversRegistryWithMissingDiscoveryRecord(t *testing.T) {
 		require.Equal(t, cached.LastSeen, entry.LastSeen)
 	})
 
-	t.Run("skip removed agents after restart", func(t *testing.T) {
+	t.Run("restore removed agent peers without inventory", func(t *testing.T) {
 		reg := registry.New(db)
 		require.NoError(t, reg.RestoreMeshIPv4(ctx, agentID, ip))
 		require.NoError(t, reg.Remove(ctx, agentID))
@@ -128,9 +128,13 @@ func TestRestorePeersRecoversRegistryWithMissingDiscoveryRecord(t *testing.T) {
 		e := &Enroller{store: store, keys: keys, registry: reloaded, discoveryClient: client, wgDevice: device,
 			cfg: &config.ResolvedConfig{ColonyID: colonyID}, logger: zerolog.Nop()}
 		require.NoError(t, e.RestorePeers(ctx))
-		require.Nil(t, device.peer)
-		require.NoError(t, reloaded.RestoreMeshIPv4(ctx, agentID, ip), "a restoration already in flight must also skip the registry update")
+		require.NotNil(t, device.peer, "a removed agent keeps mesh access so it can register again")
+		require.Equal(t, []string{ip + "/32"}, device.peer.AllowedIPs)
 		require.Zero(t, reloaded.Count())
+
+		_, err := reloaded.Register(agentID, "", ip, "", nil, nil, "")
+		require.NoError(t, err)
+		require.Equal(t, 1, reloaded.Count(), "registering again returns the agent to inventory")
 	})
 }
 

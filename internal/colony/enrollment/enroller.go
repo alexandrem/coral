@@ -116,15 +116,8 @@ func (e *Enroller) restorePeer(ctx context.Context, row *Row) bool {
 	e.peerMu.Lock()
 	defer e.peerMu.Unlock()
 
-	removed, err := e.registry.IsRemoved(ctx, row.AgentID)
-	if err != nil {
-		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to check Agent removal")
-		return false
-	}
-	if removed {
-		return false
-	}
-
+	// Removed Agents keep their peer so they can register again; the registry
+	// skips restoring their inventory entry.
 	currentPubkey, err := e.keys.CurrentPubkey(ctx, row.AgentID)
 	if err != nil {
 		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer key")
