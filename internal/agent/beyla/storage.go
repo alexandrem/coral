@@ -230,8 +230,9 @@ func (s *BeylaStorage) initSchema() error {
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id
 		ON beyla_traces_local(agent_id, start_time DESC);
 
-		CREATE INDEX IF NOT EXISTS idx_beyla_traces_seq_id
-		ON beyla_traces_local(seq_id);
+		-- seq_id is the primary key, which already indexes it. Drop the
+		-- duplicate index created by earlier versions.
+		DROP INDEX IF EXISTS idx_beyla_traces_seq_id;
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_process_pid
 		ON beyla_traces_local(process_pid, start_time DESC);
@@ -251,7 +252,11 @@ func (s *BeylaStorage) initSchema() error {
 	// Attempt an initial checkpoint to ensure tables are visible immediately.
 	// We do NOT use FORCE CHECKPOINT as it can abort active transactions.
 	// If this fails (e.g. due to contention), we log and continue, relying on auto-checkpoint.
+	// A fatal error invalidates the database, so stop rather than continue.
 	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		if duckdb.IsFatal(err) {
+			return fmt.Errorf("failed to checkpoint database: %w", err)
+		}
 		s.logger.Warn().Err(err).Msg("Initial checkpoint failed (tables may take a moment to appear remotely)")
 	}
 

@@ -98,7 +98,11 @@ func (s *Storage) initSchema() error {
 	}
 
 	// Force WAL checkpoint so remote HTTP clients can see the schema.
+	// A fatal error invalidates the database, so stop rather than run more statements.
 	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		if duckdb.IsFatal(err) {
+			return fmt.Errorf("failed to checkpoint database: %w", err)
+		}
 		s.logger.Warn().Err(err).Msg("Failed to checkpoint database")
 	}
 
@@ -111,6 +115,9 @@ func (s *Storage) initSchema() error {
 
 	// Initial checkpoint.
 	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		if duckdb.IsFatal(err) {
+			return fmt.Errorf("failed to checkpoint database: %w", err)
+		}
 		s.logger.Warn().Err(err).Msg("Initial checkpoint failed")
 	}
 

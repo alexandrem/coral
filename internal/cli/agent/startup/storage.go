@@ -3,6 +3,7 @@ package startup
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/google/uuid"
@@ -68,6 +69,8 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 				s.logger.Warn().Err(err).Msg("Failed to create shared metrics database - using in-memory storage")
 				sharedDB = nil
 				sharedDBPath = ""
+			} else if sharedDB, err = s.ensureCheckpointable(sharedDB, sharedDBPath); err != nil {
+				return nil, err
 			} else {
 				s.logger.Info().
 					Str("db_path", sharedDBPath).
@@ -177,6 +180,86 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 	}
 
 	return result, nil
+}
+
+// ensureCheckpointable checkpoints the freshly opened shared database before
+// any component uses it. Opening replays the WAL, and the checkpoint writes it
+// back to the database file.
+//
+// If the checkpoint fails with a fatal error, DuckDB has invalidated the
+// database and the failure repeats on every start because the WAL is never
+// applied. The database and WAL are then backed up and the secondary indexes
+// rebuilt, which repairs damaged persisted indexes without losing rows. On
+// success the returned handle replaces db, which is closed.
+func (s *StorageManager) ensureCheckpointable(db *sql.DB, path string) (*sql.DB, error) {
+	_, checkpointErr := db.Exec("CHECKPOINT")
+	if checkpointErr == nil {
+		return db, nil
+	}
+	if !duckdb.IsFatal(checkpointErr) {
+		s.logger.Warn().Err(checkpointErr).Str("db_path", path).Msg("Initial checkpoint of shared metrics database failed")
+		return db, nil
+	}
+	_ = db.Close()
+
+	s.logger.Error().Err(checkpointErr).Str("db_path", path).
+		Msg("Shared metrics database cannot be checkpointed - rebuilding its indexes")
+
+	backupPath := path + ".corrupt"
+	if _, err := os.Stat(backupPath); err == nil {
+		s.logger.Warn().Str("backup_path", backupPath).
+			Msg("Keeping existing backup of a previously damaged database - not backing up again")
+	} else if err := backupDBFiles(path, backupPath); err != nil {
+		return nil, fmt.Errorf("shared metrics database %s cannot be checkpointed (%v) and could not be backed up before repair: %w",
+			path, checkpointErr, err)
+	} else {
+		s.logger.Info().Str("backup_path", backupPath).Msg("Backed up damaged shared metrics database")
+	}
+
+	repaired, err := duckdb.OpenDB(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reopen shared metrics database %s for repair: %w", path, err)
+	}
+	if err := duckdb.RebuildIndexes(repaired); err != nil {
+		_ = repaired.Close()
+		return nil, fmt.Errorf("shared metrics database %s cannot be checkpointed (%v) and rebuilding its indexes failed: %w; "+
+			"stop the agent and move %s and %s.wal aside to start with an empty database (backup: %s)",
+			path, checkpointErr, err, path, path, backupPath)
+	}
+
+	s.logger.Info().Str("db_path", path).Msg("Rebuilt shared metrics database indexes")
+	return repaired, nil
+}
+
+// backupDBFiles copies a DuckDB database file and its WAL, if any, to dst and
+// dst + ".wal".
+func backupDBFiles(src, dst string) error {
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	if err := copyFile(src+".wal", dst+".wal"); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// copyFile copies src to a new file dst.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src) // #nosec G304 -- path is the agent's own database.
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600) // #nosec G304 -- path is derived from the agent's own database.
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // initDBMetadata creates the db_metadata table and ensures a session_id exists (RFD 089).
