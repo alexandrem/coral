@@ -100,6 +100,12 @@ func (h *ServiceHandler) ConnectService(
 			Error:   fmt.Sprintf("service %q needs either a port or exe_pattern", req.Msg.Name),
 		}), nil
 	}
+	if err := validateSelectors(req.Msg); err != nil {
+		return connect.NewResponse(&agentv1.ConnectServiceResponse{
+			Success: false,
+			Error:   err.Error(),
+		}), nil
+	}
 
 	// Convert request to ServiceInfo.
 	serviceInfo := &meshv1.ServiceInfo{
@@ -109,6 +115,8 @@ func (h *ServiceHandler) ConnectService(
 		ServiceType:    req.Msg.ServiceType,
 		Labels:         req.Msg.Labels,
 		ExePattern:     req.Msg.ExePattern,
+		ProcessEnv:     req.Msg.ProcessEnv,
+		DockerLabels:   req.Msg.DockerLabels,
 	}
 
 	// Connect to service. Treat AlreadyExists as a soft error so that
@@ -162,6 +170,23 @@ func (h *ServiceHandler) ConnectService(
 	}), nil
 }
 
+// validateSelectors checks a connect request's process selectors. They pick
+// one of several listeners on the service's port, so they require a port.
+func validateSelectors(req *agentv1.ConnectServiceRequest) error {
+	if len(req.ProcessEnv) == 0 && len(req.DockerLabels) == 0 {
+		return nil
+	}
+	if req.Port == 0 {
+		return fmt.Errorf("service %q: process_env and docker_labels require a port", req.Name)
+	}
+	for _, selectors := range []map[string]string{req.ProcessEnv, req.DockerLabels} {
+		if _, ok := selectors[""]; ok {
+			return fmt.Errorf("service %q: process_env and docker_labels keys cannot be empty", req.Name)
+		}
+	}
+	return nil
+}
+
 // discoverSDK attempts to discover SDK capabilities via HTTP.
 func (h *ServiceHandler) discoverSDK(ctx context.Context, addr string) *agentv1.ServiceSdkCapabilities {
 	return discoverSDKCapabilities(ctx, addr, h.agent.logger)
@@ -213,6 +238,8 @@ func (h *ServiceHandler) ListServices(
 			BinaryPath:        entry.BinaryPath,
 			BinaryHash:        entry.BinaryHash,
 			ExePattern:        entry.ExePattern,
+			ProcessEnv:        entry.ProcessEnv,
+			DockerLabels:      entry.DockerLabels,
 		}
 
 		if entry.Monitor != nil {

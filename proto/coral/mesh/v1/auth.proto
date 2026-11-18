@@ -23,6 +23,15 @@ message ServiceInfo {
   // Regex matched against /proc/<pid>/comm, falling back to /proc/<pid>/cmdline.
   // Mutually exclusive with port: exactly one of the two must be set.
   string exe_pattern = 9;
+
+  // Selectors that identify a port-based service's process when several
+  // processes listen on its port, such as copies of one image in different
+  // containers. A listener must match every entry. process_env compares
+  // variables in the process's initial environment; docker_labels compares
+  // labels of the Docker container it runs in, read through the Docker API.
+  // Only valid with a port.
+  map<string, string> process_env = 10;
+  map<string, string> docker_labels = 11;
 }
 
 // Agent authentication during registration

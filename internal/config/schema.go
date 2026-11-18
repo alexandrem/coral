@@ -578,6 +578,12 @@ type AgentConfig struct {
 		// (RFD 111) instead of a listening port. Mutually exclusive with
 		// Port: exactly one of the two must be set.
 		ExePattern string `yaml:"exe_pattern,omitempty"`
+		// ProcessEnv and DockerLabels identify the service's process when
+		// several processes listen on Port: a listener must have every
+		// variable in its environment and every label on its Docker
+		// container. Only valid with Port.
+		ProcessEnv   map[string]string `yaml:"process_env,omitempty"`
+		DockerLabels map[string]string `yaml:"docker_labels,omitempty"`
 	} `yaml:"services"`
 	Beyla               BeylaConfig               `yaml:"beyla,omitempty"`
 	SystemMetrics       SystemMetricsConfig       `yaml:"system_metrics,omitempty"`

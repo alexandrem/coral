@@ -33,8 +33,14 @@ var errServiceNotFound = errors.New("service not found")
 // them, across every visible network namespace. It is implemented by
 // discovery.ProcFSProvider and replaced in tests.
 type portOwnerFinder interface {
-	FindPortOwners(names map[int]string) (map[int]discovery.PortOwner, error)
+	FindPortOwners(queries map[int]discovery.PortQuery) (map[int]discovery.PortOwner, error)
 	ListensOn(pid, port int) bool
+}
+
+// labelMatcher matches a process against the labels of its container. It is
+// implemented by dockerLabelMatcher and replaced in tests.
+type labelMatcher interface {
+	Matches(pid int, want map[string]string) (bool, error)
 }
 
 // AgentStatus represents the overall agent health status.
@@ -83,7 +89,8 @@ type Agent struct {
 	portOwners               portOwnerFinder     // Resolves watched ports to host PIDs.
 	pidRefresh               chan struct{}       // Requests an immediate PID refresh.
 	pidRefreshMu             sync.Mutex          // Serializes PID refreshes so concurrent callers share one scan.
-	ambiguousPorts           map[string]bool     // Service keys already warned as ambiguous; guarded by pidRefreshMu.
+	dockerLabels             labelMatcher        // Matches docker_labels selectors; nil if DOCKER_HOST is unusable.
+	pidWarnings              map[string]string   // Last unresolved-PID warning per service key; guarded by pidRefreshMu.
 	logger                   zerolog.Logger
 	mu                       sync.RWMutex
 	ctx                      context.Context
@@ -158,10 +165,18 @@ func New(config Config) (*Agent, error) {
 		functionCache:     config.FunctionCache,
 		portOwners:        discovery.NewProcFSProvider(config.Logger),
 		pidRefresh:        make(chan struct{}, 1),
-		ambiguousPorts:    make(map[string]bool),
+		pidWarnings:       make(map[string]string),
 		logger:            config.Logger.With().Str("agent_id", config.AgentID).Logger(),
 		ctx:               ctx,
 		cancel:            cancel,
+	}
+
+	// docker_labels selectors read container labels through the Docker API;
+	// the daemon is only contacted when a service uses them.
+	if matcher, err := newDockerLabelMatcher(); err != nil {
+		agent.logger.Warn().Err(err).Msg("docker_labels selectors are unavailable")
+	} else {
+		agent.dockerLabels = matcher
 	}
 
 	// Wire correlation engine as the eBPF event subscriber (RFD 091).
@@ -399,11 +414,13 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 	defer a.pidRefreshMu.Unlock()
 
 	type target struct {
-		key   string
-		entry *ServiceEntry
-		name  string
-		port  int
-		pid   int
+		key          string
+		entry        *ServiceEntry
+		name         string
+		port         int
+		pid          int
+		processEnv   map[string]string
+		dockerLabels map[string]string
 	}
 
 	a.mu.RLock()
@@ -412,26 +429,52 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 		if entry.Port == 0 || !include(entry) {
 			continue
 		}
-		targets = append(targets, target{key: key, entry: entry, name: entry.Name(), port: int(entry.Port), pid: int(entry.PID)})
+		targets = append(targets, target{
+			key:          key,
+			entry:        entry,
+			name:         entry.Name(),
+			port:         int(entry.Port),
+			pid:          int(entry.PID),
+			processEnv:   entry.ProcessEnv,
+			dockerLabels: entry.DockerLabels,
+		})
 	}
 	a.mu.RUnlock()
 
 	// Scanning every process's descriptors is costly, so only ports whose
 	// recorded PID no longer listens on them are re-resolved.
 	var stale []target
-	stalePorts := make(map[int]string)
+	queries := make(map[int]discovery.PortQuery)
+	// labelErrs keeps, per port, the last reason a docker_labels selector
+	// could not be checked, to explain an unresolved PID.
+	labelErrs := make(map[int]error)
 	for _, t := range targets {
 		if t.pid > 0 && a.portOwners.ListensOn(t.pid, t.port) {
 			continue
 		}
 		stale = append(stale, t)
-		stalePorts[t.port] = t.name
+		query := discovery.PortQuery{Name: t.name, Env: t.processEnv}
+		if len(t.dockerLabels) > 0 {
+			port, want := t.port, t.dockerLabels
+			query.Accept = func(pid int) bool {
+				if a.dockerLabels == nil {
+					labelErrs[port] = errors.New("the Docker API is not configured; check DOCKER_HOST")
+					return false
+				}
+				ok, err := a.dockerLabels.Matches(pid, want)
+				if err != nil && !errors.Is(err, errNotDockerContainer) {
+					labelErrs[port] = err
+				}
+				return ok
+			}
+		}
+		queries[t.port] = query
 	}
 	if len(stale) == 0 {
 		return
 	}
 
-	owners, err := a.portOwners.FindPortOwners(stalePorts)
+	owners, err := a.portOwners.FindPortOwners(queries)
 	if err != nil {
 		a.logger.Debug().Err(err).Msg("Failed to resolve service PIDs from listening sockets")
 		return
@@ -440,20 +483,7 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 	updates := make([]pidUpdate, 0, len(stale))
 	for _, t := range stale {
 		owner := owners[t.port]
-		// Warn once per episode: the condition persists until the operator
-		// acts, and refreshes run every few seconds.
-		if owner.PID == 0 && owner.Namespaces > 1 {
-			if !a.ambiguousPorts[t.key] {
-				a.ambiguousPorts[t.key] = true
-				a.logger.Warn().
-					Str("service", t.name).
-					Int("port", t.port).
-					Int("namespaces", owner.Namespaces).
-					Msgf("Several containers listen on port %d; set OTEL_SERVICE_NAME=%s in the service's container to identify its process", t.port, t.name)
-			}
-		} else {
-			delete(a.ambiguousPorts, t.key)
-		}
+		a.warnUnresolvedPID(t.key, t.name, t.port, owner, len(t.processEnv)+len(t.dockerLabels) > 0, labelErrs[t.port])
 		update := pidUpdate{key: t.key, entry: t.entry, pid: int32(owner.PID)} //nolint:gosec // G115: PIDs fit in int32.
 		if owner.PID > 0 {
 			if path, err := proc.GetBinaryPath(owner.PID); err == nil {
@@ -510,6 +540,37 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 			a.onProcessDiscovered(n.name, n.pid, n.binaryPath)
 		}
 	}
+}
+
+// warnUnresolvedPID explains why a port with listeners resolved to no PID.
+// It logs once per distinct reason, since the condition persists until the
+// operator acts and refreshes run every few seconds, and forgets the reason
+// once the port resolves. Caller must hold a.pidRefreshMu.
+func (a *Agent) warnUnresolvedPID(key, name string, port int, owner discovery.PortOwner, hasSelectors bool, labelErr error) {
+	var reason string
+	switch {
+	case owner.PID != 0 || owner.Namespaces == 0:
+		delete(a.pidWarnings, key)
+		return
+	case owner.Matching > 1:
+		reason = fmt.Sprintf("Several containers listen on port %d; add process_env or docker_labels to the service, or set OTEL_SERVICE_NAME=%s in its container, to identify its process", port, name)
+	case hasSelectors && labelErr != nil:
+		reason = fmt.Sprintf("Could not check the docker_labels of containers listening on port %d: %v", port, labelErr)
+	case hasSelectors:
+		reason = fmt.Sprintf("No process listening on port %d matches the service's process_env and docker_labels", port)
+	default:
+		return
+	}
+	if a.pidWarnings[key] == reason {
+		return
+	}
+	a.pidWarnings[key] = reason
+	a.logger.Warn().
+		Str("service", name).
+		Int("port", port).
+		Int("namespaces", owner.Namespaces).
+		Int("matching", owner.Matching).
+		Msg(reason)
 }
 
 // ResolveServicePID returns the host PID of the named service after checking
@@ -657,6 +718,8 @@ func (a *Agent) connectServiceLocked(service *meshv1.ServiceInfo, startMonitor b
 	entry.AuthoritativeName = service.Name
 	entry.NamingSource = NamingSourceAuthoritative
 	entry.ExePattern = service.ExePattern
+	entry.ProcessEnv = service.ProcessEnv
+	entry.DockerLabels = service.DockerLabels
 
 	// A monitor is started for any explicitly connected service that has a
 	// health endpoint (network health check) or an exe_pattern (RFD 111:

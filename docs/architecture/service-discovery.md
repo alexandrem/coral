@@ -165,20 +165,40 @@ the lowest PID among them, which is normally the parent.
 A port whose remaining listeners share one network namespace is attributed to
 that namespace. Often they do not: a host can run production and staging
 copies of the `api` image, each listening on its own internal port 8080. The
-service key is the port alone, so it cannot say which copy `api` means. The
-agent breaks the tie in two steps:
+service key is the port alone, so it cannot say which copy `api` means.
+
+A watch can say so itself, with selectors. `process_env` names environment
+variables the service's process must have, and `docker_labels` names labels
+its Docker container must have, such as the Swarm service name of the
+production copy. The agent drops every listener that fails a selector before
+looking at the rest. Selectors are part of the operator's declaration, so
+they also apply to a lone listener: a host running only the staging copy
+leaves the PID unset rather than attributing `api` to it.
+
+Environment variables come from each candidate's `/proc/<pid>/environ`, the
+environment the process started with. Container labels are not visible in
+`/proc`, so the agent first finds the container ID, in the process's cgroup
+path or, inside a private cgroup namespace, in the bind mounts Docker adds to
+every container. It then reads that container's labels from the Docker Engine
+API, once per container, since labels never change. A process in no Docker
+container, or in one the daemon does not know, has no labels.
+
+If several listeners remain, the agent breaks the tie in two steps:
 
 1. A listener in the agent's own network namespace wins. In a sidecar
    deployment the application shares that namespace, and it is the listener
    the watch's health check reaches at `127.0.0.1`. Another container that
    shares only the agent's PID namespace cannot displace it.
 2. Otherwise the agent compares the watched name with each candidate's
-   `OTEL_SERVICE_NAME`, or `SERVICE_NAME` when that is absent, read from the
-   process environment, and attributes the port only if exactly one matches.
+   `OTEL_SERVICE_NAME`, or `SERVICE_NAME` when that is absent, and attributes
+   the port only if exactly one matches.
 
-When neither step decides, the agent leaves the PID unset rather than
-guessing, and warns once until the port resolves. These rules apply only to a
-tie, so a single listener is attributed whatever its name and namespace.
+When neither step decides, or no listener passes the selectors, the agent
+leaves the PID unset rather than guessing. It logs the reason once, and again
+only if the reason changes, since refreshes repeat it every few seconds. An
+unreachable Docker API is one such reason. Unlike selectors, the two
+tie-break steps apply only to a tie, so without selectors a single listener is
+attributed whatever its name and namespace.
 
 The tie-break identifies one process but not several services. Because the
 service key is still the port, the agent can watch only one of the copies;
@@ -216,6 +236,7 @@ shares the host PID namespace.
 
 Implementation: [service PID tracking](../../internal/agent/agent.go),
 [port ownership](../../internal/agent/beyla/discovery/procfs.go),
+[Docker labels](../../internal/agent/docker_labels.go),
 [CPU profiling](../../internal/agent/debug_service.go), and
 [container exec](../../internal/agent/container_handler.go). For selecting an
 exec target, see [host and container commands](../user/remote-execution.md).

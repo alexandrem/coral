@@ -3,6 +3,9 @@ package agent
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 )
 
@@ -361,6 +364,20 @@ func TestValidateServiceSpecs(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "process selectors with a port",
+			specs: []*types.ServiceSpec{
+				{Name: "api", Port: 8080, ProcessEnv: map[string]string{"APP_ENV": "production"}, DockerLabels: map[string]string{"com.docker.compose.project": "shop"}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "process selectors without a port",
+			specs: []*types.ServiceSpec{
+				{Name: "worker", ExePattern: "python.*consumer.py", ProcessEnv: map[string]string{"APP_ENV": "production"}},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -438,4 +455,42 @@ func TestParseServiceSpecsWithLegacySupport(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseSelectors(t *testing.T) {
+	tests := []struct {
+		name    string
+		pairs   []string
+		want    map[string]string
+		wantErr bool
+	}{
+		{name: "none", pairs: nil, want: nil},
+		{name: "pairs", pairs: []string{"APP_ENV=production", "com.docker.compose.project=shop"}, want: map[string]string{"APP_ENV": "production", "com.docker.compose.project": "shop"}},
+		{name: "value with equals and empty value", pairs: []string{"OPTS=a=b", "EMPTY="}, want: map[string]string{"OPTS": "a=b", "EMPTY": ""}},
+		{name: "missing equals", pairs: []string{"APP_ENV"}, wantErr: true},
+		{name: "empty key", pairs: []string{"=production"}, wantErr: true},
+		{name: "duplicate key", pairs: []string{"APP_ENV=a", "APP_ENV=b"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := types.ParseSelectors("--process-env", tt.pairs)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestApplySelectorFlags(t *testing.T) {
+	one := []*types.ServiceSpec{{Name: "api", Port: 8080}}
+	require.NoError(t, applySelectorFlags(one, []string{"APP_ENV=production"}, []string{"com.docker.swarm.service.name=shop_api"}))
+	assert.Equal(t, map[string]string{"APP_ENV": "production"}, one[0].ProcessEnv)
+	assert.Equal(t, map[string]string{"com.docker.swarm.service.name": "shop_api"}, one[0].DockerLabels)
+
+	two := []*types.ServiceSpec{{Name: "api", Port: 8080}, {Name: "web", Port: 3000}}
+	require.Error(t, applySelectorFlags(two, []string{"APP_ENV=production"}, nil))
+	require.NoError(t, applySelectorFlags(two, nil, nil))
 }

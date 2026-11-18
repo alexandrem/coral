@@ -39,7 +39,15 @@ type ServiceInfo struct {
 	// Executable path pattern for portless processes (RFD 111).
 	// Regex matched against /proc/<pid>/comm, falling back to /proc/<pid>/cmdline.
 	// Mutually exclusive with port: exactly one of the two must be set.
-	ExePattern    string `protobuf:"bytes,9,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	ExePattern string `protobuf:"bytes,9,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	// Selectors that identify a port-based service's process when several
+	// processes listen on its port, such as copies of one image in different
+	// containers. A listener must match every entry. process_env compares
+	// variables in the process's initial environment; docker_labels compares
+	// labels of the Docker container it runs in, read through the Docker API.
+	// Only valid with a port.
+	ProcessEnv    map[string]string `protobuf:"bytes,10,rep,name=process_env,json=processEnv,proto3" json:"process_env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	DockerLabels  map[string]string `protobuf:"bytes,11,rep,name=docker_labels,json=dockerLabels,proto3" json:"docker_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -135,6 +143,20 @@ func (x *ServiceInfo) GetExePattern() string {
 		return x.ExePattern
 	}
 	return ""
+}
+
+func (x *ServiceInfo) GetProcessEnv() map[string]string {
+	if x != nil {
+		return x.ProcessEnv
+	}
+	return nil
+}
+
+func (x *ServiceInfo) GetDockerLabels() map[string]string {
+	if x != nil {
+		return x.DockerLabels
+	}
+	return nil
 }
 
 // Agent authentication during registration
@@ -562,7 +584,7 @@ var File_coral_mesh_v1_auth_proto protoreflect.FileDescriptor
 
 const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xfe\x02\n" +
+	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\x9e\x05\n" +
 	"\vServiceInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -576,8 +598,18 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\vbinary_hash\x18\b \x01(\tR\n" +
 	"binaryHash\x12\x1f\n" +
 	"\vexe_pattern\x18\t \x01(\tR\n" +
-	"exePattern\x1a9\n" +
+	"exePattern\x12K\n" +
+	"\vprocess_env\x18\n" +
+	" \x03(\v2*.coral.mesh.v1.ServiceInfo.ProcessEnvEntryR\n" +
+	"processEnv\x12Q\n" +
+	"\rdocker_labels\x18\v \x03(\v2,.coral.mesh.v1.ServiceInfo.DockerLabelsEntryR\fdockerLabels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
+	"\x0fProcessEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a?\n" +
+	"\x11DockerLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x84\x05\n" +
 	"\x0fRegisterRequest\x12\x19\n" +
@@ -635,7 +667,7 @@ func file_coral_mesh_v1_auth_proto_rawDescGZIP() []byte {
 	return file_coral_mesh_v1_auth_proto_rawDescData
 }
 
-var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_coral_mesh_v1_auth_proto_goTypes = []any{
 	(*ServiceInfo)(nil),               // 0: coral.mesh.v1.ServiceInfo
 	(*RegisterRequest)(nil),           // 1: coral.mesh.v1.RegisterRequest
@@ -644,29 +676,33 @@ var file_coral_mesh_v1_auth_proto_goTypes = []any{
 	(*HeartbeatRequest)(nil),          // 4: coral.mesh.v1.HeartbeatRequest
 	(*HeartbeatResponse)(nil),         // 5: coral.mesh.v1.HeartbeatResponse
 	nil,                               // 6: coral.mesh.v1.ServiceInfo.LabelsEntry
-	nil,                               // 7: coral.mesh.v1.RegisterRequest.LabelsEntry
-	(*v1.RuntimeContextResponse)(nil), // 8: coral.agent.v1.RuntimeContextResponse
-	(*v1.EbpfCapabilities)(nil),       // 9: coral.agent.v1.EbpfCapabilities
-	(*timestamppb.Timestamp)(nil),     // 10: google.protobuf.Timestamp
+	nil,                               // 7: coral.mesh.v1.ServiceInfo.ProcessEnvEntry
+	nil,                               // 8: coral.mesh.v1.ServiceInfo.DockerLabelsEntry
+	nil,                               // 9: coral.mesh.v1.RegisterRequest.LabelsEntry
+	(*v1.RuntimeContextResponse)(nil), // 10: coral.agent.v1.RuntimeContextResponse
+	(*v1.EbpfCapabilities)(nil),       // 11: coral.agent.v1.EbpfCapabilities
+	(*timestamppb.Timestamp)(nil),     // 12: google.protobuf.Timestamp
 }
 var file_coral_mesh_v1_auth_proto_depIdxs = []int32{
 	6,  // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
-	7,  // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
-	0,  // 2: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
-	8,  // 3: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
-	9,  // 4: coral.mesh.v1.RegisterRequest.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
-	3,  // 5: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
-	10, // 6: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
-	0,  // 7: coral.mesh.v1.HeartbeatRequest.services:type_name -> coral.mesh.v1.ServiceInfo
-	1,  // 8: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
-	4,  // 9: coral.mesh.v1.MeshService.Heartbeat:input_type -> coral.mesh.v1.HeartbeatRequest
-	2,  // 10: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
-	5,  // 11: coral.mesh.v1.MeshService.Heartbeat:output_type -> coral.mesh.v1.HeartbeatResponse
-	10, // [10:12] is the sub-list for method output_type
-	8,  // [8:10] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	7,  // 1: coral.mesh.v1.ServiceInfo.process_env:type_name -> coral.mesh.v1.ServiceInfo.ProcessEnvEntry
+	8,  // 2: coral.mesh.v1.ServiceInfo.docker_labels:type_name -> coral.mesh.v1.ServiceInfo.DockerLabelsEntry
+	9,  // 3: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
+	0,  // 4: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
+	10, // 5: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	11, // 6: coral.mesh.v1.RegisterRequest.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
+	3,  // 7: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
+	12, // 8: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
+	0,  // 9: coral.mesh.v1.HeartbeatRequest.services:type_name -> coral.mesh.v1.ServiceInfo
+	1,  // 10: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
+	4,  // 11: coral.mesh.v1.MeshService.Heartbeat:input_type -> coral.mesh.v1.HeartbeatRequest
+	2,  // 12: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
+	5,  // 13: coral.mesh.v1.MeshService.Heartbeat:output_type -> coral.mesh.v1.HeartbeatResponse
+	12, // [12:14] is the sub-list for method output_type
+	10, // [10:12] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_coral_mesh_v1_auth_proto_init() }
@@ -680,7 +716,7 @@ func file_coral_mesh_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_mesh_v1_auth_proto_rawDesc), len(file_coral_mesh_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

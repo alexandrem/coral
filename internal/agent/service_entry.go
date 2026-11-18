@@ -36,6 +36,13 @@ type ServiceEntry struct {
 	// mutually exclusive with Port being non-zero.
 	ExePattern string
 
+	// ProcessEnv and DockerLabels pick the service's process when several
+	// network namespaces have a listener on Port: a listener must have
+	// every variable in its environment and every label on its Docker
+	// container. Set only by ConnectService and never modified afterwards.
+	ProcessEnv   map[string]string
+	DockerLabels map[string]string
+
 	// AutoName is derived by the ServiceNameAdaptor chain on first
 	// observation. It is never cleared once set.
 	AutoName string

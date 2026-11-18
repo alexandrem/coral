@@ -268,6 +268,15 @@ message ConnectServiceRequest {
   // Executable path pattern for portless processes (RFD 111).
   // Mutually exclusive with port.
   string exe_pattern = 7;
+
+  // Selectors that identify a port-based service's process when several
+  // processes listen on its port, such as copies of one image in different
+  // containers. A listener must match every entry. process_env compares
+  // variables in the process's initial environment; docker_labels compares
+  // labels of the Docker container it runs in, read through the Docker API.
+  // Only valid with a port.
+  map<string, string> process_env = 8;
+  map<string, string> docker_labels = 9;
 }
 
 // ServiceSdkCapabilities describes the SDK integration status (RFD 060).
@@ -382,6 +391,10 @@ message ServiceStatus {
   // Executable path pattern for portless services (RFD 111). Empty for
   // port-based services.
   string exe_pattern = 17;
+  // Process selectors the service was watched with; see
+  // ConnectServiceRequest.
+  map<string, string> process_env = 18;
+  map<string, string> docker_labels = 19;
 }
 
 // EbpfCollectorKind defines the type of eBPF collector (RFD 013).

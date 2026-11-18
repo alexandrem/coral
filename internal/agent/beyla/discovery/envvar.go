@@ -73,36 +73,36 @@ func (p *EnvVarProvider) Discover(_ context.Context) ([]ProcessCandidate, error)
 	return candidates, nil
 }
 
+// readEnviron reads <root>/<pid>/environ into a map. The second return
+// value is false if the file could not be read, e.g. the process exited or
+// the caller may not inspect it. Malformed entries without '=' are skipped.
+func readEnviron(root string, pid int) (map[string]string, bool) {
+	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
+	data, err := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return nil, false
+	}
+	env := make(map[string]string)
+	for _, entry := range strings.Split(string(data), "\x00") {
+		if key, value, found := strings.Cut(entry, "="); found {
+			env[key] = value
+		}
+	}
+	return env, true
+}
+
 // readServiceNameEnv reads <root>/<pid>/environ and extracts
 // OTEL_SERVICE_NAME, falling back to SERVICE_NAME. The second return value
 // is false if the environ file could not be read at all (e.g. the process
 // exited between the PID scan and this read); it is true (with an empty
 // name) when the file is readable but neither variable is set.
 func readServiceNameEnv(root string, pid int) (string, bool) {
-	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
-	data, err := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "environ"))
-	if err != nil {
+	env, ok := readEnviron(root, pid)
+	if !ok {
 		return "", false
 	}
-
-	var fallback string
-	for _, entry := range strings.Split(string(data), "\x00") {
-		if entry == "" {
-			continue
-		}
-		key, value, found := strings.Cut(entry, "=")
-		if !found {
-			// Malformed entry (no '='); skip it rather than failing the
-			// whole scan.
-			continue
-		}
-		switch key {
-		case otelServiceNameVar:
-			return value, true
-		case serviceNameVar:
-			fallback = value
-		}
+	if name, ok := env[otelServiceNameVar]; ok {
+		return name, true
 	}
-
-	return fallback, true
+	return env[serviceNameVar], true
 }

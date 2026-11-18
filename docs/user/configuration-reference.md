@@ -286,8 +286,12 @@ Agent fields are grouped below by subsystem:
 | `services[].exe_pattern` | string | Executable/invocation pattern instead of a port |
 | `services[].health_endpoint` | string | Optional HTTP health path |
 | `services[].type` | string | Optional service type hint |
+| `services[].process_env` | map of string | Environment variables the service's process must have, to pick it among listeners on the port |
+| `services[].docker_labels` | map of string | Labels the service's Docker container must have, to pick it among listeners on the port; requires access to the Docker API |
 
-A watch requires exactly one of port and executable pattern. Environment
+A watch requires exactly one of port and executable pattern. `process_env` and
+`docker_labels` require a port; see
+[several containers on one port](services.md#when-several-containers-use-the-same-port). Environment
 `CORAL_SERVICES` replaces this list and accepts port-based service specifications.
 Use [services and health](services.md) for dynamic registration and naming.
 

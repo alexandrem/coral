@@ -35,7 +35,7 @@ func bulkWatchRequested(cmd *cobra.Command, options fleet.Options) bool {
 func runBulkWatch(cmd *cobra.Command, options *fleet.Options, colony string, specs []*types.ServiceSpec) error {
 	requests := make([]*agentv1.ConnectServiceRequest, 0, len(specs))
 	for _, spec := range specs {
-		requests = append(requests, &agentv1.ConnectServiceRequest{Name: spec.Name, Port: spec.Port, HealthEndpoint: spec.HealthEndpoint, ServiceType: spec.ServiceType, ExePattern: spec.ExePattern, Labels: spec.Labels})
+		requests = append(requests, &agentv1.ConnectServiceRequest{Name: spec.Name, Port: spec.Port, HealthEndpoint: spec.HealthEndpoint, ServiceType: spec.ServiceType, ExePattern: spec.ExePattern, Labels: spec.Labels, ProcessEnv: spec.ProcessEnv, DockerLabels: spec.DockerLabels})
 	}
 	plan, err := options.Prepare(cmd.Context(), colony, "services watch", requests)
 	if err != nil {
@@ -77,7 +77,7 @@ func watchSpecsFromReport(filename string) ([]*types.ServiceSpec, error) {
 		if !types.IsValidServiceName(request.Name) || request.Port < 0 || request.Port > 65535 {
 			return nil, fmt.Errorf("invalid service name or port in retry report")
 		}
-		specs = append(specs, &types.ServiceSpec{Name: request.Name, Port: request.Port, HealthEndpoint: request.HealthEndpoint, ServiceType: request.ServiceType, ExePattern: request.ExePattern, Labels: request.Labels})
+		specs = append(specs, &types.ServiceSpec{Name: request.Name, Port: request.Port, HealthEndpoint: request.HealthEndpoint, ServiceType: request.ServiceType, ExePattern: request.ExePattern, Labels: request.Labels, ProcessEnv: request.ProcessEnv, DockerLabels: request.DockerLabels})
 	}
 	return specs, types.ValidateServiceSpecs(specs)
 }
@@ -200,7 +200,7 @@ func checkRegistration(request *agentv1.ConnectServiceRequest, services []*agent
 		if service.Name != request.Name && (request.Port == 0 || service.Port != request.Port) {
 			continue
 		}
-		if service.Name != request.Name || service.Port != request.Port || service.HealthEndpoint != request.HealthEndpoint || service.ExePattern != request.ExePattern || (service.HasMonitor && (service.ServiceType != request.ServiceType || !maps.Equal(service.Labels, request.Labels))) {
+		if service.Name != request.Name || service.Port != request.Port || service.HealthEndpoint != request.HealthEndpoint || service.ExePattern != request.ExePattern || !maps.Equal(service.ProcessEnv, request.ProcessEnv) || !maps.Equal(service.DockerLabels, request.DockerLabels) || (service.HasMonitor && (service.ServiceType != request.ServiceType || !maps.Equal(service.Labels, request.Labels))) {
 			return false, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("existing authoritative registration %s conflicts with requested %s; update the agent's service configuration", service.Name, request.Name))
 		}
 		return true, nil

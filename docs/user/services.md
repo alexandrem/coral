@@ -83,28 +83,90 @@ Otherwise the port alone does not identify the service, so the PID stays `0`
 and the agent log warns once:
 
 ```text
-Several containers listen on port 8080; set OTEL_SERVICE_NAME=api in the service's container to identify its process
+Several containers listen on port 8080; add process_env or docker_labels to the service, or set OTEL_SERVICE_NAME=api in its container, to identify its process
 ```
 
-To resolve it, give the watched container a service name that the others do
-not share, and watch it under that name:
+Tell the agent which container is the service in one of three ways:
 
-1. Set `OTEL_SERVICE_NAME` in the container's environment to the watch name.
-   `SERVICE_NAME` is used when `OTEL_SERVICE_NAME` is absent. This fragment of
-   the application's Compose or stack file assumes the watch name `api`:
+| Option | The agent compares | Requires |
+| --- | --- | --- |
+| `process_env` | Variables in the process's environment, such as `APP_ENV` | Nothing beyond the agent's usual process access |
+| `docker_labels` | Labels of the Docker container, such as Compose or Swarm service names | Access to the Docker API |
+| `OTEL_SERVICE_NAME` | The variable's value with the watch name | Setting the variable in the application's container and redeploying it |
+
+The first two are part of the watch and need no change to the application.
+
+#### Select by environment or Docker labels
+
+1. Find a value that only the service's container has. Docker Compose labels
+   each container with `com.docker.compose.project` and
+   `com.docker.compose.service`, and Swarm labels each task with
+   `com.docker.swarm.service.name`. To list a container's labels:
+
+   ```bash
+   docker inspect --format '{{json .Config.Labels}}' '<container-name>'
+   ```
+
+2. Add the selectors to the watch. This fragment of the agent configuration
+   file watches the production copy of `api` deployed as the Swarm service
+   `shop_api`:
 
    ```yaml
    services:
-     api:
-       environment:
-         OTEL_SERVICE_NAME: api
+     - name: api
+       port: 8080
+       health_endpoint: /health
+       docker_labels:
+         com.docker.swarm.service.name: shop_api
    ```
 
-2. Redeploy the container so the variable takes effect, and give the other
-   containers on that port different values or none.
-3. Watch the service under the same name, for example
-   `coral services watch api:8080`, and check that the `PID` column is no
-   longer `0`.
+   Use `process_env` the same way, with variable names and values. To add the
+   watch at runtime instead:
+
+   ```bash
+   coral services watch api:8080:/health --docker-label com.docker.swarm.service.name=shop_api
+   coral services watch api:8080:/health --process-env APP_ENV=production
+   ```
+
+3. Check that the `PID` column of `coral services list --local --source
+   watched` is no longer `0`.
+
+A listener must match every entry under `process_env` and `docker_labels`.
+Unlike the automatic choice, selectors also apply when only one container
+listens on the port: if none matches, the PID stays `0` and the log reports
+that no listener matches. Values are compared exactly and are not logged.
+
+`process_env` sees the environment the process started with, which is what
+the `environment` section of a Compose or stack file provides. Changes the
+application makes to its own environment later are not visible.
+
+`docker_labels` needs the Docker Engine API. The agent uses `DOCKER_HOST` when
+it is a `unix://` or `tcp://` address, and `/var/run/docker.sock` otherwise.
+An agent running in a container needs the socket mounted, for example
+`/var/run/docker.sock:/var/run/docker.sock`. Access to this socket amounts to
+root on the host, and mounting it read-only does not restrict the API. The
+agent only inspects containers, but use `process_env` where granting that
+access is not acceptable. Containers run by other runtimes, such as containerd
+under Kubernetes, have no Docker labels.
+
+#### Select by service name
+
+Without selectors, the agent also accepts the one container whose
+`OTEL_SERVICE_NAME`, or `SERVICE_NAME` when that is absent, equals the watch
+name. Set the variable in the service's container, for example in its
+Compose or stack file:
+
+```yaml
+services:
+  api:
+    environment:
+      OTEL_SERVICE_NAME: api
+```
+
+Redeploy the container, give the other containers on that port different
+values or none, and check the `PID` column again.
+
+#### One watched service per port
 
 An agent holds one watched service per port, so the other containers on that
 port cannot be watched by the same agent. Watch them from an agent that shares
