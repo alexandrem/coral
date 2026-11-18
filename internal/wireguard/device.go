@@ -187,9 +187,6 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 		return fmt.Errorf("device not started")
 	}
 
-	// Store peer config
-	d.peers[peerConfig.PublicKey] = peerConfig
-
 	// Build UAPI configuration for the peer
 	uapiConfig := d.buildPeerUAPI(peerConfig)
 
@@ -199,6 +196,7 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 	if err := d.wgDevice.IpcSet(uapiConfig); err != nil {
 		return fmt.Errorf("failed to add peer: %w", err)
 	}
+	d.peers[peerConfig.PublicKey] = peerConfig
 
 	// Add routes for the peer's AllowedIPs.
 	// Userspace WireGuard doesn't automatically create routes, so we must do it manually.

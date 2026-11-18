@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,13 +51,23 @@ func before(phase, target Phase) bool { return phaseOrder[phase] < phaseOrder[ta
 // deliveries of the same record_id are safe.
 type Enroller struct {
 	caManager       *ca.Manager
-	wgDevice        *wireguard.Device
+	wgDevice        peerDevice
 	registry        *registry.Registry
 	discoveryClient *discovery.Client
 	store           *Store
 	keys            *KeyStore
 	cfg             *config.ResolvedConfig
 	logger          zerolog.Logger
+	peerMu          sync.Mutex // Serializes restoration and enrollment peer changes.
+}
+
+type peerDevice interface {
+	AddPeer(*wireguard.PeerConfig) error
+	RemovePeer(string) error
+	GetPeer(string) (*wireguard.PeerConfig, bool)
+	ListPeers() []*wireguard.PeerConfig
+	TriggerHandshake(string) error
+	Allocator() wireguard.Allocator
 }
 
 // NewEnroller creates an Enroller.
@@ -81,10 +93,8 @@ func NewEnroller(
 	}
 }
 
-// RestorePeers restores the current peer for every completed compound
-// enrollment after a Colony restart. WireGuard peer configuration is runtime
-// state, so the durable enrollment record and current Discovery endpoint are
-// needed to make an already-enrolled Agent reachable again.
+// RestorePeers restores WireGuard peers and their registry addresses after a
+// Colony restart, using completed enrollments and current Discovery endpoints.
 func (e *Enroller) RestorePeers(ctx context.Context) error {
 	rows, err := e.store.ListCompleted(ctx)
 	if err != nil {
@@ -93,66 +103,71 @@ func (e *Enroller) RestorePeers(ctx context.Context) error {
 
 	restored := 0
 	for _, row := range rows {
-		if row.ColonyID != e.cfg.ColonyID {
-			continue
+		if row.ColonyID == e.cfg.ColonyID && e.restorePeer(ctx, row) {
+			restored++
 		}
-		currentPubkey, err := e.keys.CurrentPubkey(ctx, row.AgentID)
-		if err != nil {
-			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer key")
-			continue
-		}
-		if currentPubkey == "" || currentPubkey != row.NewPubkey {
-			// This is a superseded enrollment record; only restore the key that
-			// is currently authoritative for the Agent.
-			continue
-		}
-
-		agentInfo, err := e.discoveryClient.LookupAgent(ctx, row.AgentID, row.ColonyID)
-		if err != nil {
-			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer without Discovery endpoint")
-			continue
-		}
-		if agentInfo.Pubkey != row.NewPubkey {
-			e.logger.Warn().
-				Str("agent_id", row.AgentID).
-				Str("enrolled_pubkey", row.NewPubkey).
-				Str("discovery_pubkey", agentInfo.Pubkey).
-				Msg("rendezvous: Discovery key differs from completed enrollment; skipping peer restore")
-			continue
-		}
-		endpoint, _ := mesh.SelectBestAgentEndpoint(agentInfo.ObservedEndpoints, "", e.logger, row.AgentID)
-		if endpoint == nil {
-			e.logger.Warn().Str("agent_id", row.AgentID).Msg("rendezvous: no usable Discovery endpoint while restoring Agent peer")
-			continue
-		}
-
-		peerConfig := &wireguard.PeerConfig{
-			PublicKey:           row.NewPubkey,
-			Endpoint:            net.JoinHostPort(endpoint.IP, fmt.Sprintf("%d", endpoint.Port)),
-			AllowedIPs:          []string{row.AllocatedIP + "/32"},
-			PersistentKeepalive: 25,
-		}
-		if existing, ok := e.wgDevice.GetPeer(row.NewPubkey); ok && existing.Endpoint == peerConfig.Endpoint {
-			continue
-		}
-		if err := e.wgDevice.AddPeer(peerConfig); err != nil {
-			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to restore Agent WireGuard peer")
-			continue
-		}
-		if err := e.wgDevice.TriggerHandshake(row.NewPubkey); err != nil {
-			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to trigger restored Agent handshake")
-			continue
-		}
-		restored++
-		e.logger.Info().
-			Str("agent_id", row.AgentID).
-			Str("mesh_ip", row.AllocatedIP).
-			Str("endpoint", peerConfig.Endpoint).
-			Msg("rendezvous: restored Agent WireGuard peer and initiated handshake")
 	}
 
 	e.logger.Debug().Int("peer_count", restored).Msg("rendezvous: completed WireGuard peer restoration")
 	return nil
+}
+
+func (e *Enroller) restorePeer(ctx context.Context, row *Row) bool {
+	e.peerMu.Lock()
+	defer e.peerMu.Unlock()
+
+	currentPubkey, err := e.keys.CurrentPubkey(ctx, row.AgentID)
+	if err != nil {
+		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer key")
+		return false
+	}
+	if currentPubkey == "" || currentPubkey != row.NewPubkey || net.ParseIP(row.AllocatedIP).To4() == nil {
+		return false
+	}
+
+	existing, hasPeer := e.wgDevice.GetPeer(row.NewPubkey)
+	endpoint := row.ResolvedEndpoint
+	if hasPeer && existing.Endpoint != "" {
+		endpoint = existing.Endpoint
+	}
+	agentInfo, err := e.discoveryClient.LookupAgent(ctx, row.AgentID, row.ColonyID)
+	switch {
+	case err != nil:
+		e.logger.Debug().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: Agent Discovery endpoint unavailable during peer restoration")
+	case agentInfo.Pubkey != row.NewPubkey:
+		e.logger.Warn().Str("agent_id", row.AgentID).Msg("rendezvous: ignoring Discovery endpoint with a different Agent key")
+	default:
+		if discovered, _ := mesh.SelectBestAgentEndpoint(agentInfo.ObservedEndpoints, "", e.logger, row.AgentID); discovered != nil {
+			endpoint = net.JoinHostPort(discovered.IP, fmt.Sprintf("%d", discovered.Port))
+		}
+	}
+
+	allowedIP := row.AllocatedIP + "/32"
+	if hasPeer && existing.Endpoint == endpoint && slices.Contains(existing.AllowedIPs, allowedIP) {
+		e.registry.RestoreMeshIPv4(row.AgentID, row.AllocatedIP)
+		return false
+	}
+	if endpoint == "" {
+		e.logger.Warn().Str("agent_id", row.AgentID).Msg("rendezvous: no usable endpoint while restoring Agent peer")
+		return false
+	}
+
+	if err := e.wgDevice.AddPeer(&wireguard.PeerConfig{
+		PublicKey:           row.NewPubkey,
+		Endpoint:            endpoint,
+		AllowedIPs:          []string{allowedIP},
+		PersistentKeepalive: 25,
+	}); err != nil {
+		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to restore Agent WireGuard peer")
+		return false
+	}
+	e.registry.RestoreMeshIPv4(row.AgentID, row.AllocatedIP)
+	if err := e.wgDevice.TriggerHandshake(row.NewPubkey); err != nil {
+		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to trigger restored Agent handshake")
+	}
+	e.logger.Info().Str("agent_id", row.AgentID).Str("mesh_ip", row.AllocatedIP).Str("endpoint", endpoint).
+		Msg("rendezvous: restored Agent WireGuard peer")
+	return true
 }
 
 // StartPeerRestoreLoop retries restoration after startup. An Agent may not
@@ -309,6 +324,9 @@ func (e *Enroller) process(ctx context.Context, row *Row, ownerID, peerAddr stri
 			return nil, err
 		}
 	}
+
+	e.peerMu.Lock()
+	defer e.peerMu.Unlock()
 
 	if before(row.Phase, PhaseOldPeerRemoved) {
 		if row.OldPubkey != "" && row.OldPubkey != row.NewPubkey {

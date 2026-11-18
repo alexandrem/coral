@@ -294,13 +294,15 @@ func (s *Store) Get(ctx context.Context, recordID string) (*Row, error) {
 	return &r, nil
 }
 
-// ListCompleted returns completed enrollment records. Callers must still
-// verify each record against the current key mapping before using it, since an
-// agent may have enrolled again with a rotated WireGuard key.
+// ListCompleted returns the most recent completed enrollment for each identity
+// and key. Callers must still verify the current key mapping before restoring it.
 func (s *Store) ListCompleted(ctx context.Context) ([]*Row, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT record_id, agent_id, colony_id, allocated_ip, new_pubkey
-		 FROM rendezvous_enrollment_state WHERE phase = ?`, string(PhaseCompleted))
+		`SELECT record_id, agent_id, colony_id, allocated_ip, new_pubkey, resolved_endpoint
+		 FROM rendezvous_enrollment_state WHERE phase = ?
+		 QUALIFY row_number() OVER (
+		     PARTITION BY colony_id, agent_id, new_pubkey ORDER BY updated_at DESC, record_id DESC
+		 ) = 1`, string(PhaseCompleted))
 	if err != nil {
 		return nil, fmt.Errorf("enrollment: failed to list completed records: %w", err)
 	}
@@ -309,7 +311,7 @@ func (s *Store) ListCompleted(ctx context.Context) ([]*Row, error) {
 	var completed []*Row
 	for rows.Next() {
 		row := &Row{Phase: PhaseCompleted}
-		if err := rows.Scan(&row.RecordID, &row.AgentID, &row.ColonyID, &row.AllocatedIP, &row.NewPubkey); err != nil {
+		if err := rows.Scan(&row.RecordID, &row.AgentID, &row.ColonyID, &row.AllocatedIP, &row.NewPubkey, &row.ResolvedEndpoint); err != nil {
 			return nil, fmt.Errorf("enrollment: failed to scan completed record: %w", err)
 		}
 		completed = append(completed, row)
