@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -543,10 +544,22 @@ func TestFindPortOwners(t *testing.T) {
 		otherNS     = "net:[4026532501]"
 	)
 
+	// listen adds a process in ns listening on 8080, with the given
+	// environment (NUL-separated, as in /proc/<pid>/environ).
+	listen := func(t *testing.T, root string, pid int, comm, ns, environ string) {
+		t.Helper()
+		addFakeProcessInNS(t, root, pid, comm, ns)
+		inode := strconv.Itoa(pid)
+		addFakeSocket(t, root, pid, 3, inode)
+		writeHostSocketTable(t, root, pid, false, [][3]string{{"00000000:1F90", "0A", inode}})
+		writeProcFile(t, root, fmt.Sprintf("%d/environ", pid), environ)
+	}
+
 	tests := []struct {
-		name  string
-		setup func(t *testing.T, root string)
-		want  PortOwner
+		name    string
+		setup   func(t *testing.T, root string)
+		service string
+		want    PortOwner
 	}{
 		{
 			name: "container listener behind docker-proxy",
@@ -562,6 +575,19 @@ func TestFindPortOwners(t *testing.T) {
 				writeHostSocketTable(t, root, 500, false, [][3]string{{"00000000:1F90", "0A", "901"}})
 			},
 			want: PortOwner{PID: 500, Namespaces: 1},
+		},
+		{
+			name: "swarm service behind dockerd's port reservation",
+			setup: func(t *testing.T, root string) {
+				addFakeProcess(t, root, 988, "dockerd")
+				addFakeSocket(t, root, 988, 90, "906")
+				writeHostSocketTable(t, root, 988, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "906"}})
+
+				addFakeProcessInNS(t, root, 3763261, "api", containerNS)
+				addFakeSocket(t, root, 3763261, 11, "907")
+				writeHostSocketTable(t, root, 3763261, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "907"}})
+			},
+			want: PortOwner{PID: 3763261, Namespaces: 1},
 		},
 		{
 			name: "pre-fork workers sharing one socket resolve to the parent",
@@ -588,6 +614,48 @@ func TestFindPortOwners(t *testing.T) {
 			want: PortOwner{PID: 0, Namespaces: 2},
 		},
 		{
+			// Prod (Swarm) and staging (Compose) run the same image on one
+			// host, next to another application using the same port.
+			name: "same-port containers resolved by OTEL_SERVICE_NAME",
+			setup: func(t *testing.T, root string) {
+				addFakeProcess(t, root, 988, "dockerd")
+				addFakeSocket(t, root, 988, 90, "988")
+				writeHostSocketTable(t, root, 988, false, [][3]string{{"00000000:1F90", "0A", "988"}})
+
+				listen(t, root, 1416, "ui-server", "net:[4026532701]", "PATH=/bin\x00")
+				listen(t, root, 3744819, "api", "net:[4026532702]", "OTEL_SERVICE_NAME=showup-api-staging\x00")
+				listen(t, root, 3763261, "api", "net:[4026532703]", "PATH=/bin\x00OTEL_SERVICE_NAME=showup-api\x00")
+			},
+			service: "showup-api",
+			want:    PortOwner{PID: 3763261, Namespaces: 3},
+		},
+		{
+			name: "same-port containers resolved by SERVICE_NAME",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "SERVICE_NAME=api\x00")
+				listen(t, root, 701, "api", otherNS, "SERVICE_NAME=api-staging\x00")
+			},
+			service: "api",
+			want:    PortOwner{PID: 700, Namespaces: 2},
+		},
+		{
+			name: "same-port containers with the same name stay ambiguous",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "OTEL_SERVICE_NAME=api\x00")
+				listen(t, root, 701, "api", otherNS, "OTEL_SERVICE_NAME=api\x00")
+			},
+			service: "api",
+			want:    PortOwner{PID: 0, Namespaces: 2},
+		},
+		{
+			name: "a single listener wins even when its name differs",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "OTEL_SERVICE_NAME=backend\x00")
+			},
+			service: "api",
+			want:    PortOwner{PID: 700, Namespaces: 1},
+		},
+		{
 			name: "no listener on the port",
 			setup: func(t *testing.T, root string) {
 				addFakeProcess(t, root, 100, "other")
@@ -603,7 +671,7 @@ func TestFindPortOwners(t *testing.T) {
 			root := t.TempDir()
 			tt.setup(t, root)
 
-			owners, err := newTestProvider(root).FindPortOwners([]int{8080})
+			owners, err := newTestProvider(root).FindPortOwners(map[int]string{8080: tt.service})
 			if err != nil {
 				t.Fatalf("FindPortOwners() error = %v", err)
 			}

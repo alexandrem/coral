@@ -33,7 +33,7 @@ var errServiceNotFound = errors.New("service not found")
 // them, across every visible network namespace. It is implemented by
 // discovery.ProcFSProvider and replaced in tests.
 type portOwnerFinder interface {
-	FindPortOwners(ports []int) (map[int]discovery.PortOwner, error)
+	FindPortOwners(names map[int]string) (map[int]discovery.PortOwner, error)
 	ListensOn(pid, port int) bool
 }
 
@@ -83,6 +83,7 @@ type Agent struct {
 	portOwners               portOwnerFinder     // Resolves watched ports to host PIDs.
 	pidRefresh               chan struct{}       // Requests an immediate PID refresh.
 	pidRefreshMu             sync.Mutex          // Serializes PID refreshes so concurrent callers share one scan.
+	ambiguousPorts           map[string]bool     // Service keys already warned as ambiguous; guarded by pidRefreshMu.
 	logger                   zerolog.Logger
 	mu                       sync.RWMutex
 	ctx                      context.Context
@@ -157,6 +158,7 @@ func New(config Config) (*Agent, error) {
 		functionCache:     config.FunctionCache,
 		portOwners:        discovery.NewProcFSProvider(config.Logger),
 		pidRefresh:        make(chan struct{}, 1),
+		ambiguousPorts:    make(map[string]bool),
 		logger:            config.Logger.With().Str("agent_id", config.AgentID).Logger(),
 		ctx:               ctx,
 		cancel:            cancel,
@@ -399,6 +401,7 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 	type target struct {
 		key   string
 		entry *ServiceEntry
+		name  string
 		port  int
 		pid   int
 	}
@@ -409,20 +412,20 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 		if entry.Port == 0 || !include(entry) {
 			continue
 		}
-		targets = append(targets, target{key: key, entry: entry, port: int(entry.Port), pid: int(entry.PID)})
+		targets = append(targets, target{key: key, entry: entry, name: entry.Name(), port: int(entry.Port), pid: int(entry.PID)})
 	}
 	a.mu.RUnlock()
 
 	// Scanning every process's descriptors is costly, so only ports whose
 	// recorded PID no longer listens on them are re-resolved.
 	var stale []target
-	var stalePorts []int
+	stalePorts := make(map[int]string)
 	for _, t := range targets {
 		if t.pid > 0 && a.portOwners.ListensOn(t.pid, t.port) {
 			continue
 		}
 		stale = append(stale, t)
-		stalePorts = append(stalePorts, t.port)
+		stalePorts[t.port] = t.name
 	}
 	if len(stale) == 0 {
 		return
@@ -437,11 +440,19 @@ func (a *Agent) refreshServicePIDs(include func(*ServiceEntry) bool) {
 	updates := make([]pidUpdate, 0, len(stale))
 	for _, t := range stale {
 		owner := owners[t.port]
-		if owner.Namespaces > 1 {
-			a.logger.Debug().
-				Int("port", t.port).
-				Int("namespaces", owner.Namespaces).
-				Msg("Port has listeners in several network namespaces; service PID left unresolved")
+		// Warn once per episode: the condition persists until the operator
+		// acts, and refreshes run every few seconds.
+		if owner.PID == 0 && owner.Namespaces > 1 {
+			if !a.ambiguousPorts[t.key] {
+				a.ambiguousPorts[t.key] = true
+				a.logger.Warn().
+					Str("service", t.name).
+					Int("port", t.port).
+					Int("namespaces", owner.Namespaces).
+					Msgf("Several containers listen on port %d; set OTEL_SERVICE_NAME=%s in the service's container to identify its process", t.port, t.name)
+			}
+		} else {
+			delete(a.ambiguousPorts, t.key)
 		}
 		update := pidUpdate{key: t.key, entry: t.entry, pid: int32(owner.PID)} //nolint:gosec // G115: PIDs fit in int32.
 		if owner.PID > 0 {

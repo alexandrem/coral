@@ -154,18 +154,30 @@ lookup uses the namespace-aware socket join described above, so it finds the
 application listening on 8080 inside the container's network namespace and
 records its PID as seen from the host.
 
-Two other processes complicate that lookup. Docker's userland proxy also
-listens on 8080, in the host namespace, to forward the published port. The
-agent ignores known port forwarders and its own process; otherwise every
-published Compose port would appear to have two owners. Inside the container, a
+Two other kinds of process complicate that lookup. In the host namespace,
+Docker's userland proxy listens on a published Compose port to forward it, and
+the Docker daemon holds a listener that reserves each port a Swarm service
+publishes. The agent ignores these forwarders and its own process; otherwise
+every published port would appear to have two owners. Inside the container, a
 pre-fork server may run several workers sharing one socket. The agent records
 the lowest PID among them, which is normally the parent.
 
-A port is attributed only when its remaining listeners share one network
-namespace. If a second container also listens on its own internal port 8080,
-the agent cannot tell which one `api` means, because the service key is the
-port alone. It leaves the PID unset rather than guessing. This is the identity
-limitation from the previous section, seen from the process side.
+A port whose remaining listeners share one network namespace is attributed to
+that namespace. Often they do not: a host can run production and staging
+copies of the `api` image, each listening on its own internal port 8080. The
+service key is the port alone, so it cannot say which copy `api` means. The
+agent then compares the watched name with each candidate's `OTEL_SERVICE_NAME`,
+or `SERVICE_NAME` when that is absent, read from the process environment, and
+attributes the port only if exactly one candidate matches. Otherwise it leaves
+the PID unset rather than guessing, and warns once until the port resolves.
+The environment is consulted only to break this tie. A single listener is
+attributed whatever its name, so setting the variable never hides a service
+that was found before.
+
+The tie-break identifies one process but not several services. Because the
+service key is still the port, the agent can watch only one of the copies;
+this is the identity limitation from the previous section, seen from the
+process side.
 
 On each later pass, the agent first checks that the recorded process still
 holds a listening socket on the port, which reads only that process's socket

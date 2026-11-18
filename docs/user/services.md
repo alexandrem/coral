@@ -56,15 +56,57 @@ coral services watch api:8080:/health --agent '<agent-id>' --colony '<colony-id>
 ```
 
 The agent must already be running. Registration adds the watch dynamically and
-can trigger a managed Beyla restart; it does not restart the application.
-The agent looks up the process listening on the watched port right away, across
-the network namespaces it can see, so the `PID` column fills in before the
-application serves any request and changes when the application restarts. It
-stays `0` while nothing listens on the port, or when processes in different
-containers listen on it; `coral exec` and CPU profiling need that PID. Do
+can trigger a managed Beyla restart; it does not restart the application. Do
 not treat an existing conflicting registration as an update. Verify the
 resulting inventory and check configuration, especially when using automation.
 Use agent YAML `services` entries for reproducible startup configuration.
+
+## Find the watched process
+
+`coral exec` and CPU profiling act on a watched service's process. The agent
+looks up the process listening on the watched port as soon as the watch is
+added, in every network namespace it can see. Check the `PID` column:
+
+```bash
+coral services list --local --source watched
+```
+
+The PID appears before the application serves any request and changes when
+the application restarts. It stays `0` while nothing listens on the port.
+
+### When several containers use the same port
+
+One host often runs several containers that listen on the same internal port,
+such as production and staging copies of one image. The port alone does not
+identify the service, so the PID stays `0` and the agent log warns once:
+
+```text
+Several containers listen on port 8080; set OTEL_SERVICE_NAME=api in the service's container to identify its process
+```
+
+To resolve it, give the watched container a service name that the others do
+not share, and watch it under that name:
+
+1. Set `OTEL_SERVICE_NAME` in the container's environment to the watch name.
+   `SERVICE_NAME` is used when `OTEL_SERVICE_NAME` is absent. This fragment of
+   the application's Compose or stack file assumes the watch name `api`:
+
+   ```yaml
+   services:
+     api:
+       environment:
+         OTEL_SERVICE_NAME: api
+   ```
+
+2. Redeploy the container so the variable takes effect, and give the other
+   containers on that port different values or none.
+3. Watch the service under the same name, for example
+   `coral services watch api:8080`, and check that the `PID` column is no
+   longer `0`.
+
+An agent holds one watched service per port, so the other containers on that
+port cannot be watched by the same agent. Watch them from an agent that shares
+their network namespace instead.
 
 `coral connect` remains a permanent compatibility alias for
 `coral services watch`. New procedures use the canonical spelling. Fleet

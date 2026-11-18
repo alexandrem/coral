@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -623,12 +625,12 @@ func (f *fakePortOwners) scanCount() int {
 	return f.scans
 }
 
-func (f *fakePortOwners) FindPortOwners(ports []int) (map[int]discovery.PortOwner, error) {
+func (f *fakePortOwners) FindPortOwners(names map[int]string) (map[int]discovery.PortOwner, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scans++
-	owners := make(map[int]discovery.PortOwner, len(ports))
-	for _, port := range ports {
+	owners := make(map[int]discovery.PortOwner, len(names))
+	for port := range names {
 		switch {
 		case f.ambiguous[port]:
 			owners[port] = discovery.PortOwner{Namespaces: 2}
@@ -705,14 +707,31 @@ func TestRefreshServicePIDs_BarePortWatch(t *testing.T) {
 }
 
 // TestRefreshServicePIDs_AmbiguousPortLeftUnresolved verifies a port with
-// listeners in several network namespaces is not attributed to either.
+// listeners in several network namespaces is not attributed to either, and
+// that the operator is warned once rather than on every refresh.
 func TestRefreshServicePIDs_AmbiguousPortLeftUnresolved(t *testing.T) {
 	owners := newFakePortOwners()
 	owners.ambiguous[8080] = true
 	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{Name: "api", Port: 8080})
+	var logs bytes.Buffer
+	agent.logger = zerolog.New(&logs)
+	warnings := func() int { return strings.Count(logs.String(), "OTEL_SERVICE_NAME=api") }
 
 	agent.refreshServicePIDs(watchedOnly)
+	agent.refreshServicePIDs(watchedOnly)
 	assert.Zero(t, entryPID(agent, 8080))
+	assert.Equal(t, 1, warnings())
+
+	// Once resolved, a later ambiguity is reported again.
+	owners.ambiguous[8080] = false
+	owners.set(8080, 4242)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.EqualValues(t, 4242, entryPID(agent, 8080))
+
+	owners.set(8080, 0)
+	owners.ambiguous[8080] = true
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Equal(t, 2, warnings())
 }
 
 // TestRefreshServicePIDs_UpdatesMonitor verifies a watched service with a
