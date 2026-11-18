@@ -102,6 +102,128 @@ func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error)
 	return candidates, nil
 }
 
+// portForwarders lists process names that listen on a port only to relay
+// connections to the real application, such as Docker's userland proxy for
+// a published container port. They never own a service.
+var portForwarders = map[string]bool{
+	"docker-proxy": true,
+	"rootlessport": true,
+	"rootlesskit":  true,
+	"slirp4netns":  true,
+	"pasta":        true,
+}
+
+// PortOwner is the process that owns a listening port, as resolved by
+// FindPortOwners.
+type PortOwner struct {
+	// PID is the lowest PID listening on the port in the one network
+	// namespace that has a listener. It is 0 when no namespace, or more than
+	// one, has a listener.
+	PID int
+
+	// Namespaces counts the distinct network namespaces with a listener on
+	// the port.
+	Namespaces int
+}
+
+// FindPortOwners resolves each port to the process listening on it,
+// scanning every visible network namespace so containerized listeners are
+// found alongside host processes. Port forwarders and the calling process
+// are ignored. A port resolves to a PID only when its listeners all share
+// one network namespace; within it, the lowest PID wins, which is the parent
+// when pre-fork workers share one socket. Every requested port has an entry
+// in the result.
+func (p *ProcFSProvider) FindPortOwners(ports []int) (map[int]PortOwner, error) {
+	root := p.root()
+
+	pids, err := listPids(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list processes: %w", err)
+	}
+	nsGroups, pidNamespace, _ := groupPIDsByNamespace(root, pids)
+	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace)
+
+	wanted := make(map[int]bool, len(ports))
+	for _, port := range ports {
+		wanted[port] = true
+	}
+
+	// listeners[port][ns] is the lowest PID listening on port within ns.
+	listeners := make(map[int]map[netNamespaceID]int)
+	self := os.Getpid()
+	for pid, pidPorts := range portsByPID {
+		if pid == self || !slices.ContainsFunc(pidPorts, func(port int) bool { return wanted[port] }) {
+			continue
+		}
+		if name, ok := readComm(root, pid); !ok || portForwarders[name] {
+			continue
+		}
+		ns := pidNamespace[pid]
+		for _, port := range pidPorts {
+			if !wanted[port] {
+				continue
+			}
+			if listeners[port] == nil {
+				listeners[port] = make(map[netNamespaceID]int)
+			}
+			if cur, ok := listeners[port][ns]; !ok || pid < cur {
+				listeners[port][ns] = pid
+			}
+		}
+	}
+
+	owners := make(map[int]PortOwner, len(ports))
+	for _, port := range ports {
+		byNS := listeners[port]
+		owner := PortOwner{Namespaces: len(byNS)}
+		if len(byNS) == 1 {
+			for _, pid := range byNS {
+				owner.PID = pid
+			}
+		}
+		owners[port] = owner
+	}
+	return owners, nil
+}
+
+// ListensOn reports whether pid currently holds a listening socket on port
+// in its own network namespace. It reads only that process's socket table
+// and descriptors, so it is a cheap way to confirm that a PID returned by
+// FindPortOwners still belongs to the same listener.
+func (p *ProcFSProvider) ListensOn(pid, port int) bool {
+	pidRoot := filepath.Join(p.root(), strconv.Itoa(pid))
+
+	table, err := scanListeningSockets(pidRoot)
+	if err != nil {
+		return false
+	}
+	inodes := make(map[string]bool)
+	for inode, listenPort := range table {
+		if listenPort == port {
+			inodes[inode] = true
+		}
+	}
+	if len(inodes) == 0 {
+		return false
+	}
+
+	fdDir := filepath.Join(pidRoot, "fd")
+	entries, err := os.ReadDir(fdDir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		link, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if inode, ok := parseSocketInode(link); ok && inodes[inode] {
+			return true
+		}
+	}
+	return false
+}
+
 // listPids returns every numeric directory entry under root, sorted
 // ascending.
 func listPids(root string) ([]int, error) {

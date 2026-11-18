@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -42,6 +43,34 @@ func (s *DebugService) resolveSdkAddr(serviceName, provided string) (string, err
 		return provided, nil
 	}
 	return s.agent.ResolveSDK(serviceName)
+}
+
+// resolveProfilePID returns the PID to profile for serviceName. The PID a
+// caller sent may be stale, e.g. read from the inventory before the service
+// restarted, so a service this agent tracks is always profiled at its
+// currently verified PID. requested is used only for a service the agent
+// does not track.
+func (s *DebugService) resolveProfilePID(serviceName string, requested int32) (int32, error) {
+	if serviceName != "" {
+		pid, err := s.agent.ResolveServicePID(serviceName)
+		switch {
+		case err == nil:
+			if requested != 0 && requested != pid {
+				s.logger.Info().
+					Str("service", serviceName).
+					Int32("requested_pid", requested).
+					Int32("pid", pid).
+					Msg("Requested PID no longer belongs to the service; profiling its current process")
+			}
+			return pid, nil
+		case !errors.Is(err, errServiceNotFound):
+			return 0, err
+		}
+	}
+	if requested <= 0 {
+		return 0, fmt.Errorf("no PID known for service %q", serviceName)
+	}
+	return requested, nil
 }
 
 // StartUprobeCollector handles requests to start uprobe collectors.
@@ -242,8 +271,17 @@ func (s *DebugService) ProfileCPU(
 		}, nil
 	}
 
+	pid, err := s.resolveProfilePID(req.ServiceName, req.Pid)
+	if err != nil {
+		s.logger.Error().Err(err).Str("service", req.ServiceName).Msg("Failed to resolve service PID for CPU profiling")
+		return &agentv1.ProfileCPUAgentResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to resolve service PID: %v", err),
+		}, nil
+	}
+
 	// Use the ProfileCPU method from the SessionManager
-	result, err := profiler.ProfileCPU(int(req.Pid), int(req.DurationSeconds), int(req.FrequencyHz))
+	result, err := profiler.ProfileCPU(int(pid), int(req.DurationSeconds), int(req.FrequencyHz))
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to collect CPU profile")
 		return &agentv1.ProfileCPUAgentResponse{

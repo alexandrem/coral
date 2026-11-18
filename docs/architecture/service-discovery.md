@@ -123,16 +123,68 @@ observed even though its name is authoritative.
 
 For example, an auto-observed process on port 3000 can be promoted in place by
 an explicit service connection with a health check. The same entry keeps its
-process metadata while acquiring a monitor and an authoritative name. Profiling
-callbacks are attached to that monitor; merely seeing traffic is not equivalent
-to starting continuous profiling or indexing every observed binary.
+process metadata while acquiring a monitor and an authoritative name. Only
+authoritative entries are added to continuous profiling, and only watched ones
+are indexed; merely seeing traffic is not equivalent to starting continuous
+profiling or indexing every observed binary.
 
 Portless connections require an executable pattern instead of a port. The
 handler rejects a request containing both or neither. They let a worker that
 never binds a socket receive an explicit service identity and liveness check.
 
+## Resolving a service's process
+
+A service name is only useful to `coral exec` and CPU profiling once it maps to
+a host PID. Beyla's span feedback cannot supply that mapping for a quiet
+application, and a bare port connection has no monitor. The agent therefore
+resolves the PID of every authoritative port-based entry itself, from the
+listening socket, independently of traffic, monitors, and `monitor_all`.
+
+`Agent.trackServicePIDs` runs from `Agent.Start` on Linux. It refreshes at once,
+then every `DefaultServicePIDRefreshInterval` and whenever `ConnectService`
+signals the coalescing `pidRefresh` channel, so a configured service is resolved
+at startup and a runtime watch is resolved without waiting for a tick. Each
+refresh, in `refreshServicePIDs`, first confirms each recorded PID with
+`ProcFSProvider.ListensOn`, which reads only that process's socket table and
+descriptors. Only entries that fail the check are re-resolved, together, by one
+`ProcFSProvider.FindPortOwners` scan. That scan reuses the namespace-aware
+socket join described above, so a container listener resolves to its host PID.
+
+`FindPortOwners` attributes a port only when its listeners share one network
+namespace, and then picks the lowest PID, which is the parent of pre-fork
+workers sharing one socket. It ignores the agent and port forwarders such as
+`docker-proxy`, which would otherwise make every published Compose port look
+ambiguous. When no namespace, or several, listen on the port, the entry's PID is
+cleared rather than kept: a stale PID is worse than none, because the kernel can
+reuse it for an unrelated process. This is the namespace limitation from the
+previous section seen from the other side: the port key cannot choose between
+two containers listening on the same internal port.
+
+The scan runs without the agent lock. Before writing, the refresh checks that
+the map still holds the same entry, so a disconnect or reconnect during the scan
+is not overwritten. After releasing the lock, it pushes a new PID and binary
+path into the entry's monitor, if any, through `setProcessInfo`. For an
+authoritative entry it also calls the continuous CPU profiler, which replaces a
+loop whose PID changed after a restart. The monitor therefore no longer looks up
+port-based PIDs itself; it still resolves portless services by executable
+pattern. `ListServices` reports the entry's PID in preference to the monitor's,
+because an SDK-reported PID can come from inside a container's PID namespace.
+
+The inventory can still be read between refreshes, so consumers verify before
+acting. `Agent.ResolveServicePID` returns a recorded PID only if it still
+listens on the service's port, re-resolves the entry on demand otherwise, and
+rematches the pattern for a portless service. CPU profiling uses it in place of
+the PID the Colony read from the inventory, and refuses a tracked service whose
+process is gone. Container exec uses it when the request names a service and no
+explicit selector, then applies the same checks as a `pid:<n>` selector. If the
+agent does not track the service or cannot resolve it, exec falls back to its
+default selection, which still refuses an unqualified target in the host PID
+namespace.
+
 Implementation: [ServiceEntry](../../internal/agent/service_entry.go),
-[`serviceKey` and promotion](../../internal/agent/agent.go),
+[`serviceKey`, promotion, and PID tracking](../../internal/agent/agent.go),
+[port owners](../../internal/agent/beyla/discovery/procfs.go),
+[container exec](../../internal/agent/container_handler.go),
 [connection validation](../../internal/agent/service_handler.go), and
 [service-entry tests](../../internal/agent/service_entry_test.go).
 

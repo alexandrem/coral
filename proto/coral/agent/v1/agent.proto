@@ -826,6 +826,13 @@ message ContainerExecRequest {
   // Namespaces to enter (default: ["mnt"] for sidecar mode).
   // Options: "mnt", "pid", "net", "ipc", "uts", "cgroup"
   repeated string namespaces = 7;
+
+  // Service the command targets. With an empty container_name, the agent
+  // enters the namespaces of this service's verified process, as if
+  // container_name were pid:<service PID>. If the agent does not track the
+  // service or cannot resolve its process, the empty-selector behavior
+  // applies instead.
+  string service_name = 8;
 }
 
 message ContainerExecResponse {

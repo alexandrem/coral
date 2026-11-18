@@ -224,9 +224,18 @@ func (h *ServiceHandler) ListServices(
 			serviceStatus.Status = string(monitorStatus.Status)
 			serviceStatus.LastCheck = timestamppb.New(monitorStatus.LastCheck)
 			serviceStatus.Error = monitorStatus.Error
-			serviceStatus.ProcessId = monitorStatus.ProcessID
-			serviceStatus.BinaryPath = monitorStatus.BinaryPath
-			serviceStatus.BinaryHash = monitorStatus.BinaryHash
+			// The entry holds the host PID resolved from the listening
+			// socket; the monitor's may be an SDK-reported PID from inside
+			// the container's PID namespace, so it is only a fallback.
+			if entry.PID == 0 {
+				serviceStatus.ProcessId = monitorStatus.ProcessID
+			}
+			if entry.BinaryPath == "" {
+				serviceStatus.BinaryPath = monitorStatus.BinaryPath
+			}
+			if monitorStatus.BinaryHash != "" {
+				serviceStatus.BinaryHash = monitorStatus.BinaryHash
+			}
 		}
 
 		serviceStatuses = append(serviceStatuses, serviceStatus)

@@ -184,16 +184,15 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		return
 	}
 
-	var pid int32
-	var err error
-	if m.service.Port == 0 && m.service.ExePattern != "" {
-		// Portless service (RFD 111): resolve by executable pattern instead
-		// of listening port.
-		pid, err = proc.FindPidByExePattern(m.service.ExePattern)
-	} else {
-		// findPidByPort finds the PID of the process listening on the given port.
-		pid, err = proc.FindPidByPort(int(m.service.Port))
+	// Port-based services are resolved by the agent's PID tracker, which
+	// scans listeners in every visible network namespace and pushes the
+	// result through setProcessInfo. Only portless services (RFD 111) are
+	// resolved here, by executable pattern.
+	if m.service.Port != 0 || m.service.ExePattern == "" {
+		return
 	}
+
+	pid, err := proc.FindPidByExePattern(m.service.ExePattern)
 	if err != nil {
 		// Don't log error on every check to avoid spam, unless debug logging is on
 		m.logger.Debug().Err(err).Msg("Failed to discover process ID")
@@ -229,6 +228,16 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		}
 	}
 	m.mu.Unlock()
+}
+
+// setProcessInfo records the process resolved for a port-based service by
+// the agent's PID tracker. The tracker notifies the continuous profiler
+// itself, so no callback fires here.
+func (m *ServiceMonitor) setProcessInfo(pid int32, binaryPath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.processID = pid
+	m.binaryPath = binaryPath
 }
 
 // performHealthCheck executes a health check for the service.

@@ -56,7 +56,12 @@ coral services watch api:8080:/health --agent '<agent-id>' --colony '<colony-id>
 ```
 
 The agent must already be running. Registration adds the watch dynamically and
-can trigger a managed Beyla restart; it does not restart the application. Do
+can trigger a managed Beyla restart; it does not restart the application.
+The agent looks up the process listening on the watched port right away, across
+the network namespaces it can see, so the `PID` column fills in before the
+application serves any request and changes when the application restarts. It
+stays `0` while nothing listens on the port, or when processes in different
+containers listen on it; `coral exec` and CPU profiling need that PID. Do
 not treat an existing conflicting registration as an update. Verify the
 resulting inventory and check configuration, especially when using automation.
 Use agent YAML `services` entries for reproducible startup configuration.

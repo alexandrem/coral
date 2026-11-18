@@ -173,6 +173,10 @@ const (
 	// DefaultServiceCheckInterval is the default interval for agent health checks.
 	DefaultServiceCheckInterval = 10 * time.Second
 
+	// DefaultServicePIDRefreshInterval is how often the agent re-verifies, and
+	// if needed re-resolves, the PIDs of watched port-based services.
+	DefaultServicePIDRefreshInterval = 10 * time.Second
+
 	// DefaultBeylaDebounceInterval is the time to wait before restarting Beyla after discovery updates.
 	DefaultBeylaDebounceInterval = 5 * time.Second
 

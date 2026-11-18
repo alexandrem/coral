@@ -965,14 +965,14 @@ Execute command in a service's container.
 coral exec SERVICE [command...] [flags]
 ```
 
-Requires a service and command. Selectors: bare exact process name, `id:<container-id-prefix>`, or `pid:<agent-visible-pid>`. Host PID mode requires a selector and refuses host-mount-namespace targets. Ambiguous matches fail. Default namespace is `mnt`; the selected container must contain the requested executable. See [host and container commands](user/remote-execution.md).
+Requires a service and command. Without `--container`, the agent enters the service's own process, verified against the socket listening on the service's port. When the agent cannot resolve that process, it falls back to the lowest visible PID in sidecar mode and requires a selector in host PID mode. Selectors: bare exact process name, `id:<container-id-prefix>`, or `pid:<agent-visible-pid>`. Host-mount-namespace targets are refused in host PID mode. Ambiguous matches fail. Default namespace is `mnt`; the selected container must contain the requested executable. See [host and container commands](user/remote-execution.md).
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--agent` | string | empty | Agent ID (resolves via colony registry) |
 | `--agent-addr` | string | empty | Agent address (default: auto-discover) |
 | `--colony` | string | empty | Colony ID (default: auto-detect) |
-| `--container` | string | empty | Target container: process name, id:<container ID prefix>, or pid:<n>; required with hostPID |
+| `--container` | string | empty | Target container: process name, id:<container ID prefix>, or pid:<n> (default: the service's process) |
 | `--env` | stringArray | `[]` | Environment variables (KEY=VALUE) |
 | `--namespaces` | stringSlice | `[mnt]` | Namespaces to enter (mnt,pid,net,ipc,uts,cgroup) |
 | `--timeout` | uint32 | `30` | Timeout in seconds (max 300) |
