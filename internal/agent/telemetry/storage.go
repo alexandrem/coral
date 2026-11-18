@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // Storage handles local storage of filtered telemetry spans.
@@ -77,7 +79,11 @@ func (s *Storage) initSchema() error {
 
 	// Force WAL checkpoint so remote HTTP clients can see the schema.
 	// Without this, the tables might not be visible when serving the file over HTTP.
+	// A fatal error invalidates the database, so stop rather than run more statements.
 	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		if duckdb.IsFatal(err) {
+			return fmt.Errorf("failed to checkpoint database: %w", err)
+		}
 		s.logger.Warn().Err(err).Msg("Failed to checkpoint database (tables may not be visible to remote clients)")
 	}
 
@@ -93,6 +99,9 @@ func (s *Storage) initSchema() error {
 	// We do NOT use FORCE CHECKPOINT as it can abort active transactions.
 	// If this fails (e.g. due to contention), we log and continue, relying on auto-checkpoint.
 	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		if duckdb.IsFatal(err) {
+			return fmt.Errorf("failed to checkpoint database: %w", err)
+		}
 		s.logger.Warn().Err(err).Msg("Initial checkpoint failed (tables may take a moment to appear remotely)")
 	}
 

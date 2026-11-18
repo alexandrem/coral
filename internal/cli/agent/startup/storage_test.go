@@ -1,6 +1,8 @@
 package startup
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/coral-mesh/coral/internal/config"
@@ -48,5 +50,53 @@ func TestStorageManagerMonitorAllStartsBeyla(t *testing.T) {
 				t.Errorf("BeylaConfig.MonitorAll = %v, want %v", result.BeylaConfig.MonitorAll, tt.monitorAll)
 			}
 		})
+	}
+}
+
+// TestBackupDBFiles verifies that a database and its WAL are copied together
+// and that an existing backup is never overwritten.
+func TestBackupDBFiles(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "metrics.duckdb")
+	dst := src + ".corrupt"
+
+	if err := os.WriteFile(src, []byte("db"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src+".wal", []byte("wal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := backupDBFiles(src, dst); err != nil {
+		t.Fatalf("backupDBFiles() error = %v", err)
+	}
+	for path, want := range map[string]string{dst: "db", dst + ".wal": "wal"} {
+		got, err := os.ReadFile(path) // #nosec G304 -- test file.
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+
+	if err := backupDBFiles(src, dst); err == nil {
+		t.Error("backupDBFiles() over an existing backup succeeded, want error")
+	}
+}
+
+// TestBackupDBFilesWithoutWAL verifies that a missing WAL is not an error.
+func TestBackupDBFilesWithoutWAL(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "metrics.duckdb")
+	if err := os.WriteFile(src, []byte("db"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := backupDBFiles(src, src+".corrupt"); err != nil {
+		t.Fatalf("backupDBFiles() error = %v", err)
+	}
+	if _, err := os.Stat(src + ".corrupt.wal"); !os.IsNotExist(err) {
+		t.Errorf("WAL backup exists without a source WAL (err = %v)", err)
 	}
 }
