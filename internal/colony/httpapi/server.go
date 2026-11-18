@@ -15,6 +15,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -193,6 +194,9 @@ func New(cfg Config) (*Server, error) {
 		requireAuth := cfg.PublicConfig.Auth.Require
 		// Default to requiring auth unless explicitly disabled.
 		if !cfg.PublicConfig.Auth.Require && cfg.PublicConfig.Auth.TokensFile == "" {
+			requireAuth = true
+		}
+		if r.URL.Path == colonyv1connect.ColonyServiceRemoveAgentProcedure {
 			requireAuth = true
 		}
 

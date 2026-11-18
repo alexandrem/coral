@@ -27,9 +27,11 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/ca"
+	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -56,7 +58,11 @@ func (d *restorePeerDevice) TriggerHandshake(string) error {
 
 func TestRestorePeersRecoversRegistryWithMissingDiscoveryRecord(t *testing.T) {
 	ctx := context.Background()
-	store := newTestStore(t)
+	db, err := database.New(t.TempDir(), "colony-1", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store, err := NewStore(db.DB())
+	require.NoError(t, err)
 	keys, err := NewKeyStore(store.db)
 	require.NoError(t, err)
 	const agentID, colonyID, ip = "agent-1", "colony-1", "100.64.0.3"
@@ -109,6 +115,22 @@ func TestRestorePeersRecoversRegistryWithMissingDiscoveryRecord(t *testing.T) {
 		require.Equal(t, ip, entry.MeshIPv4)
 		require.Equal(t, services, entry.Services)
 		require.Equal(t, cached.LastSeen, entry.LastSeen)
+	})
+
+	t.Run("skip removed agents after restart", func(t *testing.T) {
+		reg := registry.New(db)
+		require.NoError(t, reg.RestoreMeshIPv4(ctx, agentID, ip))
+		require.NoError(t, reg.Remove(ctx, agentID))
+
+		reloaded := registry.New(db)
+		require.NoError(t, reloaded.LoadFromDatabase(ctx))
+		device := &restorePeerDevice{}
+		e := &Enroller{store: store, keys: keys, registry: reloaded, discoveryClient: client, wgDevice: device,
+			cfg: &config.ResolvedConfig{ColonyID: colonyID}, logger: zerolog.Nop()}
+		require.NoError(t, e.RestorePeers(ctx))
+		require.Nil(t, device.peer)
+		require.NoError(t, reloaded.RestoreMeshIPv4(ctx, agentID, ip), "a restoration already in flight must also skip the registry update")
+		require.Zero(t, reloaded.Count())
 	})
 }
 

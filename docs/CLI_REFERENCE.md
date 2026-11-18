@@ -291,6 +291,16 @@ coral colony agents [flags]
 | `--version` | stringSlice | `[]` | Filter exact agent versions (comma-separated) |
 | `--wide` | bool | `false` | Show mesh addresses and full service lists |
 
+##### coral colony agents remove
+
+Remove one decommissioned agent and its cached service registrations. The
+colony accepts removal after the agent's heartbeat becomes unhealthy.
+Run on the colony host or use the public HTTPS endpoint with an admin API token.
+
+```text
+coral colony agents remove <agent-id> [--colony <colony-id>]
+```
+
 #### coral colony ca
 
 Manage colony certificate authority.

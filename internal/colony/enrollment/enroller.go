@@ -116,6 +116,15 @@ func (e *Enroller) restorePeer(ctx context.Context, row *Row) bool {
 	e.peerMu.Lock()
 	defer e.peerMu.Unlock()
 
+	removed, err := e.registry.IsRemoved(ctx, row.AgentID)
+	if err != nil {
+		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to check Agent removal")
+		return false
+	}
+	if removed {
+		return false
+	}
+
 	currentPubkey, err := e.keys.CurrentPubkey(ctx, row.AgentID)
 	if err != nil {
 		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent peer key")
@@ -144,7 +153,9 @@ func (e *Enroller) restorePeer(ctx context.Context, row *Row) bool {
 
 	allowedIP := row.AllocatedIP + "/32"
 	if hasPeer && existing.Endpoint == endpoint && slices.Contains(existing.AllowedIPs, allowedIP) {
-		e.registry.RestoreMeshIPv4(row.AgentID, row.AllocatedIP)
+		if err := e.registry.RestoreMeshIPv4(ctx, row.AgentID, row.AllocatedIP); err != nil {
+			e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent registration")
+		}
 		return false
 	}
 	if endpoint == "" {
@@ -161,7 +172,9 @@ func (e *Enroller) restorePeer(ctx context.Context, row *Row) bool {
 		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to restore Agent WireGuard peer")
 		return false
 	}
-	e.registry.RestoreMeshIPv4(row.AgentID, row.AllocatedIP)
+	if err := e.registry.RestoreMeshIPv4(ctx, row.AgentID, row.AllocatedIP); err != nil {
+		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: unable to restore Agent registration")
+	}
 	if err := e.wgDevice.TriggerHandshake(row.NewPubkey); err != nil {
 		e.logger.Warn().Err(err).Str("agent_id", row.AgentID).Msg("rendezvous: failed to trigger restored Agent handshake")
 	}

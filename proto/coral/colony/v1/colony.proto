@@ -19,6 +19,9 @@ service ColonyService {
   // List connected agents.
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
 
+  // Remove an unhealthy agent from the colony registry.
+  rpc RemoveAgent(RemoveAgentRequest) returns (RemoveAgentResponse);
+
   // Get network topology.
   rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
 
@@ -147,6 +150,14 @@ message ListAgentsRequest {}
 message ListAgentsResponse {
   repeated Agent agents = 1;
 }
+
+message RemoveAgentRequest {
+  string agent_id = 1;
+  // Expected colony ID, to avoid removing an agent from an unintended colony.
+  string colony_id = 2;
+}
+
+message RemoveAgentResponse {}
 
 message Agent {
   // Agent identifier.

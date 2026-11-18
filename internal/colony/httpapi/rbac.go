@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/auth"
 )
 
@@ -40,7 +41,8 @@ var MethodPermissions = map[string]auth.Permission{
 	"/coral.colony.v1.ColonyDebugService/ListFunctions":     auth.PermissionQuery,
 	"/coral.colony.v1.ColonyDebugService/UpdateProbeFilter": auth.PermissionDebug, // RFD 090
 
-	// Certificate operations (PermissionAdmin).
+	// Administration operations (PermissionAdmin).
+	colonyv1connect.ColonyServiceRemoveAgentProcedure:   auth.PermissionAdmin,
 	"/coral.colony.v1.ColonyService/RequestCertificate": auth.PermissionAdmin,
 	"/coral.colony.v1.ColonyService/RevokeCertificate":  auth.PermissionAdmin,
 }

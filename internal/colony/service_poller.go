@@ -20,7 +20,6 @@ import (
 type ServicePoller struct {
 	*poller.BasePoller
 	registry     *registry.Registry
-	db           *database.Database
 	pollInterval time.Duration
 	logger       zerolog.Logger
 }
@@ -29,7 +28,6 @@ type ServicePoller struct {
 func NewServicePoller(
 	ctx context.Context,
 	registry *registry.Registry,
-	db *database.Database,
 	pollInterval time.Duration,
 	logger zerolog.Logger,
 ) *ServicePoller {
@@ -44,7 +42,6 @@ func NewServicePoller(
 	return &ServicePoller{
 		BasePoller:   base,
 		registry:     registry,
-		db:           db,
 		pollInterval: pollInterval,
 		logger:       componentLogger,
 	}
@@ -92,7 +89,7 @@ func (p *ServicePoller) PollOnce(ctx context.Context) error {
 				LastSeen:     now,
 			}
 
-			if err := p.db.UpsertService(ctx, dbService); err != nil {
+			if err := p.registry.PersistService(ctx, agent, dbService); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("service_id", serviceID).

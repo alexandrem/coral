@@ -4,6 +4,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,6 +26,11 @@ const (
 	StatusUnhealthy AgentStatus = "unhealthy"
 )
 
+var (
+	ErrAgentNotFound = errors.New("agent not found")
+	ErrAgentActive   = errors.New("agent heartbeat is healthy or degraded")
+)
+
 // Entry represents a registered agent in the colony.
 type Entry struct {
 	AgentID         string
@@ -40,16 +46,18 @@ type Entry struct {
 
 // Registry is an in-memory store for agent registrations.
 type Registry struct {
-	mu      sync.RWMutex
-	entries map[string]*Entry
-	db      *database.Database
+	mu            sync.RWMutex
+	entries       map[string]*Entry
+	pendingWrites map[string]*sync.WaitGroup
+	db            *database.Database
 }
 
 // New creates a new Registry.
 func New(db *database.Database) *Registry {
 	return &Registry{
-		entries: make(map[string]*Entry),
-		db:      db,
+		entries:       make(map[string]*Entry),
+		pendingWrites: make(map[string]*sync.WaitGroup),
+		db:            db,
 	}
 }
 
@@ -61,6 +69,9 @@ func (r *Registry) LoadFromDatabase(ctx context.Context) error {
 		return nil
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	services, err := r.db.ListAllServices(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list services from database: %w", err)
@@ -70,9 +81,6 @@ func (r *Registry) LoadFromDatabase(ctx context.Context) error {
 		log.Debug().Msg("No persisted services found in database")
 		return nil
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	// Group services by agent_id.
 	agentServices := make(map[string][]*meshv1.ServiceInfo)
@@ -146,21 +154,65 @@ func (r *Registry) LoadFromDatabase(ctx context.Context) error {
 	return nil
 }
 
+// IsRemoved reports whether an agent was explicitly removed from the registry.
+func (r *Registry) IsRemoved(ctx context.Context, agentID string) (bool, error) {
+	if r.db == nil {
+		return false, nil
+	}
+	return r.db.IsAgentRemoved(ctx, agentID)
+}
+
 // RestoreMeshIPv4 fills in an agent's persisted mesh assignment without changing
 // cached services or recording a new heartbeat.
-func (r *Registry) RestoreMeshIPv4(agentID, meshIPv4 string) {
+func (r *Registry) RestoreMeshIPv4(ctx context.Context, agentID, meshIPv4 string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	entry := Entry{AgentID: agentID}
 	if existing, ok := r.entries[agentID]; ok {
 		if existing.MeshIPv4 != "" {
-			return
+			return nil
 		}
 		entry = *existing
+	} else {
+		removed, err := r.IsRemoved(ctx, agentID)
+		if err != nil || removed {
+			return err
+		}
 	}
 	entry.MeshIPv4 = meshIPv4
 	r.entries[agentID] = &entry
+	return nil
+}
+
+// Remove deletes an unhealthy agent's registration. Retrying a successful removal is safe.
+func (r *Registry) Remove(ctx context.Context, agentID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, exists := r.entries[agentID]
+	if !exists {
+		removed, err := r.IsRemoved(ctx, agentID)
+		if err != nil || removed {
+			return err
+		}
+		return ErrAgentNotFound
+	}
+	if DetermineStatus(entry.LastSeen, time.Now()) != StatusUnhealthy {
+		return ErrAgentActive
+	}
+
+	if r.db != nil {
+		if pending := r.pendingWrites[agentID]; pending != nil {
+			pending.Wait()
+		}
+		if err := r.db.RemoveAgentRegistration(ctx, agentID); err != nil {
+			return fmt.Errorf("persist agent removal: %w", err)
+		}
+	}
+	delete(r.entries, agentID)
+	delete(r.pendingWrites, agentID)
+	return nil
 }
 
 // Register adds or updates an agent registration.
@@ -195,6 +247,13 @@ func (r *Registry) Register(
 		existing.ProtocolVersion = protocolVersion
 		entry = existing
 	} else {
+		if r.db != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyServiceQueryTimeout)
+			defer cancel()
+			if err := r.db.ClearAgentRemoval(ctx, agentID); err != nil {
+				return nil, fmt.Errorf("clear prior agent removal: %w", err)
+			}
+		}
 		// Create new entry.
 		entry = &Entry{
 			AgentID:         agentID,
@@ -217,7 +276,10 @@ func (r *Registry) Register(
 		servicesCopy := make([]*meshv1.ServiceInfo, len(services))
 		copy(servicesCopy, services)
 
+		done := r.beginPersistence(agentID)
 		go func(agentID, agentName string, services []*meshv1.ServiceInfo, lastSeen time.Time) {
+			defer done()
+
 			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyAgentQueryTimeout)
 			defer cancel()
 
@@ -299,7 +361,10 @@ func (r *Registry) UpdateHeartbeat(agentID string) error {
 
 	// Update persistence.
 	if r.db != nil {
+		done := r.beginPersistence(agentID)
 		go func(agentID string, lastSeen time.Time) {
+			defer done()
+
 			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyServiceQueryTimeout)
 			defer cancel()
 
@@ -312,6 +377,36 @@ func (r *Registry) UpdateHeartbeat(agentID string) error {
 	}
 
 	return nil
+}
+
+// PersistService saves a polled service only if its agent is still registered.
+func (r *Registry) PersistService(ctx context.Context, agent *Entry, service *database.Service) error {
+	if r.db == nil {
+		return nil
+	}
+
+	r.mu.Lock()
+	if r.entries[agent.AgentID] != agent {
+		r.mu.Unlock()
+		return nil
+	}
+	done := r.beginPersistence(agent.AgentID)
+	r.mu.Unlock()
+	defer done()
+
+	return r.db.UpsertService(ctx, service)
+}
+
+// beginPersistence must be called with r.mu held. Writers can finish without
+// taking the lock so removal can wait before deleting their database rows.
+func (r *Registry) beginPersistence(agentID string) func() {
+	pending := r.pendingWrites[agentID]
+	if pending == nil {
+		pending = &sync.WaitGroup{}
+		r.pendingWrites[agentID] = pending
+	}
+	pending.Add(1)
+	return pending.Done
 }
 
 // Get retrieves an agent registration by agent ID.

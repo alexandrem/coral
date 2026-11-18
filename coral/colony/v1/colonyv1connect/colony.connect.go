@@ -39,6 +39,9 @@ const (
 	// ColonyServiceListAgentsProcedure is the fully-qualified name of the ColonyService's ListAgents
 	// RPC.
 	ColonyServiceListAgentsProcedure = "/coral.colony.v1.ColonyService/ListAgents"
+	// ColonyServiceRemoveAgentProcedure is the fully-qualified name of the ColonyService's RemoveAgent
+	// RPC.
+	ColonyServiceRemoveAgentProcedure = "/coral.colony.v1.ColonyService/RemoveAgent"
 	// ColonyServiceGetTopologyProcedure is the fully-qualified name of the ColonyService's GetTopology
 	// RPC.
 	ColonyServiceGetTopologyProcedure = "/coral.colony.v1.ColonyService/GetTopology"
@@ -106,6 +109,8 @@ type ColonyServiceClient interface {
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
 	// List connected agents.
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
+	// Remove an unhealthy agent from the colony registry.
+	RemoveAgent(context.Context, *connect.Request[v1.RemoveAgentRequest]) (*connect.Response[v1.RemoveAgentResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
 	// Unified query interface (RFD 067) - comprehensive queries for detailed analysis.
@@ -170,6 +175,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			httpClient,
 			baseURL+ColonyServiceListAgentsProcedure,
 			connect.WithSchema(colonyServiceMethods.ByName("ListAgents")),
+			connect.WithClientOptions(opts...),
+		),
+		removeAgent: connect.NewClient[v1.RemoveAgentRequest, v1.RemoveAgentResponse](
+			httpClient,
+			baseURL+ColonyServiceRemoveAgentProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("RemoveAgent")),
 			connect.WithClientOptions(opts...),
 		),
 		getTopology: connect.NewClient[v1.GetTopologyRequest, v1.GetTopologyResponse](
@@ -305,6 +316,7 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 type colonyServiceClient struct {
 	getStatus            *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
 	listAgents           *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	removeAgent          *connect.Client[v1.RemoveAgentRequest, v1.RemoveAgentResponse]
 	getTopology          *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
 	queryUnifiedSummary  *connect.Client[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse]
 	queryUnifiedTraces   *connect.Client[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse]
@@ -336,6 +348,11 @@ func (c *colonyServiceClient) GetStatus(ctx context.Context, req *connect.Reques
 // ListAgents calls coral.colony.v1.ColonyService.ListAgents.
 func (c *colonyServiceClient) ListAgents(ctx context.Context, req *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error) {
 	return c.listAgents.CallUnary(ctx, req)
+}
+
+// RemoveAgent calls coral.colony.v1.ColonyService.RemoveAgent.
+func (c *colonyServiceClient) RemoveAgent(ctx context.Context, req *connect.Request[v1.RemoveAgentRequest]) (*connect.Response[v1.RemoveAgentResponse], error) {
+	return c.removeAgent.CallUnary(ctx, req)
 }
 
 // GetTopology calls coral.colony.v1.ColonyService.GetTopology.
@@ -449,6 +466,8 @@ type ColonyServiceHandler interface {
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
 	// List connected agents.
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
+	// Remove an unhealthy agent from the colony registry.
+	RemoveAgent(context.Context, *connect.Request[v1.RemoveAgentRequest]) (*connect.Response[v1.RemoveAgentResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
 	// Unified query interface (RFD 067) - comprehensive queries for detailed analysis.
@@ -509,6 +528,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		ColonyServiceListAgentsProcedure,
 		svc.ListAgents,
 		connect.WithSchema(colonyServiceMethods.ByName("ListAgents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceRemoveAgentHandler := connect.NewUnaryHandler(
+		ColonyServiceRemoveAgentProcedure,
+		svc.RemoveAgent,
+		connect.WithSchema(colonyServiceMethods.ByName("RemoveAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
 	colonyServiceGetTopologyHandler := connect.NewUnaryHandler(
@@ -643,6 +668,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceGetStatusHandler.ServeHTTP(w, r)
 		case ColonyServiceListAgentsProcedure:
 			colonyServiceListAgentsHandler.ServeHTTP(w, r)
+		case ColonyServiceRemoveAgentProcedure:
+			colonyServiceRemoveAgentHandler.ServeHTTP(w, r)
 		case ColonyServiceGetTopologyProcedure:
 			colonyServiceGetTopologyHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryUnifiedSummaryProcedure:
@@ -700,6 +727,10 @@ func (UnimplementedColonyServiceHandler) GetStatus(context.Context, *connect.Req
 
 func (UnimplementedColonyServiceHandler) ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ListAgents is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) RemoveAgent(context.Context, *connect.Request[v1.RemoveAgentRequest]) (*connect.Response[v1.RemoveAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.RemoveAgent is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error) {

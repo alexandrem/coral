@@ -2,10 +2,49 @@
 package httpapi
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/auth"
+	"github.com/coral-mesh/coral/internal/config"
 )
+
+func TestPublicAgentRemovalRequiresAdminEvenWithAnonymousAccess(t *testing.T) {
+	tokensFile := filepath.Join(t.TempDir(), "tokens.yaml")
+	store := auth.NewTokenStore(tokensFile)
+	reader, err := store.GenerateToken("reader", []auth.Permission{auth.PermissionStatus}, "")
+	require.NoError(t, err)
+	admin, err := store.GenerateToken("admin", []auth.Permission{auth.PermissionAdmin}, "")
+	require.NoError(t, err)
+	srv, err := New(Config{
+		PublicConfig: config.PublicEndpointConfig{
+			Enabled: true,
+			Host:    "127.0.0.1",
+			Auth:    config.PublicAuthConfig{TokensFile: tokensFile},
+		},
+		TokenStore: store,
+		ColonyPath: "/coral.colony.v1.ColonyService/",
+		ColonyHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	})
+	require.NoError(t, err)
+
+	for token, expected := range map[string]int{"": http.StatusUnauthorized, reader.Token: http.StatusForbidden, admin.Token: http.StatusNoContent} {
+		req := httptest.NewRequest(http.MethodPost, colonyv1connect.ColonyServiceRemoveAgentProcedure, nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		srv.httpServer.Handler.ServeHTTP(rec, req)
+		require.Equal(t, expected, rec.Code)
+	}
+}
 
 func TestGetRequiredPermission(t *testing.T) {
 	tests := []struct {
@@ -40,6 +79,7 @@ func TestGetRequiredPermission(t *testing.T) {
 		{"/coral.colony.v1.ColonyDebugService/StreamEvents", auth.PermissionDebug},
 
 		// Admin operations.
+		{"/coral.colony.v1.ColonyService/RemoveAgent", auth.PermissionAdmin},
 		{"/coral.colony.v1.ColonyService/RequestCertificate", auth.PermissionAdmin},
 		{"/coral.colony.v1.ColonyService/RevokeCertificate", auth.PermissionAdmin},
 

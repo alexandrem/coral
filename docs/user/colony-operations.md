@@ -81,6 +81,21 @@ and save partial results for retry. An unavailable agent can leave older
 observations in the Colony; check the time range before treating those as new
 activity.
 
+### Remove a decommissioned agent
+
+After stopping an agent permanently, wait until its heartbeat is unhealthy,
+then remove its registration by exact agent ID.
+
+```bash
+coral colony agents remove '<agent-id>' --colony '<colony-id>'
+```
+
+Use the Colony host or connect through its public HTTPS endpoint with an admin
+API token. The command clears the agent and its cached services from inventory
+and subsequent fleet diagnostics. It preserves historical telemetry, the mesh
+IP allocation, and enrollment credentials. An agent that registers again will
+return to inventory.
+
 ## Provision access and apply changes
 
 New agents use the enrollment bundle produced by `coral colony export`.
