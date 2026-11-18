@@ -116,31 +116,54 @@ var portForwarders = map[string]bool{
 	"pasta":        true,
 }
 
+// PortQuery describes the service expected on a port, so FindPortOwners can
+// tell it apart from other processes listening on the same port in other
+// network namespaces.
+type PortQuery struct {
+	// Name is the service's name. It breaks a tie between listeners through
+	// their OTEL_SERVICE_NAME, or else SERVICE_NAME, environment variable.
+	Name string
+
+	// Env, when non-empty, restricts the port to listeners whose initial
+	// environment has every variable with exactly this value.
+	Env map[string]string
+
+	// Accept, when set, further restricts the port to listeners for which it
+	// returns true, such as those in a Docker container with given labels.
+	Accept func(pid int) bool
+}
+
 // PortOwner is the process that owns a listening port, as resolved by
 // FindPortOwners.
 type PortOwner struct {
 	// PID is the lowest PID listening on the port in the network namespace
-	// that owns it. It is 0 when no namespace has a listener, or when
-	// several do and the expected name does not single one out.
+	// that owns it. It is 0 when no listener matches the query, or when
+	// several do and none of the tie-breaks singles one out.
 	PID int
 
 	// Namespaces counts the distinct network namespaces with a listener on
 	// the port.
 	Namespaces int
+
+	// Matching counts the namespaces whose listener matches the query's Env
+	// and Accept. It equals Namespaces when the query sets neither.
+	Matching int
 }
 
-// FindPortOwners resolves each port in names to the process listening on
+// FindPortOwners resolves each port in queries to the process listening on
 // it, scanning every visible network namespace so containerized listeners
 // are found alongside host processes. Port forwarders and the calling
 // process are ignored. Within a namespace, the lowest PID wins, which is the
-// parent when pre-fork workers share one socket. When listeners on a port
-// span several namespaces, such as containers that all use the same internal
-// port, the one in the caller's own network namespace wins, since that is the
-// listener a connection to 127.0.0.1:<port> reaches. Failing that, the port
-// resolves only if exactly one listener has OTEL_SERVICE_NAME, or else
-// SERVICE_NAME, equal to the name the port maps to. Every requested port has
-// an entry in the result.
-func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner, error) {
+// parent when pre-fork workers share one socket.
+//
+// Listeners in other namespaces, such as containers that all use the same
+// internal port, are narrowed down in order. Listeners not matching the
+// query's Env and Accept are dropped. If several remain, the one in the
+// caller's own network namespace wins, since that is the listener a
+// connection to 127.0.0.1:<port> reaches. Failing that, the port resolves
+// only if exactly one remaining listener's service-name variable equals the
+// query's Name. Every requested port has an entry in the result.
+func (p *ProcFSProvider) FindPortOwners(queries map[int]PortQuery) (map[int]PortOwner, error) {
 	root := p.root()
 
 	pids, err := listPids(root)
@@ -151,7 +174,7 @@ func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner
 	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace)
 
 	wanted := func(port int) bool {
-		_, ok := names[port]
+		_, ok := queries[port]
 		return ok
 	}
 
@@ -183,21 +206,46 @@ func (p *ProcFSProvider) FindPortOwners(names map[int]string) (map[int]PortOwner
 	selfLink, _ := os.Readlink(filepath.Join(root, "self", "ns", "net"))
 	selfNS := netNamespaceID(selfLink)
 
-	owners := make(map[int]PortOwner, len(names))
-	for port, name := range names {
+	owners := make(map[int]PortOwner, len(queries))
+	for port, query := range queries {
 		byNS := listeners[port]
+		matching := make(map[netNamespaceID]int, len(byNS))
+		for ns, pid := range byNS {
+			if matchesEnv(root, pid, query.Env) && (query.Accept == nil || query.Accept(pid)) {
+				matching[ns] = pid
+			}
+		}
 		owners[port] = PortOwner{
-			PID:        pickListener(root, byNS, selfNS, name),
+			PID:        pickListener(root, matching, selfNS, query.Name),
 			Namespaces: len(byNS),
+			Matching:   len(matching),
 		}
 	}
 	return owners, nil
 }
 
-// pickListener chooses among one port's listeners, given as the lowest PID
-// in each network namespace. A single namespace wins outright, then the
-// listener in selfNS, then the one listener whose service-name environment
-// variable equals name. It returns 0 when none of these applies.
+// matchesEnv reports whether pid's initial environment has every variable in
+// want with exactly that value. An empty want matches any process.
+func matchesEnv(root string, pid int, want map[string]string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	env, ok := readEnviron(root, pid)
+	if !ok {
+		return false
+	}
+	for key, value := range want {
+		if got, ok := env[key]; !ok || got != value {
+			return false
+		}
+	}
+	return true
+}
+
+// pickListener chooses among one port's matching listeners, given as the
+// lowest PID in each network namespace. A single namespace wins outright,
+// then the listener in selfNS, then the one listener whose service-name
+// environment variable equals name. It returns 0 when none of these applies.
 func pickListener(root string, byNS map[netNamespaceID]int, selfNS netNamespaceID, name string) int {
 	if len(byNS) == 1 {
 		for _, pid := range byNS {

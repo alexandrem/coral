@@ -1486,7 +1486,7 @@ Watch and enrich one or more services.
 coral services watch [service-spec...] [flags]
 ```
 
-Specifications use `name:port[:health][:type]`. Single-name syntax accepts `--port` or `--exe-pattern`, never both. Direct watch defaults to the local agent; `--colony` requires `--agent` or fleet selection. Fleet watch needs explicit selectors or `--all`; `--agent-url` and `--wait` do not apply to the fleet path. Matching existing registrations are unchanged; conflicts are not silently updated.
+Specifications use `name:port[:health][:type]`. Single-name syntax accepts `--port` or `--exe-pattern`, never both. `--process-env` and `--docker-label` take `KEY=VALUE`, can repeat, and apply to a single port-based service; they pick its process when several containers listen on the port, and `--docker-label` needs access to the Docker API. Direct watch defaults to the local agent; `--colony` requires `--agent` or fleet selection. Fleet watch needs explicit selectors or `--all`; `--agent-url` and `--wait` do not apply to the fleet path. Matching existing registrations are unchanged; conflicts are not silently updated.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -1496,11 +1496,13 @@ Specifications use `name:port[:health][:type]`. Single-name syntax accepts `--po
 | `--all` | bool | `false` | Target all registered agents explicitly |
 | `--colony` / `-c` | string | empty | Colony ID (overrides auto-detection) |
 | `--concurrency` | int | `8` | Maximum concurrent target operations (1-128) |
+| `--docker-label` | stringArray | `[]` | Docker label KEY=VALUE the service's container must have; picks one of several listeners on the port (repeatable, single service only) |
 | `--dry-run` | bool | `false` | Preview the pinned target set without performing the operation |
 | `--exe-pattern` | string | empty | Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (only works with single service, mutually exclusive with --port) |
 | `--format` / `-o` | string | `table` | Output format (table, json) |
 | `--health` | string | empty | Health check endpoint (legacy, only works with single service) |
 | `--port` / `-p` | int | `0` | Service port (legacy, only works with single service) |
+| `--process-env` | stringArray | `[]` | Environment variable KEY=VALUE the service's process must have; picks one of several listeners on the port (repeatable, single service only) |
 | `--report` | string | empty | Save a JSON result report for inspection or --retry-failed |
 | `--request-timeout` | duration | `10s` | Timeout per target attempt (maximum 5m) |
 | `--retries` | int | `0` | Retries per failed target for transient errors (0-10) |

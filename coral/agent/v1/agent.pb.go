@@ -1080,7 +1080,15 @@ type ConnectServiceRequest struct {
 	SdkCapabilities *ServiceSdkCapabilities `protobuf:"bytes,6,opt,name=sdk_capabilities,json=sdkCapabilities,proto3" json:"sdk_capabilities,omitempty"`
 	// Executable path pattern for portless processes (RFD 111).
 	// Mutually exclusive with port.
-	ExePattern    string `protobuf:"bytes,7,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	ExePattern string `protobuf:"bytes,7,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	// Selectors that identify a port-based service's process when several
+	// processes listen on its port, such as copies of one image in different
+	// containers. A listener must match every entry. process_env compares
+	// variables in the process's initial environment; docker_labels compares
+	// labels of the Docker container it runs in, read through the Docker API.
+	// Only valid with a port.
+	ProcessEnv    map[string]string `protobuf:"bytes,8,rep,name=process_env,json=processEnv,proto3" json:"process_env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	DockerLabels  map[string]string `protobuf:"bytes,9,rep,name=docker_labels,json=dockerLabels,proto3" json:"docker_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1162,6 +1170,20 @@ func (x *ConnectServiceRequest) GetExePattern() string {
 		return x.ExePattern
 	}
 	return ""
+}
+
+func (x *ConnectServiceRequest) GetProcessEnv() map[string]string {
+	if x != nil {
+		return x.ProcessEnv
+	}
+	return nil
+}
+
+func (x *ConnectServiceRequest) GetDockerLabels() map[string]string {
+	if x != nil {
+		return x.DockerLabels
+	}
+	return nil
 }
 
 // ServiceSdkCapabilities describes the SDK integration status (RFD 060).
@@ -1563,7 +1585,11 @@ type ServiceStatus struct {
 	ObservationTier uint32 `protobuf:"varint,16,opt,name=observation_tier,json=observationTier,proto3" json:"observation_tier,omitempty"`
 	// Executable path pattern for portless services (RFD 111). Empty for
 	// port-based services.
-	ExePattern    string `protobuf:"bytes,17,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	ExePattern string `protobuf:"bytes,17,opt,name=exe_pattern,json=exePattern,proto3" json:"exe_pattern,omitempty"`
+	// Process selectors the service was watched with; see
+	// ConnectServiceRequest.
+	ProcessEnv    map[string]string `protobuf:"bytes,18,rep,name=process_env,json=processEnv,proto3" json:"process_env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	DockerLabels  map[string]string `protobuf:"bytes,19,rep,name=docker_labels,json=dockerLabels,proto3" json:"docker_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1715,6 +1741,20 @@ func (x *ServiceStatus) GetExePattern() string {
 		return x.ExePattern
 	}
 	return ""
+}
+
+func (x *ServiceStatus) GetProcessEnv() map[string]string {
+	if x != nil {
+		return x.ProcessEnv
+	}
+	return nil
+}
+
+func (x *ServiceStatus) GetDockerLabels() map[string]string {
+	if x != nil {
+		return x.DockerLabels
+	}
+	return nil
 }
 
 // EbpfCapabilities describes what eBPF features are supported on an agent (RFD 013).
@@ -4753,7 +4793,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rhas_sys_admin\x18\x04 \x01(\bR\vhasSysAdmin\x12$\n" +
 	"\x0ehas_sys_ptrace\x18\x05 \x01(\bR\fhasSysPtrace\x12)\n" +
 	"\x11has_shared_pid_ns\x18\x06 \x01(\bR\x0ehasSharedPidNs\x120\n" +
-	"\x14cri_socket_available\x18\a \x01(\bR\x12criSocketAvailable\"\x85\x03\n" +
+	"\x14cri_socket_available\x18\a \x01(\bR\x12criSocketAvailable\"\xbb\x05\n" +
 	"\x15ConnectServiceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -4762,8 +4802,17 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x06labels\x18\x05 \x03(\v21.coral.agent.v1.ConnectServiceRequest.LabelsEntryR\x06labels\x12Q\n" +
 	"\x10sdk_capabilities\x18\x06 \x01(\v2&.coral.agent.v1.ServiceSdkCapabilitiesR\x0fsdkCapabilities\x12\x1f\n" +
 	"\vexe_pattern\x18\a \x01(\tR\n" +
-	"exePattern\x1a9\n" +
+	"exePattern\x12V\n" +
+	"\vprocess_env\x18\b \x03(\v25.coral.agent.v1.ConnectServiceRequest.ProcessEnvEntryR\n" +
+	"processEnv\x12\\\n" +
+	"\rdocker_labels\x18\t \x03(\v27.coral.agent.v1.ConnectServiceRequest.DockerLabelsEntryR\fdockerLabels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
+	"\x0fProcessEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a?\n" +
+	"\x11DockerLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x02\n" +
 	"\x16ServiceSdkCapabilities\x12!\n" +
@@ -4795,7 +4844,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rsource_filter\x18\x01 \x01(\x0e2#.coral.agent.v1.ServiceNamingSourceH\x00R\fsourceFilter\x88\x01\x01B\x10\n" +
 	"\x0e_source_filter\"Q\n" +
 	"\x14ListServicesResponse\x129\n" +
-	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xce\x05\n" +
+	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xf4\a\n" +
 	"\rServiceStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -4820,8 +4869,17 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"hasMonitor\x12)\n" +
 	"\x10observation_tier\x18\x10 \x01(\rR\x0fobservationTier\x12\x1f\n" +
 	"\vexe_pattern\x18\x11 \x01(\tR\n" +
-	"exePattern\x1a9\n" +
+	"exePattern\x12N\n" +
+	"\vprocess_env\x18\x12 \x03(\v2-.coral.agent.v1.ServiceStatus.ProcessEnvEntryR\n" +
+	"processEnv\x12T\n" +
+	"\rdocker_labels\x18\x13 \x03(\v2/.coral.agent.v1.ServiceStatus.DockerLabelsEntryR\fdockerLabels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
+	"\x0fProcessEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a?\n" +
+	"\x11DockerLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc9\x02\n" +
 	"\x10EbpfCapabilities\x12\x1c\n" +
@@ -5195,7 +5253,7 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(ExecMode)(0),                         // 0: coral.agent.v1.ExecMode
 	(RuntimeContext)(0),                   // 1: coral.agent.v1.RuntimeContext
@@ -5256,17 +5314,21 @@ var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(*QuerySystemMetricsRequest)(nil),     // 56: coral.agent.v1.QuerySystemMetricsRequest
 	(*QuerySystemMetricsResponse)(nil),    // 57: coral.agent.v1.QuerySystemMetricsResponse
 	nil,                                   // 58: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                                   // 59: coral.agent.v1.ServiceStatus.LabelsEntry
-	nil,                                   // 60: coral.agent.v1.TelemetrySpan.AttributesEntry
-	nil,                                   // 61: coral.agent.v1.EbpfHttpMetric.AttributesEntry
-	nil,                                   // 62: coral.agent.v1.EbpfGrpcMetric.AttributesEntry
-	nil,                                   // 63: coral.agent.v1.EbpfSqlMetric.AttributesEntry
-	nil,                                   // 64: coral.agent.v1.EbpfTraceSpan.AttributesEntry
-	nil,                                   // 65: coral.agent.v1.ShellStart.EnvEntry
-	nil,                                   // 66: coral.agent.v1.ShellExecRequest.EnvEntry
-	nil,                                   // 67: coral.agent.v1.ContainerExecRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),         // 68: google.protobuf.Timestamp
-	(*v1.MeshTelemetry)(nil),              // 69: coral.network.v1.MeshTelemetry
+	nil,                                   // 59: coral.agent.v1.ConnectServiceRequest.ProcessEnvEntry
+	nil,                                   // 60: coral.agent.v1.ConnectServiceRequest.DockerLabelsEntry
+	nil,                                   // 61: coral.agent.v1.ServiceStatus.LabelsEntry
+	nil,                                   // 62: coral.agent.v1.ServiceStatus.ProcessEnvEntry
+	nil,                                   // 63: coral.agent.v1.ServiceStatus.DockerLabelsEntry
+	nil,                                   // 64: coral.agent.v1.TelemetrySpan.AttributesEntry
+	nil,                                   // 65: coral.agent.v1.EbpfHttpMetric.AttributesEntry
+	nil,                                   // 66: coral.agent.v1.EbpfGrpcMetric.AttributesEntry
+	nil,                                   // 67: coral.agent.v1.EbpfSqlMetric.AttributesEntry
+	nil,                                   // 68: coral.agent.v1.EbpfTraceSpan.AttributesEntry
+	nil,                                   // 69: coral.agent.v1.ShellStart.EnvEntry
+	nil,                                   // 70: coral.agent.v1.ShellExecRequest.EnvEntry
+	nil,                                   // 71: coral.agent.v1.ContainerExecRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),         // 72: google.protobuf.Timestamp
+	(*v1.MeshTelemetry)(nil),              // 73: coral.network.v1.MeshTelemetry
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	8,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
@@ -5275,77 +5337,81 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	9,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
 	11, // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
 	10, // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	68, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	72, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
 	22, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
-	69, // 8: coral.agent.v1.RuntimeContextResponse.wireguard:type_name -> coral.network.v1.MeshTelemetry
+	73, // 8: coral.agent.v1.RuntimeContextResponse.wireguard:type_name -> coral.network.v1.MeshTelemetry
 	13, // 9: coral.agent.v1.Capabilities.exec_capabilities:type_name -> coral.agent.v1.ExecCapabilities
 	12, // 10: coral.agent.v1.Capabilities.linux_capabilities:type_name -> coral.agent.v1.LinuxCapabilities
 	0,  // 11: coral.agent.v1.ExecCapabilities.mode:type_name -> coral.agent.v1.ExecMode
 	58, // 12: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
 	15, // 13: coral.agent.v1.ConnectServiceRequest.sdk_capabilities:type_name -> coral.agent.v1.ServiceSdkCapabilities
-	3,  // 14: coral.agent.v1.ListServicesRequest.source_filter:type_name -> coral.agent.v1.ServiceNamingSource
-	21, // 15: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
-	59, // 16: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
-	68, // 17: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
-	3,  // 18: coral.agent.v1.ServiceStatus.naming_source:type_name -> coral.agent.v1.ServiceNamingSource
-	4,  // 19: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
-	23, // 20: coral.agent.v1.EbpfCapabilities.ebpf_observability:type_name -> coral.agent.v1.EbpfObservabilityCapabilities
-	60, // 21: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
-	24, // 22: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
-	5,  // 23: coral.agent.v1.QueryEbpfMetricsRequest.metric_types:type_name -> coral.agent.v1.EbpfMetricType
-	29, // 24: coral.agent.v1.QueryEbpfMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
-	30, // 25: coral.agent.v1.QueryEbpfMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
-	31, // 26: coral.agent.v1.QueryEbpfMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
-	32, // 27: coral.agent.v1.QueryEbpfMetricsResponse.trace_spans:type_name -> coral.agent.v1.EbpfTraceSpan
-	61, // 28: coral.agent.v1.EbpfHttpMetric.attributes:type_name -> coral.agent.v1.EbpfHttpMetric.AttributesEntry
-	62, // 29: coral.agent.v1.EbpfGrpcMetric.attributes:type_name -> coral.agent.v1.EbpfGrpcMetric.AttributesEntry
-	63, // 30: coral.agent.v1.EbpfSqlMetric.attributes:type_name -> coral.agent.v1.EbpfSqlMetric.AttributesEntry
-	64, // 31: coral.agent.v1.EbpfTraceSpan.attributes:type_name -> coral.agent.v1.EbpfTraceSpan.AttributesEntry
-	34, // 32: coral.agent.v1.ShellRequest.start:type_name -> coral.agent.v1.ShellStart
-	38, // 33: coral.agent.v1.ShellRequest.resize:type_name -> coral.agent.v1.ShellResize
-	39, // 34: coral.agent.v1.ShellRequest.signal:type_name -> coral.agent.v1.ShellSignal
-	65, // 35: coral.agent.v1.ShellStart.env:type_name -> coral.agent.v1.ShellStart.EnvEntry
-	37, // 36: coral.agent.v1.ShellStart.size:type_name -> coral.agent.v1.TerminalSize
-	36, // 37: coral.agent.v1.ShellResponse.exit:type_name -> coral.agent.v1.ShellExit
-	66, // 38: coral.agent.v1.ShellExecRequest.env:type_name -> coral.agent.v1.ShellExecRequest.EnvEntry
-	67, // 39: coral.agent.v1.ContainerExecRequest.env:type_name -> coral.agent.v1.ContainerExecRequest.EnvEntry
-	54, // 40: coral.agent.v1.GetFunctionsResponse.functions:type_name -> coral.agent.v1.FunctionInfo
-	55, // 41: coral.agent.v1.QuerySystemMetricsResponse.metrics:type_name -> coral.agent.v1.SystemMetric
-	6,  // 42: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	14, // 43: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
-	17, // 44: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
-	19, // 45: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
-	25, // 46: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
-	27, // 47: coral.agent.v1.AgentService.QueryEbpfMetrics:input_type -> coral.agent.v1.QueryEbpfMetricsRequest
-	56, // 48: coral.agent.v1.AgentService.QuerySystemMetrics:input_type -> coral.agent.v1.QuerySystemMetricsRequest
-	33, // 49: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
-	46, // 50: coral.agent.v1.AgentService.ShellExec:input_type -> coral.agent.v1.ShellExecRequest
-	48, // 51: coral.agent.v1.AgentService.ContainerExec:input_type -> coral.agent.v1.ContainerExecRequest
-	40, // 52: coral.agent.v1.AgentService.ResizeShellTerminal:input_type -> coral.agent.v1.ResizeShellTerminalRequest
-	42, // 53: coral.agent.v1.AgentService.SendShellSignal:input_type -> coral.agent.v1.SendShellSignalRequest
-	44, // 54: coral.agent.v1.AgentService.KillShellSession:input_type -> coral.agent.v1.KillShellSessionRequest
-	51, // 55: coral.agent.v1.AgentService.StreamDebugEvents:input_type -> coral.agent.v1.DebugCommand
-	52, // 56: coral.agent.v1.AgentService.GetFunctions:input_type -> coral.agent.v1.GetFunctionsRequest
-	7,  // 57: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	16, // 58: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
-	18, // 59: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
-	20, // 60: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
-	26, // 61: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
-	28, // 62: coral.agent.v1.AgentService.QueryEbpfMetrics:output_type -> coral.agent.v1.QueryEbpfMetricsResponse
-	57, // 63: coral.agent.v1.AgentService.QuerySystemMetrics:output_type -> coral.agent.v1.QuerySystemMetricsResponse
-	35, // 64: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
-	47, // 65: coral.agent.v1.AgentService.ShellExec:output_type -> coral.agent.v1.ShellExecResponse
-	49, // 66: coral.agent.v1.AgentService.ContainerExec:output_type -> coral.agent.v1.ContainerExecResponse
-	41, // 67: coral.agent.v1.AgentService.ResizeShellTerminal:output_type -> coral.agent.v1.ResizeShellTerminalResponse
-	43, // 68: coral.agent.v1.AgentService.SendShellSignal:output_type -> coral.agent.v1.SendShellSignalResponse
-	45, // 69: coral.agent.v1.AgentService.KillShellSession:output_type -> coral.agent.v1.KillShellSessionResponse
-	50, // 70: coral.agent.v1.AgentService.StreamDebugEvents:output_type -> coral.agent.v1.DebugEvent
-	53, // 71: coral.agent.v1.AgentService.GetFunctions:output_type -> coral.agent.v1.GetFunctionsResponse
-	57, // [57:72] is the sub-list for method output_type
-	42, // [42:57] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	59, // 14: coral.agent.v1.ConnectServiceRequest.process_env:type_name -> coral.agent.v1.ConnectServiceRequest.ProcessEnvEntry
+	60, // 15: coral.agent.v1.ConnectServiceRequest.docker_labels:type_name -> coral.agent.v1.ConnectServiceRequest.DockerLabelsEntry
+	3,  // 16: coral.agent.v1.ListServicesRequest.source_filter:type_name -> coral.agent.v1.ServiceNamingSource
+	21, // 17: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
+	61, // 18: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	72, // 19: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	3,  // 20: coral.agent.v1.ServiceStatus.naming_source:type_name -> coral.agent.v1.ServiceNamingSource
+	62, // 21: coral.agent.v1.ServiceStatus.process_env:type_name -> coral.agent.v1.ServiceStatus.ProcessEnvEntry
+	63, // 22: coral.agent.v1.ServiceStatus.docker_labels:type_name -> coral.agent.v1.ServiceStatus.DockerLabelsEntry
+	4,  // 23: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
+	23, // 24: coral.agent.v1.EbpfCapabilities.ebpf_observability:type_name -> coral.agent.v1.EbpfObservabilityCapabilities
+	64, // 25: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
+	24, // 26: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
+	5,  // 27: coral.agent.v1.QueryEbpfMetricsRequest.metric_types:type_name -> coral.agent.v1.EbpfMetricType
+	29, // 28: coral.agent.v1.QueryEbpfMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
+	30, // 29: coral.agent.v1.QueryEbpfMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
+	31, // 30: coral.agent.v1.QueryEbpfMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
+	32, // 31: coral.agent.v1.QueryEbpfMetricsResponse.trace_spans:type_name -> coral.agent.v1.EbpfTraceSpan
+	65, // 32: coral.agent.v1.EbpfHttpMetric.attributes:type_name -> coral.agent.v1.EbpfHttpMetric.AttributesEntry
+	66, // 33: coral.agent.v1.EbpfGrpcMetric.attributes:type_name -> coral.agent.v1.EbpfGrpcMetric.AttributesEntry
+	67, // 34: coral.agent.v1.EbpfSqlMetric.attributes:type_name -> coral.agent.v1.EbpfSqlMetric.AttributesEntry
+	68, // 35: coral.agent.v1.EbpfTraceSpan.attributes:type_name -> coral.agent.v1.EbpfTraceSpan.AttributesEntry
+	34, // 36: coral.agent.v1.ShellRequest.start:type_name -> coral.agent.v1.ShellStart
+	38, // 37: coral.agent.v1.ShellRequest.resize:type_name -> coral.agent.v1.ShellResize
+	39, // 38: coral.agent.v1.ShellRequest.signal:type_name -> coral.agent.v1.ShellSignal
+	69, // 39: coral.agent.v1.ShellStart.env:type_name -> coral.agent.v1.ShellStart.EnvEntry
+	37, // 40: coral.agent.v1.ShellStart.size:type_name -> coral.agent.v1.TerminalSize
+	36, // 41: coral.agent.v1.ShellResponse.exit:type_name -> coral.agent.v1.ShellExit
+	70, // 42: coral.agent.v1.ShellExecRequest.env:type_name -> coral.agent.v1.ShellExecRequest.EnvEntry
+	71, // 43: coral.agent.v1.ContainerExecRequest.env:type_name -> coral.agent.v1.ContainerExecRequest.EnvEntry
+	54, // 44: coral.agent.v1.GetFunctionsResponse.functions:type_name -> coral.agent.v1.FunctionInfo
+	55, // 45: coral.agent.v1.QuerySystemMetricsResponse.metrics:type_name -> coral.agent.v1.SystemMetric
+	6,  // 46: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	14, // 47: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	17, // 48: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	19, // 49: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	25, // 50: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
+	27, // 51: coral.agent.v1.AgentService.QueryEbpfMetrics:input_type -> coral.agent.v1.QueryEbpfMetricsRequest
+	56, // 52: coral.agent.v1.AgentService.QuerySystemMetrics:input_type -> coral.agent.v1.QuerySystemMetricsRequest
+	33, // 53: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
+	46, // 54: coral.agent.v1.AgentService.ShellExec:input_type -> coral.agent.v1.ShellExecRequest
+	48, // 55: coral.agent.v1.AgentService.ContainerExec:input_type -> coral.agent.v1.ContainerExecRequest
+	40, // 56: coral.agent.v1.AgentService.ResizeShellTerminal:input_type -> coral.agent.v1.ResizeShellTerminalRequest
+	42, // 57: coral.agent.v1.AgentService.SendShellSignal:input_type -> coral.agent.v1.SendShellSignalRequest
+	44, // 58: coral.agent.v1.AgentService.KillShellSession:input_type -> coral.agent.v1.KillShellSessionRequest
+	51, // 59: coral.agent.v1.AgentService.StreamDebugEvents:input_type -> coral.agent.v1.DebugCommand
+	52, // 60: coral.agent.v1.AgentService.GetFunctions:input_type -> coral.agent.v1.GetFunctionsRequest
+	7,  // 61: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	16, // 62: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	18, // 63: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	20, // 64: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	26, // 65: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
+	28, // 66: coral.agent.v1.AgentService.QueryEbpfMetrics:output_type -> coral.agent.v1.QueryEbpfMetricsResponse
+	57, // 67: coral.agent.v1.AgentService.QuerySystemMetrics:output_type -> coral.agent.v1.QuerySystemMetricsResponse
+	35, // 68: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
+	47, // 69: coral.agent.v1.AgentService.ShellExec:output_type -> coral.agent.v1.ShellExecResponse
+	49, // 70: coral.agent.v1.AgentService.ContainerExec:output_type -> coral.agent.v1.ContainerExecResponse
+	41, // 71: coral.agent.v1.AgentService.ResizeShellTerminal:output_type -> coral.agent.v1.ResizeShellTerminalResponse
+	43, // 72: coral.agent.v1.AgentService.SendShellSignal:output_type -> coral.agent.v1.SendShellSignalResponse
+	45, // 73: coral.agent.v1.AgentService.KillShellSession:output_type -> coral.agent.v1.KillShellSessionResponse
+	50, // 74: coral.agent.v1.AgentService.StreamDebugEvents:output_type -> coral.agent.v1.DebugEvent
+	53, // 75: coral.agent.v1.AgentService.GetFunctions:output_type -> coral.agent.v1.GetFunctionsResponse
+	61, // [61:76] is the sub-list for method output_type
+	46, // [46:61] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -5370,7 +5436,7 @@ func file_coral_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   62,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

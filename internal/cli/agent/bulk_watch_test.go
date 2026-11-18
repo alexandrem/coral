@@ -158,3 +158,22 @@ func TestBulkWatchKeepsPermanentServiceErrorsOutOfAutomaticRetries(t *testing.T)
 	require.Equal(t, 1, retry.Summary.Succeeded)
 	require.Equal(t, map[string]int{"first": 1, "denied": 2, "second": 2}, mock.calls)
 }
+
+func TestCheckRegistrationComparesProcessSelectors(t *testing.T) {
+	registered := []*agentv1.ServiceStatus{{
+		Name:         "api",
+		Port:         8080,
+		NamingSource: agentv1.ServiceNamingSource_SERVICE_NAMING_SOURCE_AUTHORITATIVE,
+		ProcessEnv:   map[string]string{"APP_ENV": "production"},
+	}}
+
+	done, err := checkRegistration(&agentv1.ConnectServiceRequest{Name: "api", Port: 8080, ProcessEnv: map[string]string{"APP_ENV": "production"}}, registered)
+	require.NoError(t, err)
+	require.True(t, done)
+
+	_, err = checkRegistration(&agentv1.ConnectServiceRequest{Name: "api", Port: 8080, ProcessEnv: map[string]string{"APP_ENV": "staging"}}, registered)
+	require.ErrorContains(t, err, "conflicts")
+
+	_, err = checkRegistration(&agentv1.ConnectServiceRequest{Name: "api", Port: 8080, ProcessEnv: map[string]string{"APP_ENV": "production"}, DockerLabels: map[string]string{"com.docker.compose.project": "shop"}}, registered)
+	require.ErrorContains(t, err, "conflicts")
+}

@@ -559,6 +559,8 @@ func TestFindPortOwners(t *testing.T) {
 		name    string
 		setup   func(t *testing.T, root string)
 		service string
+		env     map[string]string
+		accept  func(pid int) bool
 		want    PortOwner
 	}{
 		{
@@ -574,7 +576,7 @@ func TestFindPortOwners(t *testing.T) {
 				addFakeSocket(t, root, 500, 3, "901")
 				writeHostSocketTable(t, root, 500, false, [][3]string{{"00000000:1F90", "0A", "901"}})
 			},
-			want: PortOwner{PID: 500, Namespaces: 1},
+			want: PortOwner{PID: 500, Namespaces: 1, Matching: 1},
 		},
 		{
 			name: "swarm service behind dockerd's port reservation",
@@ -587,7 +589,7 @@ func TestFindPortOwners(t *testing.T) {
 				addFakeSocket(t, root, 3763261, 11, "907")
 				writeHostSocketTable(t, root, 3763261, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "907"}})
 			},
-			want: PortOwner{PID: 3763261, Namespaces: 1},
+			want: PortOwner{PID: 3763261, Namespaces: 1, Matching: 1},
 		},
 		{
 			name: "pre-fork workers sharing one socket resolve to the parent",
@@ -598,7 +600,7 @@ func TestFindPortOwners(t *testing.T) {
 				}
 				writeHostSocketTable(t, root, 610, true, [][3]string{{"00000000000000000000000000000000:1F90", "0A", "902"}})
 			},
-			want: PortOwner{PID: 610, Namespaces: 1},
+			want: PortOwner{PID: 610, Namespaces: 1, Matching: 1},
 		},
 		{
 			name: "listeners in two namespaces are ambiguous",
@@ -611,7 +613,7 @@ func TestFindPortOwners(t *testing.T) {
 				addFakeSocket(t, root, 701, 3, "904")
 				writeHostSocketTable(t, root, 701, false, [][3]string{{"00000000:1F90", "0A", "904"}})
 			},
-			want: PortOwner{PID: 0, Namespaces: 2},
+			want: PortOwner{PID: 0, Namespaces: 2, Matching: 2},
 		},
 		{
 			// Prod (Swarm) and staging (Compose) run the same image on one
@@ -627,7 +629,7 @@ func TestFindPortOwners(t *testing.T) {
 				listen(t, root, 3763261, "api", "net:[4026532703]", "PATH=/bin\x00OTEL_SERVICE_NAME=showup-api\x00")
 			},
 			service: "showup-api",
-			want:    PortOwner{PID: 3763261, Namespaces: 3},
+			want:    PortOwner{PID: 3763261, Namespaces: 3, Matching: 3},
 		},
 		{
 			// A sidecar shares the agent's network namespace while another
@@ -646,7 +648,7 @@ func TestFindPortOwners(t *testing.T) {
 				listen(t, root, 700, "cpu-app", containerNS, "")
 			},
 			service: "cpu-app",
-			want:    PortOwner{PID: 700, Namespaces: 2},
+			want:    PortOwner{PID: 700, Namespaces: 2, Matching: 2},
 		},
 		{
 			name: "same-port containers resolved by SERVICE_NAME",
@@ -655,7 +657,7 @@ func TestFindPortOwners(t *testing.T) {
 				listen(t, root, 701, "api", otherNS, "SERVICE_NAME=api-staging\x00")
 			},
 			service: "api",
-			want:    PortOwner{PID: 700, Namespaces: 2},
+			want:    PortOwner{PID: 700, Namespaces: 2, Matching: 2},
 		},
 		{
 			name: "same-port containers with the same name stay ambiguous",
@@ -664,7 +666,7 @@ func TestFindPortOwners(t *testing.T) {
 				listen(t, root, 701, "api", otherNS, "OTEL_SERVICE_NAME=api\x00")
 			},
 			service: "api",
-			want:    PortOwner{PID: 0, Namespaces: 2},
+			want:    PortOwner{PID: 0, Namespaces: 2, Matching: 2},
 		},
 		{
 			name: "a single listener wins even when its name differs",
@@ -672,7 +674,37 @@ func TestFindPortOwners(t *testing.T) {
 				listen(t, root, 700, "api", containerNS, "OTEL_SERVICE_NAME=backend\x00")
 			},
 			service: "api",
-			want:    PortOwner{PID: 700, Namespaces: 1},
+			want:    PortOwner{PID: 700, Namespaces: 1, Matching: 1},
+		},
+		{
+			name: "process_env picks one of several containers",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 3744819, "api", containerNS, "APP_ENV=staging\x00")
+				listen(t, root, 3763261, "api", otherNS, "PATH=/bin\x00APP_ENV=production\x00")
+				listen(t, root, 1416, "ui-server", "net:[4026532704]", "APP_ENV=production\x00")
+			},
+			// Every variable must match: ui-server shares APP_ENV but not PATH.
+			env:  map[string]string{"APP_ENV": "production", "PATH": "/bin"},
+			want: PortOwner{PID: 3763261, Namespaces: 3, Matching: 1},
+		},
+		{
+			name: "process_env rejects a lone listener that does not match",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "APP_ENV=staging\x00")
+			},
+			env:  map[string]string{"APP_ENV": "production"},
+			want: PortOwner{PID: 0, Namespaces: 1, Matching: 0},
+		},
+		{
+			name: "accept narrows listeners, then ties are broken as usual",
+			setup: func(t *testing.T, root string) {
+				listen(t, root, 700, "api", containerNS, "OTEL_SERVICE_NAME=api\x00")
+				listen(t, root, 701, "api", otherNS, "OTEL_SERVICE_NAME=other\x00")
+				listen(t, root, 702, "api", "net:[4026532704]", "OTEL_SERVICE_NAME=api\x00")
+			},
+			service: "api",
+			accept:  func(pid int) bool { return pid != 702 },
+			want:    PortOwner{PID: 700, Namespaces: 3, Matching: 2},
 		},
 		{
 			name: "no listener on the port",
@@ -690,7 +722,9 @@ func TestFindPortOwners(t *testing.T) {
 			root := t.TempDir()
 			tt.setup(t, root)
 
-			owners, err := newTestProvider(root).FindPortOwners(map[int]string{8080: tt.service})
+			owners, err := newTestProvider(root).FindPortOwners(map[int]PortQuery{
+				8080: {Name: tt.service, Env: tt.env, Accept: tt.accept},
+			})
 			if err != nil {
 				t.Fatalf("FindPortOwners() error = %v", err)
 			}

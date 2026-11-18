@@ -33,6 +33,12 @@ type ServiceSpec struct {
 	// 111) instead of a listening port. Mutually exclusive with Port:
 	// exactly one of the two must be set.
 	ExePattern string
+
+	// ProcessEnv and DockerLabels identify the service's process among
+	// several listeners on Port, by environment variables and by the labels
+	// of its Docker container. Only valid with Port.
+	ProcessEnv   map[string]string
+	DockerLabels map[string]string
 }
 
 // ParseServiceSpec parses a service specification string.
@@ -120,7 +126,30 @@ func (s *ServiceSpec) ToProto() *meshv1.ServiceInfo {
 		ServiceType:    s.ServiceType,
 		Labels:         s.Labels,
 		ExePattern:     s.ExePattern,
+		ProcessEnv:     s.ProcessEnv,
+		DockerLabels:   s.DockerLabels,
 	}
+}
+
+// ParseSelectors parses KEY=VALUE pairs, as given to --process-env or
+// --docker-label, into a map. The value may be empty or contain '='; the
+// key may not be empty or repeated.
+func ParseSelectors(flag string, pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	selectors := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, fmt.Errorf("invalid %s %q: expected KEY=VALUE", flag, pair)
+		}
+		if _, dup := selectors[key]; dup {
+			return nil, fmt.Errorf("duplicate %s key %q", flag, key)
+		}
+		selectors[key] = value
+	}
+	return selectors, nil
 }
 
 // ParseMultipleServiceSpecs parses multiple service specifications.
@@ -168,6 +197,9 @@ func ValidateServiceSpecs(specs []*ServiceSpec) error {
 		if !hasPort && !hasPattern {
 			return fmt.Errorf("service %q needs either a port or --exe-pattern", spec.Name)
 		}
+		if err := ValidateSelectors(spec.Name, spec.Port, spec.ProcessEnv, spec.DockerLabels); err != nil {
+			return err
+		}
 	}
 
 	// Check for port collisions (warning only, not an error)
@@ -181,6 +213,26 @@ func ValidateServiceSpecs(specs []*ServiceSpec) error {
 	// Note: We don't error on port collisions as they may be intentional
 	// (e.g., different containers in the same pod)
 
+	return nil
+}
+
+// ValidateSelectors checks a service's process selectors: they identify
+// one listener on a port, so they require one, and their keys must be
+// non-empty.
+func ValidateSelectors(name string, port int32, processEnv, dockerLabels map[string]string) error {
+	if len(processEnv) == 0 && len(dockerLabels) == 0 {
+		return nil
+	}
+	if port == 0 {
+		return fmt.Errorf("service %q: process_env and docker_labels require a port", name)
+	}
+	for _, selectors := range []map[string]string{processEnv, dockerLabels} {
+		for key := range selectors {
+			if strings.TrimSpace(key) == "" {
+				return fmt.Errorf("service %q: process_env and docker_labels keys cannot be empty", name)
+			}
+		}
+	}
 	return nil
 }
 

@@ -601,16 +601,19 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 }
 
 // fakePortOwners is an in-memory portOwnerFinder. listening maps each port
-// to the PID holding its listening socket.
+// to the PID holding its listening socket. candidates instead lists a port's
+// listeners, one per network namespace, filtered by the query's Accept.
 type fakePortOwners struct {
-	mu        sync.Mutex
-	listening map[int]int
-	ambiguous map[int]bool
-	scans     int
+	mu         sync.Mutex
+	listening  map[int]int
+	ambiguous  map[int]bool
+	candidates map[int][]int
+	queries    map[int]discovery.PortQuery
+	scans      int
 }
 
 func newFakePortOwners() *fakePortOwners {
-	return &fakePortOwners{listening: map[int]int{}, ambiguous: map[int]bool{}}
+	return &fakePortOwners{listening: map[int]int{}, ambiguous: map[int]bool{}, candidates: map[int][]int{}}
 }
 
 func (f *fakePortOwners) set(port, pid int) {
@@ -625,22 +628,59 @@ func (f *fakePortOwners) scanCount() int {
 	return f.scans
 }
 
-func (f *fakePortOwners) FindPortOwners(names map[int]string) (map[int]discovery.PortOwner, error) {
+func (f *fakePortOwners) FindPortOwners(queries map[int]discovery.PortQuery) (map[int]discovery.PortOwner, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scans++
-	owners := make(map[int]discovery.PortOwner, len(names))
-	for port := range names {
+	f.queries = queries
+	owners := make(map[int]discovery.PortOwner, len(queries))
+	for port, query := range queries {
 		switch {
+		case len(f.candidates[port]) > 0:
+			owner := discovery.PortOwner{Namespaces: len(f.candidates[port])}
+			var matched []int
+			for _, pid := range f.candidates[port] {
+				if query.Accept == nil || query.Accept(pid) {
+					matched = append(matched, pid)
+				}
+			}
+			owner.Matching = len(matched)
+			if len(matched) == 1 {
+				owner.PID = matched[0]
+			}
+			owners[port] = owner
 		case f.ambiguous[port]:
-			owners[port] = discovery.PortOwner{Namespaces: 2}
+			owners[port] = discovery.PortOwner{Namespaces: 2, Matching: 2}
 		case f.listening[port] != 0:
-			owners[port] = discovery.PortOwner{PID: f.listening[port], Namespaces: 1}
+			owners[port] = discovery.PortOwner{PID: f.listening[port], Namespaces: 1, Matching: 1}
 		default:
 			owners[port] = discovery.PortOwner{}
 		}
 	}
 	return owners, nil
+}
+
+// fakeLabels is an in-memory labelMatcher: each PID's container labels, or
+// err for every lookup.
+type fakeLabels struct {
+	byPID map[int]map[string]string
+	err   error
+}
+
+func (f fakeLabels) Matches(pid int, want map[string]string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	labels, ok := f.byPID[pid]
+	if !ok {
+		return false, errNotDockerContainer
+	}
+	for key, value := range want {
+		if labels[key] != value {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (f *fakePortOwners) ListensOn(pid, port int) bool {
@@ -816,4 +856,79 @@ func TestResolveServicePID_AutoObservedStalePID(t *testing.T) {
 	pid, err := agent.ResolveServicePID(name)
 	require.NoError(t, err)
 	assert.EqualValues(t, 222, pid)
+}
+
+// TestRefreshServicePIDs_Selectors verifies a watched service's process_env
+// and docker_labels reach the port lookup and pick its container.
+func TestRefreshServicePIDs_Selectors(t *testing.T) {
+	owners := newFakePortOwners()
+	owners.candidates[8080] = []int{100, 200, 300}
+	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{
+		Name:         "api",
+		Port:         8080,
+		ProcessEnv:   map[string]string{"APP_ENV": "production"},
+		DockerLabels: map[string]string{"com.docker.swarm.service.name": "showup_api"},
+	})
+	agent.dockerLabels = fakeLabels{byPID: map[int]map[string]string{
+		100: {"com.docker.compose.project": "showup-staging"},
+		200: {"com.docker.swarm.service.name": "showup_api"},
+		// PID 300 runs outside Docker.
+	}}
+
+	agent.refreshServicePIDs(watchedOnly)
+
+	assert.EqualValues(t, 200, entryPID(agent, 8080))
+	assert.Equal(t, map[string]string{"APP_ENV": "production"}, owners.queries[8080].Env)
+	assert.Equal(t, "api", owners.queries[8080].Name)
+}
+
+// TestRefreshServicePIDs_SelectorWarnings verifies an unresolved PID is
+// explained, once per distinct reason.
+func TestRefreshServicePIDs_SelectorWarnings(t *testing.T) {
+	owners := newFakePortOwners()
+	owners.candidates[8080] = []int{100, 200}
+	agent := newTestAgentWithPorts(t, owners, &meshv1.ServiceInfo{
+		Name:         "api",
+		Port:         8080,
+		DockerLabels: map[string]string{"com.docker.swarm.service.name": "showup_api"},
+	})
+	var logs bytes.Buffer
+	agent.logger = zerolog.New(&logs)
+
+	agent.dockerLabels = fakeLabels{err: errors.New("dial unix /var/run/docker.sock: connect: no such file or directory")}
+	agent.refreshServicePIDs(watchedOnly)
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Zero(t, entryPID(agent, 8080))
+	assert.Equal(t, 1, strings.Count(logs.String(), "Could not check the docker_labels"))
+
+	agent.dockerLabels = fakeLabels{byPID: map[int]map[string]string{100: {}, 200: {}}}
+	agent.refreshServicePIDs(watchedOnly)
+	assert.Equal(t, 1, strings.Count(logs.String(), "matches the service's process_env and docker_labels"))
+}
+
+func TestConnectServiceRejectsSelectorsWithoutPort(t *testing.T) {
+	agent := newTestAgentWithPorts(t, newFakePortOwners())
+	handler := NewServiceHandler(agent, nil, nil, nil, nil, nil, nil)
+
+	resp, err := handler.ConnectService(context.Background(), connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name:       "worker",
+		ExePattern: "consumer",
+		ProcessEnv: map[string]string{"APP_ENV": "production"},
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Success)
+	assert.Contains(t, resp.Msg.Error, "require a port")
+
+	resp, err = handler.ConnectService(context.Background(), connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name:         "api",
+		Port:         8080,
+		DockerLabels: map[string]string{"com.docker.compose.service": "api"},
+	}))
+	require.NoError(t, err)
+	require.True(t, resp.Msg.Success, resp.Msg.Error)
+
+	list, err := handler.ListServices(context.Background(), connect.NewRequest(&agentv1.ListServicesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, list.Msg.Services, 1)
+	assert.Equal(t, map[string]string{"com.docker.compose.service": "api"}, list.Msg.Services[0].DockerLabels)
 }

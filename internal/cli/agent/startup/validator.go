@@ -268,6 +268,8 @@ func (v *ConfigValidator) loadAgentConfig() (*config.ResolvedConfig, []*types.Se
 				ServiceType:    svc.Type,
 				Labels:         make(map[string]string),
 				ExePattern:     svc.ExePattern,
+				ProcessEnv:     svc.ProcessEnv,
+				DockerLabels:   svc.DockerLabels,
 			}
 			serviceSpecs = append(serviceSpecs, spec)
 		}

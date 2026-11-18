@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ func NewConnectCmd() *cobra.Command {
 		port       int
 		healthURL  string
 		exePattern string
+		processEnv []string
+		dockerTags []string
 		agentAddr  string
 		agent      string
 		colony     string
@@ -58,6 +61,10 @@ Examples:
   # Portless process, matched by executable pattern instead of a port (RFD 111)
   coral connect worker --exe-pattern "python.*consumer.py"
 
+  # Pick one of several containers listening on the same port
+  coral connect api:8080:/health --process-env APP_ENV=production
+  coral connect api:8080 --docker-label com.docker.compose.project=shop
+
   # Multiple services
   coral connect frontend:3000:/health redis:6379 metrics:9090:/metrics
   coral connect api:8080:/health:http cache:6379::redis worker:9000
@@ -74,6 +81,8 @@ Examples:
 Note:
   - This command requires a running agent ('coral agent start')
   - Legacy flags (--port, --health) only work with single service specifications
+  - --process-env and --docker-label only work with a single port-based service;
+    --docker-label needs the Docker API socket in the agent's environment
   - Services are added to the agent dynamically without restart
   - Use --wait in interactive sessions to see immediate health status
   - Omit --wait in init containers where services start after connection`,
@@ -90,7 +99,7 @@ Note:
 			var serviceSpecs []*types.ServiceSpec
 			var err error
 			if len(args) == 0 && bulk.RetryFailed != "" {
-				if port != 0 || healthURL != "" || exePattern != "" {
+				if port != 0 || healthURL != "" || exePattern != "" || len(processEnv) > 0 || len(dockerTags) > 0 {
 					return fmt.Errorf("service overrides require explicit service specifications")
 				}
 				serviceSpecs, err = watchSpecsFromReport(bulk.RetryFailed)
@@ -98,6 +107,9 @@ Note:
 				serviceSpecs, err = parseServiceSpecsWithLegacySupport(args, port, healthURL, exePattern)
 			}
 			if err != nil {
+				return err
+			}
+			if err := applySelectorFlags(serviceSpecs, processEnv, dockerTags); err != nil {
 				return err
 			}
 
@@ -162,6 +174,12 @@ Note:
 				if serviceSpecs[0].HealthEndpoint != "" {
 					fmt.Printf("Health endpoint: %s\n", serviceSpecs[0].HealthEndpoint)
 				}
+				if len(serviceSpecs[0].ProcessEnv) > 0 {
+					fmt.Printf("Process environment: %s\n", formatSelectors(serviceSpecs[0].ProcessEnv))
+				}
+				if len(serviceSpecs[0].DockerLabels) > 0 {
+					fmt.Printf("Docker labels: %s\n", formatSelectors(serviceSpecs[0].DockerLabels))
+				}
 				if serviceSpecs[0].ServiceType != "" {
 					fmt.Printf("Service type: %s\n", serviceSpecs[0].ServiceType)
 				}
@@ -202,6 +220,8 @@ Note:
 					ServiceType:    spec.ServiceType,
 					Labels:         spec.Labels,
 					ExePattern:     spec.ExePattern,
+					ProcessEnv:     spec.ProcessEnv,
+					DockerLabels:   spec.DockerLabels,
 				}
 
 				resp, err := client.ConnectService(ctx, connect.NewRequest(req))
@@ -305,6 +325,8 @@ Note:
 	cmd.Flags().IntVarP(&port, "port", "p", 0, "Service port (legacy, only works with single service)")
 	cmd.Flags().StringVar(&healthURL, "health", "", "Health check endpoint (legacy, only works with single service)")
 	cmd.Flags().StringVar(&exePattern, "exe-pattern", "", "Executable pattern for a portless process, matched against /proc/<pid>/comm and cmdline (only works with single service, mutually exclusive with --port)")
+	cmd.Flags().StringArrayVar(&processEnv, "process-env", nil, "Environment variable KEY=VALUE the service's process must have; picks one of several listeners on the port (repeatable, single service only)")
+	cmd.Flags().StringArrayVar(&dockerTags, "docker-label", nil, "Docker label KEY=VALUE the service's container must have; picks one of several listeners on the port (repeatable, single service only)")
 	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
 	helpers.AddColonyFlag(cmd, &colony)
@@ -336,6 +358,38 @@ func discoverLocalAgent() (string, error) {
 	}
 
 	return "", fmt.Errorf("no agent found at common endpoints")
+}
+
+// applySelectorFlags parses --process-env and --docker-label values onto the
+// single service they describe.
+func applySelectorFlags(specs []*types.ServiceSpec, processEnv, dockerLabels []string) error {
+	if len(processEnv) == 0 && len(dockerLabels) == 0 {
+		return nil
+	}
+	if len(specs) != 1 {
+		return fmt.Errorf("--process-env and --docker-label only work with a single service specification")
+	}
+	env, err := types.ParseSelectors("--process-env", processEnv)
+	if err != nil {
+		return err
+	}
+	labels, err := types.ParseSelectors("--docker-label", dockerLabels)
+	if err != nil {
+		return err
+	}
+	specs[0].ProcessEnv = env
+	specs[0].DockerLabels = labels
+	return nil
+}
+
+// formatSelectors renders selectors as sorted KEY=VALUE pairs.
+func formatSelectors(selectors map[string]string) string {
+	pairs := make([]string, 0, len(selectors))
+	for key, value := range selectors {
+		pairs = append(pairs, key+"="+value)
+	}
+	slices.Sort(pairs)
+	return strings.Join(pairs, ", ")
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.
