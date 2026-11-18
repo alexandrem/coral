@@ -62,6 +62,11 @@ var schemaDDL = []string{
 		last_seen TIMESTAMP NOT NULL
 	)`,
 
+	// Records explicit removals so restoring mesh peers cannot re-add them to inventory.
+	`CREATE TABLE IF NOT EXISTS removed_agent_registrations (
+		agent_id TEXT PRIMARY KEY
+	)`,
+
 	// Service connections - auto-discovered service topology.
 	`CREATE TABLE IF NOT EXISTS service_connections (
 		from_service TEXT NOT NULL,

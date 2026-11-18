@@ -30,6 +30,42 @@ type ServiceHeartbeat struct {
 	LastSeen  time.Time `duckdb:"last_seen"`               // Mutable: updated on each heartbeat.
 }
 
+// RemoveAgentRegistration deletes cached services and records the removal atomically.
+func (d *Database) RemoveAgentRegistration(ctx context.Context, agentID string) error {
+	tx, err := d.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM service_heartbeats WHERE service_id IN
+		(SELECT id FROM services WHERE agent_id = ?)`, agentID); err != nil {
+		return fmt.Errorf("delete service heartbeats: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM services WHERE agent_id = ?`, agentID); err != nil {
+		return fmt.Errorf("delete services: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO removed_agent_registrations VALUES (?)
+		ON CONFLICT DO NOTHING`, agentID); err != nil {
+		return fmt.Errorf("record agent removal: %w", err)
+	}
+	return tx.Commit()
+}
+
+// IsAgentRemoved reports whether the agent's registration was explicitly removed.
+func (d *Database) IsAgentRemoved(ctx context.Context, agentID string) (bool, error) {
+	var removed bool
+	err := d.db.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM removed_agent_registrations WHERE agent_id = ?)`, agentID).Scan(&removed)
+	return removed, err
+}
+
+// ClearAgentRemoval allows a new registration to be restored after a restart.
+func (d *Database) ClearAgentRemoval(ctx context.Context, agentID string) error {
+	_, err := d.db.ExecContext(ctx, `DELETE FROM removed_agent_registrations WHERE agent_id = ?`, agentID)
+	return err
+}
+
 // GetServiceByName retrieves a service by its name.
 // It returns only the most recently seen instance if multiple exist with the same name.
 func (d *Database) GetServiceByName(ctx context.Context, serviceName string) (*Service, error) {

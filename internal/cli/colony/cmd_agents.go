@@ -121,7 +121,65 @@ Note: The colony must be running for this command to work.`,
 	helpers.AddVerboseFlag(cmd, &verbose)
 	helpers.AddColonyFlag(cmd, &colonyID)
 	options.addFlags(cmd)
+	cmd.AddCommand(newRemoveAgentCmd())
 
+	return cmd
+}
+
+func newRemoveAgentCmd() *cobra.Command {
+	var colonyID string
+
+	cmd := &cobra.Command{
+		Use:   "remove <agent-id>",
+		Short: "Remove an unhealthy agent from the registry",
+		Args:  cobra.ExactArgs(1),
+		Long: `Remove a decommissioned agent and its cached services from the running colony.
+
+Stop the agent before removing it. The colony accepts removal once its heartbeat
+is unhealthy. Remote removal requires an admin API token.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, selectedColonyID, err := helpers.ResolveColonyConfig(colonyID)
+			if err != nil {
+				return err
+			}
+			client, _, err := helpers.GetColonyClientWithFallback(cmd.Context(), selectedColonyID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+			defer cancel()
+
+			expectedColonyID := selectedColonyID
+			// Remote profiles created by add-remote use a local alias as their ID.
+			if cfg.Remote.ColonyID != "" {
+				expectedColonyID = cfg.Remote.ColonyID
+			} else if cfg.Remote.Endpoint != "" && cfg.Discovery.MeshID == "" {
+				// Older profiles do not record the remote ID, so it cannot be verified.
+				status, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+				if err != nil {
+					return fmt.Errorf("failed to identify remote colony: %w", err)
+				}
+				expectedColonyID = status.Msg.GetColonyId()
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+					"Warning: profile %q does not record the remote colony ID; using %q as reported by the endpoint.\n"+
+						"Re-add the profile with --colony-id to verify the target colony.\n",
+					selectedColonyID, expectedColonyID)
+			}
+
+			agentID := args[0]
+			_, err = client.RemoveAgent(ctx, connect.NewRequest(&colonyv1.RemoveAgentRequest{
+				AgentId:  agentID,
+				ColonyId: expectedColonyID,
+			}))
+			if err != nil {
+				return fmt.Errorf("failed to remove agent: %w", err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Removed agent %q from colony %q.\n", agentID, expectedColonyID)
+			return err
+		},
+	}
+	helpers.AddColonyFlag(cmd, &colonyID)
 	return cmd
 }
 

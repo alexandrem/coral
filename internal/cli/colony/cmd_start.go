@@ -512,7 +512,6 @@ Examples:
 			servicePoller := colony.NewServicePoller(
 				ctx,
 				agentRegistry,
-				db,
 				servicePollInterval,
 				logger,
 			)

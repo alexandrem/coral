@@ -264,7 +264,7 @@ Requires either `--from-discovery` with `--colony-id` and `--ca-fingerprint`, or
 | `--ca-data` | string | empty | Base64-encoded CA certificate for TLS verification (manual mode) |
 | `--ca-file` | string | empty | Path to CA certificate file for TLS verification (manual mode) |
 | `--ca-fingerprint` | string | empty | CA fingerprint for verification (required with --from-discovery, format: sha256:hex) |
-| `--colony-id` | string | empty | Colony ID (required with --from-discovery) |
+| `--colony-id` | string | empty | Remote colony ID, used to verify admin commands reach the intended colony (required with --from-discovery) |
 | `--discovery-endpoint` | string | empty | Override Discovery Service URL |
 | `--endpoint` | string | empty | Colony's public HTTPS endpoint URL (manual mode) |
 | `--from-discovery` | bool | `false` | Fetch endpoint and CA from Discovery Service |
@@ -290,6 +290,19 @@ coral colony agents [flags]
 | `--status` | stringSlice | `[]` | Filter heartbeat status: healthy,degraded,unhealthy (comma-separated) |
 | `--version` | stringSlice | `[]` | Filter exact agent versions (comma-separated) |
 | `--wide` | bool | `false` | Show mesh addresses and full service lists |
+
+##### coral colony agents remove
+
+Remove one decommissioned agent and its cached service registrations. The
+colony accepts removal after the agent's heartbeat becomes unhealthy.
+Run on the colony host or use the public HTTPS endpoint with an admin API token.
+For a remote profile, the command checks the remote colony ID recorded by
+`coral colony add-remote --colony-id`; profiles without one print a warning and
+use the ID the endpoint reports.
+
+```text
+coral colony agents remove <agent-id> [--colony <colony-id>]
+```
 
 #### coral colony ca
 
