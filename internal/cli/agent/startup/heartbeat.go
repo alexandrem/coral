@@ -137,7 +137,7 @@ type heartbeatHTTPClient struct {
 }
 
 func (c *heartbeatHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- Connect builds this heartbeat request for the discovered colony mesh endpoint.
 	if resp != nil {
 		c.status = int32(resp.StatusCode) // #nosec G115 -- HTTP status codes are three digits.
 	}
