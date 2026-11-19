@@ -92,6 +92,9 @@ message RuntimeContextResponse {
 
   // Structured mesh info (parity with /status).
   coral.network.v1.MeshTelemetry wireguard = 11;
+
+  // The running agent's most recent completed Colony heartbeat attempt.
+  ColonyHeartbeatStatus colony_heartbeat = 12;
 }
 
 message PlatformInfo {
@@ -985,4 +988,18 @@ message QuerySystemMetricsResponse {
 
   // Agent database session UUID (RFD 089).
   string session_id = 4;
+}
+
+message ColonyHeartbeatStatus {
+  // HTTP base URL used for the heartbeat RPC.
+  string target = 1;
+  google.protobuf.Timestamp last_attempt = 2;
+  google.protobuf.Timestamp last_success = 3;
+
+  // Outcome of the last attempt, or "not_attempted" before the first result.
+  string result = 4;
+  // HTTP status received, when available.
+  int32 http_status = 5;
+  // Connect code of an RPC error received from the server.
+  string rpc_code = 6;
 }

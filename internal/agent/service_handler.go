@@ -30,6 +30,7 @@ type ServiceHandler struct {
 	systemMetricsHandler *SystemMetricsHandler
 	sessionID            string // Database session UUID for checkpoint tracking (RFD 089).
 	meshInfoProvider     MeshInfoProvider
+	heartbeatStatus      func() *agentv1.ColonyHeartbeatStatus
 }
 
 // NewServiceHandler creates a new service handler.
@@ -55,6 +56,11 @@ func (h *ServiceHandler) SetMeshInfoProvider(provider MeshInfoProvider) {
 	h.meshInfoProvider = provider
 }
 
+// SetHeartbeatStatusProvider sets the callback for the agent's live heartbeat status.
+func (h *ServiceHandler) SetHeartbeatStatusProvider(provider func() *agentv1.ColonyHeartbeatStatus) {
+	h.heartbeatStatus = provider
+}
+
 // GetRuntimeContext implements the GetRuntimeContext RPC.
 func (h *ServiceHandler) GetRuntimeContext(
 	ctx context.Context,
@@ -73,6 +79,9 @@ func (h *ServiceHandler) GetRuntimeContext(
 		if meshInfo := h.meshInfoProvider(); meshInfo != nil {
 			resp.Wireguard = wireguard.MapToMeshTelemetryProto(meshInfo)
 		}
+	}
+	if h.heartbeatStatus != nil {
+		resp.ColonyHeartbeat = h.heartbeatStatus()
 	}
 
 	return connect.NewResponse(resp), nil

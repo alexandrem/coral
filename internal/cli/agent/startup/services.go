@@ -458,6 +458,9 @@ func (s *ServiceRegistry) createHTTPServers(
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
 	serviceHandler.SetSessionID(s.sessionID)
 	serviceHandler.SetMeshInfoProvider(s.gatherMeshNetworkInfo)
+	if s.connectionMgr != nil {
+		serviceHandler.SetHeartbeatStatusProvider(s.connectionMgr.GetHeartbeatStatus)
+	}
 	// System metrics are optional: when the shared database is unavailable
 	// during bootstrap, no metrics handler is created. The service handler
 	// already responds gracefully to QuerySystemMetrics in that case.
@@ -569,6 +572,9 @@ func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeServi
 		status := map[string]interface{}{
 			"runtime":   runtimeCtx,
 			"wireguard": meshInfo,
+		}
+		if s.connectionMgr != nil {
+			status["colony_heartbeat"] = s.connectionMgr.GetHeartbeatStatus()
 		}
 
 		w.Header().Set("Content-Type", "application/json")

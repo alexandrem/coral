@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -40,7 +41,7 @@ This command shows:
 - Runtime context (Native, Docker, K8s, etc.)
 - Available capabilities (run, exec, shell, connect)
 - Visibility scope and container access
-- Colony connection status
+- Colony heartbeat status and WireGuard peer telemetry
 - Certificate status (with --cert flag)
 
 Examples:
@@ -114,7 +115,7 @@ The agent must be running and accessible.`,
 
 			// Output in requested format.
 			if format != string(helpers.FormatTable) {
-				return outputAgentStatusFormattedWithCert(runtimeCtx, certInfo, meshTelemetry, format)
+				return outputAgentStatusFormattedWithCert(runtimeCtx, certInfo, meshTelemetry, format, cmd.OutOrStdout())
 			}
 
 			return outputAgentStatusTableWithCert(runtimeCtx, certInfo, meshTelemetry)
@@ -381,13 +382,17 @@ func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
 }
 
 // outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
-func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string) error {
+func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string, writer io.Writer) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
 	}
 
 	if meshTelemetry != nil {
 		output["wireguard"] = meshTelemetry
+	}
+	if heartbeat := ctx.ColonyHeartbeat; heartbeat != nil {
+		output["colony_heartbeat"] = heartbeatStatusFields(heartbeat)
+		ctx.ColonyHeartbeat = nil
 	}
 
 	if certInfo != nil {
@@ -409,7 +414,7 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, cer
 		return err
 	}
 
-	return formatter.Format(output, os.Stdout)
+	return formatter.Format(output, writer)
 }
 
 // outputAgentStatusTableWithCert outputs agent status with cert info in human-readable format.
@@ -428,8 +433,67 @@ func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, certInf
 	if meshTelemetry != nil {
 		printAgentMeshStatus(meshTelemetry)
 	}
+	if ctx.ColonyHeartbeat != nil {
+		printColonyHeartbeatStatus(ctx.ColonyHeartbeat)
+	}
 
 	return nil
+}
+
+func heartbeatStatusFields(status *agentv1.ColonyHeartbeatStatus) map[string]interface{} {
+	fields := map[string]interface{}{"result": status.Result}
+	if status.Target != "" {
+		fields["target"] = status.Target
+	}
+	if status.LastAttempt != nil {
+		fields["last_attempt"] = status.LastAttempt.AsTime()
+	}
+	if status.LastSuccess != nil {
+		fields["last_success"] = status.LastSuccess.AsTime()
+	}
+	if status.HttpStatus != 0 {
+		fields["http_status"] = status.HttpStatus
+	}
+	if status.RpcCode != "" {
+		fields["rpc_code"] = status.RpcCode
+	}
+	if hint := heartbeatStatusHint(status); hint != "" {
+		fields["hint"] = hint
+	}
+	return fields
+}
+
+func printColonyHeartbeatStatus(status *agentv1.ColonyHeartbeatStatus) {
+	fmt.Println("Colony Heartbeat:")
+	if status.Target != "" {
+		fmt.Printf("  Target:         %s\n", status.Target)
+	}
+
+	now := time.Now()
+	fmt.Printf("  Last attempt:   %s\n", helpers.FormatAge(status.LastAttempt, now))
+	fmt.Printf("  Last success:   %s\n", helpers.FormatAge(status.LastSuccess, now))
+
+	result := strings.ReplaceAll(status.Result, "_", " ")
+	switch status.Result {
+	case "unexpected_http_response":
+		result = fmt.Sprintf("unexpected HTTP %d response", status.HttpStatus)
+	case "rejected":
+		result = "rejected by colony"
+	case "rpc_error":
+		result = "RPC error (" + status.RpcCode + ")"
+	}
+	fmt.Printf("  Result:         %s\n", result)
+	if hint := heartbeatStatusHint(status); hint != "" {
+		fmt.Printf("  Hint:           %s\n", hint)
+	}
+	fmt.Println()
+}
+
+func heartbeatStatusHint(status *agentv1.ColonyHeartbeatStatus) string {
+	if status.Result == "unexpected_http_response" {
+		return "Verify which service owns the target TCP port on the colony host and check any forwarding rules."
+	}
+	return ""
 }
 
 // printAgentMeshStatus formats and prints WireGuard mesh telemetry natively for the agent.

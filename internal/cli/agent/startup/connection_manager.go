@@ -6,20 +6,16 @@ import (
 	"math"
 	"math/rand"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/enrollmentstate"
-	"github.com/coral-mesh/coral/internal/agent/heartbeat"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 	wg "github.com/coral-mesh/coral/internal/wireguard"
@@ -77,13 +73,13 @@ type ConnectionManager struct {
 	stateMu sync.RWMutex
 
 	// Connection tracking
-	lastSuccessfulHeartbeat time.Time
-	consecutiveFailures     int
-	assignedIP              string
-	assignedSubnet          string
-	currentEndpoint         string // Tracks the currently configured WireGuard endpoint
-	lastSuccessfulEndpoint  string // Tracks the last WireGuard endpoint that successfully connected
-	lastSuccessfulRegURL    string // Tracks the last HTTP registration URL that succeeded
+	heartbeatStatus        *agentv1.ColonyHeartbeatStatus
+	consecutiveFailures    int
+	assignedIP             string
+	assignedSubnet         string
+	currentEndpoint        string // Tracks the currently configured WireGuard endpoint
+	lastSuccessfulEndpoint string // Tracks the last WireGuard endpoint that successfully connected
+	lastSuccessfulRegURL   string // Tracks the last HTTP registration URL that succeeded
 
 	// Reconnection control
 	reconnectTrigger chan struct{}
@@ -406,102 +402,6 @@ func (cm *ConnectionManager) ApplyBootstrapRegistration(resp *meshv1.RegisterRes
 		Str("mesh_subnet", resp.MeshSubnet).
 		Msg("Applied compound bootstrap registration")
 	return nil
-}
-
-// StartHeartbeatLoop sends periodic heartbeats to the colony and monitors connection health.
-// This loop will wait if colony info is not available and start heartbeats once available.
-func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval time.Duration) {
-	cm.logger.Info().
-		Dur("interval", interval).
-		Msg("Starting heartbeat loop")
-
-	sendHeartbeat := func() bool {
-		// Check if we have colony info.
-		colonyInfo := cm.GetColonyInfo()
-		if colonyInfo == nil {
-			// Can't send heartbeat without colony info - silently skip.
-			return false
-		}
-
-		connectPort := colonyInfo.ConnectPort
-		if connectPort == 0 {
-			connectPort = constants.DefaultColonyPort
-		}
-
-		colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(colonyInfo.MeshIPv4, fmt.Sprintf("%d",
-			connectPort)))
-		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
-
-		// Use the composable Agent for the actual heartbeat call.
-		agent := heartbeat.NewAgent(cm.agentID, client)
-
-		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		resp, err := agent.SendHeartbeat(heartbeatCtx)
-
-		if err != nil {
-			cm.consecutiveFailures++
-			cm.logger.Warn().
-				Err(err).
-				Str("agent_id", cm.agentID).
-				Int("consecutive_failures", cm.consecutiveFailures).
-				Msg("Failed to send heartbeat")
-			return false
-		}
-
-		if !resp.Ok {
-			cm.consecutiveFailures++
-			cm.logger.Warn().
-				Str("agent_id", cm.agentID).
-				Int("consecutive_failures", cm.consecutiveFailures).
-				Msg("Heartbeat rejected by colony")
-			return false
-		}
-
-		// Success - reset failure counter and record successful endpoint.
-		cm.consecutiveFailures = 0
-		cm.lastSuccessfulHeartbeat = time.Now()
-		cm.setState(StateHealthy)
-		cm.backoff.Reset()
-
-		// Record the current endpoint as successful since heartbeats are working.
-		// This means the WireGuard tunnel is established and functional.
-		currentEndpoint := cm.GetCurrentEndpoint()
-		if currentEndpoint != "" && currentEndpoint != cm.GetLastSuccessfulEndpoint() {
-			cm.SetLastSuccessfulEndpoint(currentEndpoint)
-		}
-
-		cm.logger.Debug().
-			Str("agent_id", cm.agentID).
-			Msg("Heartbeat sent successfully")
-		return true
-	}
-
-	// Send first heartbeat immediately.
-	sendHeartbeat()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			cm.logger.Info().Msg("Heartbeat loop stopping")
-			return
-		case <-ticker.C:
-			success := sendHeartbeat()
-			if !success && cm.consecutiveFailures >= 3 {
-				// After 3 consecutive failures (~45 seconds with 15s interval),
-				// assume connection is lost and trigger reconnection.
-				cm.logger.Warn().
-					Int("consecutive_failures", cm.consecutiveFailures).
-					Msg("Multiple heartbeat failures detected - triggering reconnection")
-				cm.setState(StateUnregistered)
-				cm.triggerReconnection()
-			}
-		}
-	}
 }
 
 // StartDiscoveryLoop runs a background loop that attempts discovery when in waiting_discovery state.

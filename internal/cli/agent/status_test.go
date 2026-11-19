@@ -1,12 +1,58 @@
 package agent
 
 import (
+	"bytes"
+	"context"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 )
+
+func TestAgentStatusFormatsHeartbeat(t *testing.T) {
+	attempt := time.Date(2026, 11, 19, 16, 47, 48, 0, time.UTC)
+	handler := connect.NewUnaryHandler(
+		agentv1connect.AgentServiceGetRuntimeContextProcedure,
+		func(_ context.Context, _ *connect.Request[agentv1.GetRuntimeContextRequest]) (*connect.Response[agentv1.RuntimeContextResponse], error) {
+			return connect.NewResponse(&agentv1.RuntimeContextResponse{
+				ColonyHeartbeat: &agentv1.ColonyHeartbeatStatus{
+					Target:      "http://100.64.0.1:9000",
+					LastAttempt: timestamppb.New(attempt),
+					LastSuccess: timestamppb.New(attempt.Add(-time.Minute)),
+					Result:      "unexpected_http_response",
+					HttpStatus:  400,
+				},
+			}), nil
+		},
+	)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			var output bytes.Buffer
+			cmd := NewStatusCmd()
+			cmd.SetOut(&output)
+			cmd.SetArgs([]string{"--agent-url", server.URL, "--format", format})
+			require.NoError(t, cmd.ExecuteContext(t.Context()))
+			for _, value := range []string{
+				"colony_heartbeat", "http://100.64.0.1:9000",
+				"last_attempt", "2026-11-19T16:47:48Z",
+				"last_success", "2026-11-19T16:46:48Z",
+				"unexpected_http_response", "http_status", "400", "owns the target TCP port",
+			} {
+				assert.Contains(t, output.String(), value)
+			}
+		})
+	}
+}
 
 func TestFormatRuntimeType(t *testing.T) {
 	tests := []struct {

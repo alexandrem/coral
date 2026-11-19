@@ -3,15 +3,114 @@ package startup
 import (
 	"context"
 	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
-	"github.com/rs/zerolog"
 )
+
+func TestHeartbeatStatusRecordsActualResponse(t *testing.T) {
+	const (
+		healthy = iota
+		wrongService
+		rejected
+		rpcError
+		slowService
+	)
+	var outcome atomic.Int32
+	slowResponse := make(chan struct{})
+	heartbeatHandler := connect.NewUnaryHandler(
+		meshv1connect.MeshServiceHeartbeatProcedure,
+		func(_ context.Context, _ *connect.Request[meshv1.HeartbeatRequest]) (*connect.Response[meshv1.HeartbeatResponse], error) {
+			if outcome.Load() == rpcError {
+				return nil, connect.NewError(connect.CodeUnavailable, errors.New("registry unavailable"))
+			}
+			return connect.NewResponse(&meshv1.HeartbeatResponse{Ok: outcome.Load() == healthy}), nil
+		},
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch outcome.Load() {
+		case wrongService:
+			http.Error(w, "Port 9000 is for clickhouse-client program", http.StatusBadRequest)
+		case slowService:
+			<-slowResponse
+		default:
+			heartbeatHandler.ServeHTTP(w, r)
+		}
+	}))
+	defer server.Close()
+
+	addr := server.Listener.Addr().(*net.TCPAddr)
+	colony := &discovery.LookupColonyResponse{
+		MeshIPv4:    addr.IP.String(),
+		ConnectPort: uint32(addr.Port), // #nosec G115 -- TCP ports fit in uint32.
+	}
+	cm := NewConnectionManager("agent", colony, nil, nil, "", nil, nil, zerolog.Nop())
+	require.Equal(t, "not_attempted", cm.GetHeartbeatStatus().Result)
+	require.True(t, cm.sendHeartbeat(t.Context()))
+	success := cm.GetHeartbeatStatus()
+	require.Equal(t, "healthy", success.Result)
+	require.Equal(t, server.URL, success.Target)
+	require.NotNil(t, success.LastAttempt)
+	require.NotNil(t, success.LastSuccess)
+
+	for _, tc := range []struct {
+		outcome    int32
+		result     string
+		httpStatus int32
+		rpcCode    string
+	}{
+		{outcome: wrongService, result: "unexpected_http_response", httpStatus: http.StatusBadRequest},
+		{outcome: rejected, result: "rejected", httpStatus: http.StatusOK},
+		{outcome: rpcError, result: "rpc_error", httpStatus: http.StatusServiceUnavailable, rpcCode: "unavailable"},
+	} {
+		t.Run(tc.result, func(t *testing.T) {
+			outcome.Store(tc.outcome)
+			require.False(t, cm.sendHeartbeat(t.Context()))
+			status := cm.GetHeartbeatStatus()
+			require.Equal(t, server.URL, status.Target)
+			require.Equal(t, tc.result, status.Result)
+			require.Equal(t, tc.httpStatus, status.HttpStatus)
+			require.Equal(t, tc.rpcCode, status.RpcCode)
+			require.GreaterOrEqual(t, status.LastAttempt.AsTime().UnixNano(), success.LastSuccess.AsTime().UnixNano())
+			require.Equal(t, success.LastSuccess.AsTime(), status.LastSuccess.AsTime())
+		})
+	}
+
+	outcome.Store(slowService)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	sent := cm.sendHeartbeat(ctx)
+	close(slowResponse)
+	require.False(t, sent)
+	require.Equal(t, "timeout", cm.GetHeartbeatStatus().Result)
+
+	outcome.Store(healthy)
+	require.True(t, cm.sendHeartbeat(t.Context()))
+	recovered := cm.GetHeartbeatStatus()
+	require.Equal(t, "healthy", recovered.Result)
+	require.Empty(t, recovered.RpcCode)
+	require.Greater(t, recovered.LastSuccess.AsTime().UnixNano(), success.LastSuccess.AsTime().UnixNano())
+
+	server.Close()
+	require.False(t, cm.sendHeartbeat(t.Context()))
+	refused := cm.GetHeartbeatStatus()
+	require.Equal(t, "connection_refused", refused.Result)
+	require.Zero(t, refused.HttpStatus)
+	require.Equal(t, recovered.LastSuccess.AsTime(), refused.LastSuccess.AsTime())
+}
 
 func TestApplyBootstrapRegistration(t *testing.T) {
 	cm := &ConnectionManager{
