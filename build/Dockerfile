@@ -6,7 +6,7 @@ ARG TARGETARCH
 
 WORKDIR /build
 
-# Install build dependencies including C compiler for CGO (required by go-duckdb).
+# Install build dependencies including C compiler for CGO (required by duckdb-go).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     g++ \

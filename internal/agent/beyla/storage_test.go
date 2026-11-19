@@ -7,7 +7,7 @@ import (
 	"time"
 
 	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"

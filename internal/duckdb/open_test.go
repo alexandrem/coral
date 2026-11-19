@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	duckdbDriver "github.com/marcboeker/go-duckdb"
+	duckdbDriver "github.com/duckdb/duckdb-go/v2"
 )
 
 func TestOpenDB(t *testing.T) {

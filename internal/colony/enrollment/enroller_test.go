@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"

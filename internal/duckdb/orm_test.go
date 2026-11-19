@@ -301,28 +301,35 @@ func TestIsTransactionConflict(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tx1.Commit())
 	commitRaceErr := tx2.Commit()
-	require.ErrorContains(t, commitRaceErr, "PRIMARY KEY or UNIQUE constraint violated")
+	require.ErrorContains(t, commitRaceErr, "PRIMARY KEY or UNIQUE constraint violation")
 
 	_, syntaxErr := db.Exec(`SELEC 1`)
 	require.Error(t, syntaxErr)
 
+	_, notNullErr := db.Exec(`INSERT INTO counters VALUES (NULL, 1)`)
+	require.ErrorContains(t, notNullErr, "NOT NULL constraint failed")
+
 	tests := []struct {
-		name string
-		err  error
-		want bool
+		name       string
+		err        error
+		want       bool
+		wantUpsert bool
 	}{
-		{"nil", nil, false},
-		{"update conflict", conflictErr, true},
-		{"wrapped update conflict", fmt.Errorf("batch exec: %w", conflictErr), true},
-		{"commit lost primary key race", commitRaceErr, true},
-		{"aborted transaction", abortedErr, false},
-		{"duplicate key", dupErr, false},
-		{"syntax error", syntaxErr, false},
-		{"non-duckdb error mentioning conflict", errors.New("transaction conflict on serialization"), false},
+		{"nil", nil, false, false},
+		{"update conflict", conflictErr, true, true},
+		{"wrapped update conflict", fmt.Errorf("batch exec: %w", conflictErr), true, true},
+		{"commit lost primary key race", commitRaceErr, true, true},
+		{"aborted transaction", abortedErr, false, false},
+		{"duplicate key", dupErr, false, true},
+		{"wrapped duplicate key", fmt.Errorf("upsert: %w", dupErr), false, true},
+		{"not null violation", notNullErr, false, false},
+		{"syntax error", syntaxErr, false, false},
+		{"non-duckdb error mentioning conflict", errors.New("transaction conflict on serialization"), false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsTransactionConflict(tt.err), "err: %v", tt.err)
+			assert.Equal(t, tt.want, IsTransactionConflict(tt.err), "IsTransactionConflict: %v", tt.err)
+			assert.Equal(t, tt.wantUpsert, isUpsertRetryable(tt.err), "isUpsertRetryable: %v", tt.err)
 		})
 	}
 }
