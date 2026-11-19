@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -124,11 +127,21 @@ func blockBootstrapAndRegister(next http.Handler) http.Handler {
 	})
 }
 
+func listenColonyConnect(port int) (net.Listener, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return nil, fmt.Errorf("colony Connect port %d is already in use. Free the port or change services.connect_port (%w)", port, err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind the colony Connect listener on TCP port %d: %w", port, err)
+	}
+	return listener, nil
+}
+
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
 // Returns the HTTP server, the token store (nil if public endpoint is disabled), and any error.
-func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, *auth.TokenStore, error) {
+func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, connectPort int, connectListener net.Listener, logger logging.Logger) (*http.Server, *auth.TokenStore, error) {
 	ctx := context.Background()
-	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create config loader: %w", err)
@@ -142,11 +155,6 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	globalConfig, err := loader.LoadGlobalConfig()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load global config: %w", err)
-	}
-
-	connectPort := colonyConfig.Services.ConnectPort
-	if connectPort == 0 {
-		connectPort = constants.DefaultColonyPort // Default Buf Connect port
 	}
 
 	dashboardPort := colonyConfig.Services.DashboardPort
@@ -412,19 +420,19 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// Start server in background
+	// Serve on the TCP listener acquired before the rest of startup.
 	go func() {
-		logger.Info().
-			Int("port", connectPort).
-			Str("status_endpoint", fmt.Sprintf("http://localhost:%d/status", connectPort)).
-			Msg("Mesh and Colony services listening")
-
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.Serve(connectListener); err != nil && err != http.ErrServerClosed {
 			logger.Error().
 				Err(err).
+				Str("addr", addr).
 				Msg("Server error")
 		}
 	}()
+	logger.Info().
+		Int("port", connectPort).
+		Str("status_endpoint", fmt.Sprintf("http://localhost:%d/status", connectPort)).
+		Msg("Mesh and Colony services listening")
 
 	// Start the PSK-encrypted rendezvous dial-back loop (RFD 108). This lets
 	// this Colony bootstrap trust with a dialable Agent even when the

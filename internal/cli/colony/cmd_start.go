@@ -148,6 +148,17 @@ Examples:
 				Int("wireguard_port", cfg.WireGuard.Port).
 				Msg("Colony configuration loaded")
 
+			connectPort := colonyConfigForEndpoints.Services.ConnectPort
+			if connectPort == 0 {
+				connectPort = constants.DefaultColonyPort
+			}
+			connectListener, err := listenColonyConnect(connectPort)
+			if err != nil {
+				return err
+			}
+			// Release the listener even if startup fails before starting the HTTP server.
+			defer func() { _ = connectListener.Close() }()
+
 			// Determine connections cache TTL (RFD 092).
 			connectionsCacheTTL := constants.DefaultConnectionsCacheTTL
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.ConnectionsCacheTTL > 0 {
@@ -243,7 +254,7 @@ Examples:
 			}
 
 			// Start gRPC/Connect server for agent registration and colony management.
-			meshServer, tokenStore, err := startServers(cfg, wgDevice, agentRegistry, db, endpoints, logger)
+			meshServer, tokenStore, err := startServers(cfg, wgDevice, agentRegistry, db, endpoints, connectPort, connectListener, logger)
 			if err != nil {
 				return fmt.Errorf("failed to start servers: %w", err)
 			}
@@ -279,12 +290,6 @@ Examples:
 			meshIPv6 := colonyConfig.WireGuard.MeshIPv6
 			if meshIPv6 == "" {
 				meshIPv6 = constants.DefaultColonyMeshIPv6
-			}
-
-			// Set default connect port if not configured
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = constants.DefaultColonyPort // Default Buf Connect port
 			}
 
 			// Set default public endpoint port if not configured

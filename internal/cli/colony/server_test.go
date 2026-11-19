@@ -1,10 +1,28 @@
 package colony
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+func TestListenColonyConnectReportsOccupiedPort(t *testing.T) {
+	occupied, err := listenColonyConnect(0)
+	require.NoError(t, err)
+	defer func() { _ = occupied.Close() }()
+	port := occupied.Addr().(*net.TCPAddr).Port
+
+	listener, err := listenColonyConnect(port)
+	require.Nil(t, listener)
+	require.ErrorIs(t, err, syscall.EADDRINUSE)
+	require.ErrorContains(t, err, fmt.Sprintf("colony Connect port %d is already in use", port))
+	require.ErrorContains(t, err, "services.connect_port")
+}
 
 // TestBlockBootstrapAndRegister is the RFD 109 regression guarding "No
 // broad rendezvous handler": the ordinary mesh/public listener must 404
