@@ -37,6 +37,53 @@ OTLP. The two use different storage paths, so a custom OTLP metric the agent
 received may not appear in protocol metric queries. See
 [instrumentation](instrumentation.md#send-opentelemetry-data).
 
+## Read the summary status
+
+Each service in `coral query summary` reports a status of `healthy`,
+`degraded`, `critical`, or `idle`. `idle` means the service is registered but
+had no traffic in the window. The other statuses come from the thresholds below.
+The same thresholds apply whether the evidence came from eBPF, OTLP, or both.
+
+| Signal | `degraded` above | `critical` above |
+| --- | --- | --- |
+| Error rate (5xx responses and error spans) | 1% | 5% |
+| p95 request latency | 1000 ms | 2000 ms |
+| Host CPU utilization (peak in the window) | 80% | — |
+| Host memory utilization (peak in the window) | 85% | — |
+
+When a service is not healthy, the `Status` line names each signal that crossed
+a threshold, with its value. This example output shows a service with slow
+requests but no errors:
+
+```text
+❌ api (eBPF+OTLP)
+   Status: critical (p95 latency 3413.33ms > 2000ms)
+   Requests: 791
+   Error Rate: 0.00%
+   P95 Latency: 3413.33ms
+```
+
+The p95 latency is an estimate, and its accuracy limits what the value can
+prove:
+
+- For eBPF traffic, it is the upper bound of the latency histogram bucket that
+  holds the 95th percentile request. The true p95 can be lower, but not higher.
+- For OTLP traffic, it is the average of the stored p95 values, weighted by
+  span count.
+- When both sources report latency, the two estimates are weighted by the
+  requests each covers. A source without latency data does not change the
+  result. `P95 Latency: n/a` means no source reported latency.
+
+Use `coral query traces api --min-duration-ms 2000` to inspect individual slow
+requests behind the estimate.
+
+With `--format json`, `p95_latency_ms` holds the estimate. `status_reasons`
+lists each crossed threshold as `metric`, `value`, `threshold`, and `status`.
+The metric names are `error_rate_pct`, `p95_latency_ms`,
+`host_cpu_utilization_pct`, and `host_memory_utilization_pct`.
+`avg_latency_ms` is deprecated. It carries the same value as `p95_latency_ms`
+so existing scripts keep working.
+
 ## Inspect dependencies
 
 ```bash

@@ -15,10 +15,10 @@ func TestParseHealthAlerts(t *testing.T) {
 	buildSummary := func(blocks ...string) string {
 		return "Service Health Summary:\n\n" + strings.Join(blocks, "\n\n") + "\n\n"
 	}
-	healthy := "✅ api-gateway (ebpf)\n   Status: OK\n   Requests: 500\n   Error Rate: 0.00%\n   Avg Latency: 12.50ms\n"
-	idle := "💤 worker (ebpf)\n   Status: IDLE\n   Requests: 0\n   Error Rate: 0.00%\n   Avg Latency: 0.00ms\n"
-	degraded := "⚠️ user-service (registered+ebpf)\n   Status: DEGRADED\n   Requests: 50\n   Error Rate: 23.50%\n   Avg Latency: 1200.00ms\n"
-	critical := "❌ db-proxy (registered)\n   Status: CRITICAL\n   Requests: 12\n   Error Rate: 98.00%\n   Avg Latency: 5000.00ms\n"
+	healthy := "✅ api-gateway (ebpf)\n   Status: OK\n   Requests: 500\n   Error Rate: 0.00%\n   P95 Latency: 12.50ms\n"
+	idle := "💤 worker (ebpf)\n   Status: IDLE\n   Requests: 0\n   Error Rate: 0.00%\n   P95 Latency: 0.00ms\n"
+	degraded := "⚠️ user-service (registered+ebpf)\n   Status: DEGRADED\n   Requests: 50\n   Error Rate: 23.50%\n   P95 Latency: 1200.00ms\n"
+	critical := "❌ db-proxy (registered)\n   Status: CRITICAL\n   Requests: 12\n   Error Rate: 98.00%\n   P95 Latency: 5000.00ms\n"
 
 	t.Run("empty input", func(t *testing.T) {
 		assert.Equal(t, "", parseHealthAlerts(""))
@@ -33,7 +33,7 @@ func TestParseHealthAlerts(t *testing.T) {
 		assert.Contains(t, result, "⚠️ user-service")
 		assert.Contains(t, result, "Status: DEGRADED")
 		assert.Contains(t, result, "Error Rate: 23.50%")
-		assert.Contains(t, result, "Avg Latency: 1200.00ms")
+		assert.Contains(t, result, "P95 Latency: 1200.00ms")
 		assert.Contains(t, result, "Requests: 50")
 		assert.NotContains(t, result, "api-gateway")
 	})
@@ -57,7 +57,7 @@ func TestParseHealthAlerts(t *testing.T) {
 	})
 
 	t.Run("regression and host resource lines are excluded", func(t *testing.T) {
-		withExtras := "⚠️ svc (ebpf)\n   Status: DEGRADED\n   Requests: 10\n   Error Rate: 50.00%\n   Avg Latency: 800.00ms\n   Host Resources:\n     CPU: 95%\n   Regressions:\n     ⚠️  error rate spike\n"
+		withExtras := "⚠️ svc (ebpf)\n   Status: DEGRADED\n   Requests: 10\n   Error Rate: 50.00%\n   P95 Latency: 800.00ms\n   Host Resources:\n     CPU: 95%\n   Regressions:\n     ⚠️  error rate spike\n"
 		result := parseHealthAlerts(buildSummary(withExtras))
 		assert.Contains(t, result, "⚠️ svc")
 		assert.Contains(t, result, "Error Rate: 50.00%")
@@ -82,10 +82,10 @@ func TestCompactServiceAlert(t *testing.T) {
 			"   Status: DEGRADED",
 			"   Requests: 50",
 			"   Error Rate: 23.50%",
-			"   Avg Latency: 1200.00ms",
+			"   P95 Latency: 1200.00ms",
 		}
 		result := compactServiceAlert("⚠️ user-service (ebpf)", lines)
-		assert.Equal(t, "⚠️ user-service (ebpf) | Status: DEGRADED | Requests: 50 | Error Rate: 23.50% | Avg Latency: 1200.00ms", result)
+		assert.Equal(t, "⚠️ user-service (ebpf) | Status: DEGRADED | Requests: 50 | Error Rate: 23.50% | P95 Latency: 1200.00ms", result)
 	})
 
 	t.Run("ignores non-key lines", func(t *testing.T) {
@@ -101,10 +101,10 @@ func TestCompactServiceAlert(t *testing.T) {
 	})
 
 	t.Run("handles leading whitespace in lines", func(t *testing.T) {
-		lines := []string{"   Error Rate: 5.00%", "   Avg Latency: 200.00ms"}
+		lines := []string{"   Error Rate: 5.00%", "   P95 Latency: 200.00ms"}
 		result := compactServiceAlert("⚠️ svc (ebpf)", lines)
 		assert.Contains(t, result, "Error Rate: 5.00%")
-		assert.Contains(t, result, "Avg Latency: 200.00ms")
+		assert.Contains(t, result, "P95 Latency: 200.00ms")
 	})
 }
 

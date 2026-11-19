@@ -1250,6 +1250,154 @@ func TestQueryUnifiedSummary_DataMerging(t *testing.T) {
 	})
 }
 
+// TestQueryUnifiedSummary_LatencyStatus verifies that latency is estimated
+// from request-weighted data and that one threshold rule applies to all sources.
+func TestQueryUnifiedSummary_LatencyStatus(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-5 * time.Minute)
+	endTime := now
+
+	httpRow := func(svc string, status int, bucketMs float64, count int64) *database.BeylaHTTPMetricResult {
+		return &database.BeylaHTTPMetricResult{
+			ServiceName:     svc,
+			HTTPMethod:      "GET",
+			HTTPRoute:       "/api",
+			HTTPStatusCode:  status,
+			LatencyBucketMs: bucketMs,
+			Count:           count,
+		}
+	}
+
+	query := func(t *testing.T, db *mockDatabase) UnifiedSummaryResult {
+		t.Helper()
+		service := &EbpfQueryService{db: db}
+		results, err := service.QueryUnifiedSummary(context.Background(), "", startTime, endTime)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		return results[0]
+	}
+
+	t.Run("skewed bucket counts do not inflate latency", func(t *testing.T) {
+		result := query(t, &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				httpRow("api", 200, 100, 1000),
+				httpRow("api", 200, 10000, 1),
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{ServiceName: "api", SpanKind: "server", TotalSpans: 500, P95Ms: 100},
+			},
+		})
+
+		assert.Equal(t, "eBPF+OTLP", result.Source)
+		assert.InDelta(t, 100.0, result.P95LatencyMs, 0.01)
+		assert.Equal(t, ServiceStatusHealthy, result.Status)
+		assert.Empty(t, result.StatusReasons)
+	})
+
+	t.Run("OTLP without latency preserves the eBPF assessment", func(t *testing.T) {
+		ebpfRows := []*database.BeylaHTTPMetricResult{
+			httpRow("api", 200, 100, 10),
+			httpRow("api", 200, 1500, 990),
+		}
+		ebpfOnly := query(t, &mockDatabase{httpMetrics: ebpfRows})
+		merged := query(t, &mockDatabase{
+			httpMetrics: ebpfRows,
+			telemetrySummaries: []database.TelemetrySummary{
+				{ServiceName: "api", SpanKind: "server", TotalSpans: 500},
+			},
+		})
+
+		assert.InDelta(t, 1500.0, ebpfOnly.P95LatencyMs, 0.01)
+		assert.Equal(t, ServiceStatusDegraded, ebpfOnly.Status)
+		assert.Equal(t, "eBPF+OTLP", merged.Source)
+		assert.InDelta(t, ebpfOnly.P95LatencyMs, merged.P95LatencyMs, 0.01)
+		assert.Equal(t, ebpfOnly.Status, merged.Status)
+		assert.Equal(t, ebpfOnly.StatusReasons, merged.StatusReasons)
+	})
+
+	t.Run("slow eBPF traffic without errors is critical", func(t *testing.T) {
+		result := query(t, &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				httpRow("api", 200, 5000, 100),
+			},
+		})
+
+		assert.Equal(t, "eBPF", result.Source)
+		assert.Equal(t, ServiceStatusCritical, result.Status)
+		require.Len(t, result.StatusReasons, 1)
+		assert.Equal(t, StatusReason{
+			Metric:    StatusMetricP95Latency,
+			Value:     5000,
+			Threshold: 2000,
+			Status:    ServiceStatusCritical,
+		}, result.StatusReasons[0])
+	})
+
+	t.Run("slow OTLP traffic without errors is critical", func(t *testing.T) {
+		result := query(t, &mockDatabase{
+			telemetrySummaries: []database.TelemetrySummary{
+				{ServiceName: "api", SpanKind: "server", TotalSpans: 50, P95Ms: 2500},
+			},
+		})
+
+		assert.Equal(t, "OTLP", result.Source)
+		assert.Equal(t, ServiceStatusCritical, result.Status)
+		require.Len(t, result.StatusReasons, 1)
+		assert.Equal(t, StatusMetricP95Latency, result.StatusReasons[0].Metric)
+		assert.InDelta(t, 2500.0, result.StatusReasons[0].Value, 0.01)
+	})
+
+	t.Run("OTLP p95 values are weighted by span count", func(t *testing.T) {
+		result := query(t, &mockDatabase{
+			telemetrySummaries: []database.TelemetrySummary{
+				{ServiceName: "api", SpanKind: "server", TotalSpans: 900, P95Ms: 100},
+				{ServiceName: "api", SpanKind: "server", TotalSpans: 100, P95Ms: 3000},
+			},
+		})
+
+		// (900*100 + 100*3000) / 1000 = 390; an unweighted mean would be 1550.
+		assert.InDelta(t, 390.0, result.P95LatencyMs, 0.01)
+		assert.Equal(t, ServiceStatusHealthy, result.Status)
+	})
+
+	t.Run("every crossed threshold is reported", func(t *testing.T) {
+		result := query(t, &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				httpRow("api", 200, 1500, 90),
+				httpRow("api", 503, 1500, 10),
+			},
+		})
+
+		assert.Equal(t, ServiceStatusCritical, result.Status)
+		assert.Equal(t, []StatusReason{
+			{Metric: StatusMetricErrorRate, Value: 10, Threshold: 5, Status: ServiceStatusCritical},
+			{Metric: StatusMetricP95Latency, Value: 1500, Threshold: 1000, Status: ServiceStatusDegraded},
+		}, result.StatusReasons)
+	})
+}
+
+func TestHistogramP95(t *testing.T) {
+	tests := []struct {
+		name     string
+		buckets  map[float64]int64
+		wantP95  float64
+		wantReqs int64
+	}{
+		{name: "empty", buckets: nil},
+		{name: "single bucket", buckets: map[float64]int64{50: 10}, wantP95: 50, wantReqs: 10},
+		{name: "tail below the 95th percentile", buckets: map[float64]int64{100: 1000, 10000: 1}, wantP95: 100, wantReqs: 1001},
+		{name: "tail at the 95th percentile", buckets: map[float64]int64{100: 94, 500: 6}, wantP95: 500, wantReqs: 100},
+		{name: "zero counts ignored", buckets: map[float64]int64{10: 5, 9000: 0}, wantP95: 10, wantReqs: 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := histogramP95(tt.buckets)
+			assert.InDelta(t, tt.wantP95, got.p95Ms, 0.001)
+			assert.Equal(t, tt.wantReqs, got.requests)
+		})
+	}
+}
+
 // TestQueryUnifiedMetrics_DataMerging tests OTLP + eBPF metrics merging.
 func TestQueryUnifiedMetrics_DataMerging(t *testing.T) {
 	now := time.Now()

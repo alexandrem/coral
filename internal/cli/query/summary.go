@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -21,12 +22,23 @@ type summaryJSON struct {
 	Status        string             `json:"status"`
 	RequestCount  int64              `json:"request_count"`
 	ErrorRate     float64            `json:"error_rate"`
+	P95LatencyMs  float64            `json:"p95_latency_ms"`
+	StatusReasons []statusReasonJSON `json:"status_reasons,omitempty"`
+	// AvgLatencyMs is a deprecated alias of P95LatencyMs kept for existing
+	// consumers.
 	AvgLatencyMs  float64            `json:"avg_latency_ms"`
 	HostResources *hostResourcesJSON `json:"host_resources,omitempty"`
 	Profiling     *profilingJSON     `json:"profiling_summary,omitempty"`
 	Deployment    *deploymentJSON    `json:"deployment,omitempty"`
 	Regressions   []regressionJSON   `json:"regression_indicators,omitempty"`
 	Issues        []string           `json:"issues,omitempty"`
+}
+
+type statusReasonJSON struct {
+	Metric    string  `json:"metric"`
+	Value     float64 `json:"value"`
+	Threshold float64 `json:"threshold"`
+	Status    string  `json:"status"`
 }
 
 type hostResourcesJSON struct {
@@ -148,8 +160,18 @@ func printSummaryJSON(summaries []*colonypb.UnifiedSummaryResult) error {
 			Status:       s.Status,
 			RequestCount: s.RequestCount,
 			ErrorRate:    s.ErrorRate,
-			AvgLatencyMs: s.AvgLatencyMs,
+			P95LatencyMs: s.P95LatencyMs,
+			AvgLatencyMs: s.P95LatencyMs,
 			Issues:       s.Issues,
+		}
+
+		for _, r := range s.StatusReasons {
+			entry.StatusReasons = append(entry.StatusReasons, statusReasonJSON{
+				Metric:    r.Metric,
+				Value:     r.Value,
+				Threshold: r.Threshold,
+				Status:    r.Status,
+			})
 		}
 
 		if s.HostCpuUtilization > 0 || s.HostMemoryUtilization > 0 {
@@ -286,10 +308,14 @@ func printSummaryText(summaries []*colonypb.UnifiedSummaryResult) error {
 		}
 
 		fmt.Printf("%s %s (%s)\n", statusIcon, summary.ServiceName, summary.Source)
-		fmt.Printf("   Status: %s\n", summary.Status)
+		fmt.Printf("   Status: %s%s\n", summary.Status, formatStatusReasons(summary.StatusReasons))
 		fmt.Printf("   Requests: %d\n", summary.RequestCount)
 		fmt.Printf("   Error Rate: %.2f%%\n", summary.ErrorRate)
-		fmt.Printf("   Avg Latency: %.2fms\n", summary.AvgLatencyMs)
+		if summary.P95LatencyMs > 0 {
+			fmt.Printf("   P95 Latency: %.2fms\n", summary.P95LatencyMs)
+		} else {
+			fmt.Println("   P95 Latency: n/a")
+		}
 
 		// Display host resources if available (RFD 071).
 		if summary.HostCpuUtilization > 0 || summary.HostMemoryUtilization > 0 {
@@ -358,4 +384,29 @@ func printSummaryText(summaries []*colonypb.UnifiedSummaryResult) error {
 		fmt.Println()
 	}
 	return nil
+}
+
+// formatStatusReasons renders the signals behind a status, for example
+// " (p95 latency 3413.33ms > 2000ms)". It returns an empty string when there
+// are none.
+func formatStatusReasons(reasons []*colonypb.StatusReason) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(reasons))
+	for _, r := range reasons {
+		switch r.Metric {
+		case "error_rate_pct":
+			parts = append(parts, fmt.Sprintf("error rate %.2f%% > %g%%", r.Value, r.Threshold))
+		case "p95_latency_ms":
+			parts = append(parts, fmt.Sprintf("p95 latency %.2fms > %gms", r.Value, r.Threshold))
+		case "host_cpu_utilization_pct":
+			parts = append(parts, fmt.Sprintf("host CPU %.0f%% > %g%%", r.Value, r.Threshold))
+		case "host_memory_utilization_pct":
+			parts = append(parts, fmt.Sprintf("host memory %.0f%% > %g%%", r.Value, r.Threshold))
+		default:
+			parts = append(parts, fmt.Sprintf("%s %.2f > %g", r.Metric, r.Value, r.Threshold))
+		}
+	}
+	return " (" + strings.Join(parts, "; ") + ")"
 }

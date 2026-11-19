@@ -3,6 +3,7 @@ package colony
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -110,10 +111,11 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		return nil, fmt.Errorf("failed to query eBPF HTTP metrics: %w", err)
 	}
 
-	// Aggregate eBPF metrics by service.
+	// Aggregate eBPF metrics by service. Each row holds the request count of
+	// one latency histogram bucket, so latency must be weighted by Count.
 	ebpfRequestCounts := make(map[string]int64)
 	ebpfErrorCounts := make(map[string]int64)
-	ebpfLatencies := make(map[string][]float64)
+	ebpfHistograms := make(map[string]map[float64]int64)
 
 	for _, m := range httpMetrics {
 		ebpfRequestCounts[m.ServiceName] += m.Count
@@ -123,11 +125,19 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 			ebpfErrorCounts[m.ServiceName] += m.Count
 		}
 
-		// Collect latencies for P95 calculation.
-		if m.LatencyBucketMs > 0 {
-			ebpfLatencies[m.ServiceName] = append(ebpfLatencies[m.ServiceName], m.LatencyBucketMs)
+		if m.Count > 0 {
+			hist, ok := ebpfHistograms[m.ServiceName]
+			if !ok {
+				hist = make(map[float64]int64)
+				ebpfHistograms[m.ServiceName] = hist
+			}
+			hist[m.LatencyBucketMs] += m.Count
 		}
 	}
+
+	// Latency estimates per service, kept with the request count each covers
+	// so that eBPF and OTLP estimates can be combined by traffic.
+	ebpfLatency := make(map[string]latencyEstimate)
 
 	// Create summaries from eBPF data.
 	for svc, reqCount := range ebpfRequestCounts {
@@ -137,31 +147,18 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 			errorRate = float64(errorCount) / float64(reqCount) * 100
 		}
 
-		// Calculate average latency (simplified - should be weighted average).
-		avgLatency := float64(0)
-		if latencies := ebpfLatencies[svc]; len(latencies) > 0 {
-			sum := float64(0)
-			for _, l := range latencies {
-				sum += l
-			}
-			avgLatency = sum / float64(len(latencies))
-		}
+		latency := histogramP95(ebpfHistograms[svc])
+		ebpfLatency[svc] = latency
 
-		status := ServiceStatusHealthy
-		if errorRate > 5.0 {
-			status = ServiceStatusCritical
-		} else if errorRate > 1.0 || avgLatency > 1000 {
-			status = ServiceStatusDegraded
-		}
-
-		summaryMap[svc] = &UnifiedSummaryResult{
+		summary := &UnifiedSummaryResult{
 			ServiceName:  svc,
-			Status:       status,
 			RequestCount: reqCount,
 			ErrorRate:    errorRate,
-			AvgLatencyMs: avgLatency,
+			P95LatencyMs: latency.p95Ms,
 			Source:       "eBPF",
 		}
+		summary.Status, summary.StatusReasons = evaluateTrafficHealth(summary.ErrorRate, summary.P95LatencyMs)
+		summaryMap[svc] = summary
 	}
 
 	// 2. Query OTLP telemetry summaries (query all agents, empty agentID means all).
@@ -176,8 +173,9 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 	type otlpAgg struct {
 		totalSpans int64
 		errorCount int64
-		p95Sum     float64
-		count      int
+		// Span-weighted p95 accumulation over summaries that report latency.
+		p95WeightedSum float64
+		latencySpans   int64
 	}
 	otlpByService := make(map[string]*otlpAgg)
 	for _, otlp := range telemetrySummaries {
@@ -192,16 +190,19 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		}
 		agg.totalSpans += int64(otlp.TotalSpans)
 		agg.errorCount += int64(otlp.ErrorCount)
-		if otlp.P95Ms > 0 {
-			agg.p95Sum += otlp.P95Ms
-			agg.count++
+		if otlp.P95Ms > 0 && otlp.TotalSpans > 0 {
+			agg.p95WeightedSum += otlp.P95Ms * float64(otlp.TotalSpans)
+			agg.latencySpans += int64(otlp.TotalSpans)
 		}
 	}
 
 	for svcName, otlp := range otlpByService {
-		avgP95 := float64(0)
-		if otlp.count > 0 {
-			avgP95 = otlp.p95Sum / float64(otlp.count)
+		var otlpLatency latencyEstimate
+		if otlp.latencySpans > 0 {
+			otlpLatency = latencyEstimate{
+				p95Ms:    otlp.p95WeightedSum / float64(otlp.latencySpans),
+				requests: otlp.latencySpans,
+			}
 		}
 
 		existing, exists := summaryMap[svcName]
@@ -218,21 +219,10 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 				existing.ErrorRate = totalErrors / totalRequests * 100
 			}
 
-			// Average the P95 latencies (simplified merging).
-			if avgP95 > 0 {
-				if existing.AvgLatencyMs > 0 {
-					existing.AvgLatencyMs = (existing.AvgLatencyMs + avgP95) / 2
-				} else {
-					existing.AvgLatencyMs = avgP95
-				}
-			}
-
-			// Re-evaluate status.
-			if existing.ErrorRate > 5.0 || existing.AvgLatencyMs > 2000 {
-				existing.Status = ServiceStatusCritical
-			} else if existing.ErrorRate > 1.0 || existing.AvgLatencyMs > 1000 {
-				existing.Status = ServiceStatusDegraded
-			}
+			// Weight each source's p95 by the traffic it covers. A source
+			// without latency data leaves the other source's estimate intact.
+			existing.P95LatencyMs = combineLatency(ebpfLatency[svcName], otlpLatency).p95Ms
+			existing.Status, existing.StatusReasons = evaluateTrafficHealth(existing.ErrorRate, existing.P95LatencyMs)
 		} else {
 			// Service has only OTLP data.
 			errorRate := float64(0)
@@ -240,21 +230,15 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 				errorRate = float64(otlp.errorCount) / float64(otlp.totalSpans) * 100
 			}
 
-			status := ServiceStatusHealthy
-			if errorRate > 5.0 || avgP95 > 2000 {
-				status = ServiceStatusCritical
-			} else if errorRate > 1.0 || avgP95 > 1000 {
-				status = ServiceStatusDegraded
-			}
-
-			summaryMap[svcName] = &UnifiedSummaryResult{
+			summary := &UnifiedSummaryResult{
 				ServiceName:  svcName,
-				Status:       status,
 				RequestCount: otlp.totalSpans,
 				ErrorRate:    errorRate,
-				AvgLatencyMs: avgP95,
+				P95LatencyMs: otlpLatency.p95Ms,
 				Source:       "OTLP",
 			}
+			summary.Status, summary.StatusReasons = evaluateTrafficHealth(summary.ErrorRate, summary.P95LatencyMs)
+			summaryMap[svcName] = summary
 		}
 	}
 
@@ -342,9 +326,15 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 					summary.HostCPUUtilizationAvg = cpuUtil.AvgValue
 
 					// Add warning if CPU is high.
-					if cpuUtil.MaxValue > 80 {
+					if cpuUtil.MaxValue > hostCPUDegradedPct {
 						summary.Issues = append(summary.Issues,
-							fmt.Sprintf("⚠️  High CPU: %.0f%% (threshold: 80%%)", cpuUtil.MaxValue))
+							fmt.Sprintf("⚠️  High CPU: %.0f%% (threshold: %.0f%%)", cpuUtil.MaxValue, hostCPUDegradedPct))
+						summary.StatusReasons = append(summary.StatusReasons, StatusReason{
+							Metric:    StatusMetricHostCPU,
+							Value:     cpuUtil.MaxValue,
+							Threshold: hostCPUDegradedPct,
+							Status:    ServiceStatusDegraded,
+						})
 						// Upgrade status to degraded if currently healthy or idle.
 						if summary.Status == ServiceStatusHealthy || summary.Status == ServiceStatusIdle {
 							summary.Status = ServiceStatusDegraded
@@ -363,12 +353,19 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 					summary.HostMemoryUtilization = memUtil.MaxValue
 
 					// Add warning if memory is high.
-					if memUtil.MaxValue > 85 {
+					if memUtil.MaxValue > hostMemoryDegradedPct {
 						summary.Issues = append(summary.Issues,
-							fmt.Sprintf("⚠️  High Memory: %.1fGB/%.1fGB (%.0f%%, threshold: 85%%)",
+							fmt.Sprintf("⚠️  High Memory: %.1fGB/%.1fGB (%.0f%%, threshold: %.0f%%)",
 								summary.HostMemoryUsageGB,
 								summary.HostMemoryLimitGB,
-								memUtil.MaxValue))
+								memUtil.MaxValue,
+								hostMemoryDegradedPct))
+						summary.StatusReasons = append(summary.StatusReasons, StatusReason{
+							Metric:    StatusMetricHostMemoryPercent,
+							Value:     memUtil.MaxValue,
+							Threshold: hostMemoryDegradedPct,
+							Status:    ServiceStatusDegraded,
+						})
 						// Upgrade status to degraded if currently healthy or idle.
 						if summary.Status == ServiceStatusHealthy || summary.Status == ServiceStatusIdle {
 							summary.Status = ServiceStatusDegraded
@@ -736,4 +733,97 @@ func convertSummaryMapToSlice(summaryMap map[string]*UnifiedSummaryResult) []Uni
 	})
 
 	return results
+}
+
+// Health thresholds for unified summaries. A value strictly above a threshold
+// triggers the status. The same thresholds apply to every telemetry source.
+const (
+	errorRateDegradedPct  = 1.0
+	errorRateCriticalPct  = 5.0
+	p95LatencyDegradedMs  = 1000.0
+	p95LatencyCriticalMs  = 2000.0
+	hostCPUDegradedPct    = 80.0
+	hostMemoryDegradedPct = 85.0
+)
+
+// latencyEstimate is a p95 latency estimate and the number of requests it
+// covers. A zero requests value means the source had no latency data.
+type latencyEstimate struct {
+	p95Ms    float64
+	requests int64
+}
+
+// histogramP95 estimates p95 latency from per-bucket request counts keyed by
+// bucket upper bound in milliseconds. It returns the upper bound of the bucket
+// holding the 95th percentile request, so the estimate never understates it.
+func histogramP95(buckets map[float64]int64) latencyEstimate {
+	var total int64
+	bounds := make([]float64, 0, len(buckets))
+	for bound, count := range buckets {
+		if count <= 0 {
+			continue
+		}
+		bounds = append(bounds, bound)
+		total += count
+	}
+	if total == 0 {
+		return latencyEstimate{}
+	}
+	sort.Float64s(bounds)
+
+	// Rank of the 95th percentile request (1-based, nearest-rank method).
+	rank := int64(math.Ceil(0.95 * float64(total)))
+	var cumulative int64
+	for _, bound := range bounds {
+		cumulative += buckets[bound]
+		if cumulative >= rank {
+			return latencyEstimate{p95Ms: bound, requests: total}
+		}
+	}
+	return latencyEstimate{p95Ms: bounds[len(bounds)-1], requests: total}
+}
+
+// combineLatency weights each p95 estimate by the requests it covers.
+// Estimates without latency data do not affect the result.
+func combineLatency(estimates ...latencyEstimate) latencyEstimate {
+	var weighted float64
+	var requests int64
+	for _, e := range estimates {
+		if e.requests <= 0 {
+			continue
+		}
+		weighted += e.p95Ms * float64(e.requests)
+		requests += e.requests
+	}
+	if requests == 0 {
+		return latencyEstimate{}
+	}
+	return latencyEstimate{p95Ms: weighted / float64(requests), requests: requests}
+}
+
+// evaluateTrafficHealth derives a status from the error rate and p95 latency
+// and returns every signal that crossed a threshold.
+func evaluateTrafficHealth(errorRatePct, p95LatencyMs float64) (ServiceStatus, []StatusReason) {
+	status := ServiceStatusHealthy
+	var reasons []StatusReason
+
+	check := func(metric string, value, degraded, critical float64) {
+		var reason StatusReason
+		switch {
+		case value > critical:
+			reason = StatusReason{Metric: metric, Value: value, Threshold: critical, Status: ServiceStatusCritical}
+		case value > degraded:
+			reason = StatusReason{Metric: metric, Value: value, Threshold: degraded, Status: ServiceStatusDegraded}
+		default:
+			return
+		}
+		reasons = append(reasons, reason)
+		if reason.Status > status {
+			status = reason.Status
+		}
+	}
+
+	check(StatusMetricErrorRate, errorRatePct, errorRateDegradedPct, errorRateCriticalPct)
+	check(StatusMetricP95Latency, p95LatencyMs, p95LatencyDegradedMs, p95LatencyCriticalMs)
+	return status, reasons
 }

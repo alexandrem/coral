@@ -36,7 +36,8 @@ message UnifiedSummaryResult {
   // Error rate as percentage (0-100).
   double error_rate = 4;
 
-  // Average latency in milliseconds.
+  // Deprecated: use p95_latency_ms. Carries the same value for compatibility;
+  // it was never an arithmetic mean.
   double avg_latency_ms = 5;
 
   // Data source: eBPF, OTLP, or eBPF+OTLP.
@@ -61,6 +62,32 @@ message UnifiedSummaryResult {
 
   // Regression indicators compared to previous deployment (RFD 074).
   repeated RegressionIndicator regressions = 16;
+
+  // Estimated p95 request latency in milliseconds over the time window.
+  // eBPF traffic uses the upper bound of the histogram bucket holding the
+  // 95th percentile request; OTLP traffic uses the span-weighted mean of
+  // per-bucket p95 values. When both sources report latency, the values are
+  // weighted by the requests each covers. Zero means no latency data.
+  double p95_latency_ms = 17;
+
+  // Signals that raised the status above healthy, with their thresholds.
+  repeated StatusReason status_reasons = 18;
+}
+
+// A metric that crossed a health threshold.
+message StatusReason {
+  // Metric name: error_rate_pct, p95_latency_ms, host_cpu_utilization_pct, or
+  // host_memory_utilization_pct.
+  string metric = 1;
+
+  // Observed value.
+  double value = 2;
+
+  // Threshold the value exceeded.
+  double threshold = 3;
+
+  // Status this signal implies: degraded or critical.
+  string status = 4;
 }
 
 message QueryUnifiedSummaryResponse {
