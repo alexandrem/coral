@@ -65,15 +65,33 @@ func (s ServiceStatus) String() string {
 	}
 }
 
+// Status metric names reported in StatusReason.Metric.
+const (
+	StatusMetricErrorRate         = "error_rate_pct"
+	StatusMetricP95Latency        = "p95_latency_ms"
+	StatusMetricHostCPU           = "host_cpu_utilization_pct"
+	StatusMetricHostMemoryPercent = "host_memory_utilization_pct"
+)
+
+// StatusReason records a metric that crossed a health threshold.
+type StatusReason struct {
+	Metric    string
+	Value     float64
+	Threshold float64
+	Status    ServiceStatus
+}
+
 // UnifiedSummaryResult represents the health summary of a service.
 type UnifiedSummaryResult struct {
 	ServiceName  string
 	Status       ServiceStatus // healthy, degraded, critical, idle
 	RequestCount int64         // Total requests/spans
 	ErrorRate    float64       // Error rate as percentage
-	AvgLatencyMs float64       // Average latency in milliseconds
+	P95LatencyMs float64       // Estimated p95 latency in milliseconds; zero without latency data
 	Source       string        // eBPF, OTLP, or eBPF+OTLP
 	Issues       []string
+	// StatusReasons lists the signals that raised Status above healthy.
+	StatusReasons []StatusReason
 	// Host resources (RFD 071).
 	HostCPUUtilization    float64 // CPU utilization percentage (max in time window)
 	HostCPUUtilizationAvg float64 // CPU utilization percentage (average in time window)

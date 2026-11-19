@@ -180,12 +180,15 @@ func TestQueryUnifiedSummaryHandler_ProfilingEnrichment(t *testing.T) {
 		mockSvc := &mockEbpfService{
 			summaryResults: []colony.UnifiedSummaryResult{
 				{
-					ServiceName:           "order-processor",
-					Status:                colony.ServiceStatusDegraded,
-					RequestCount:          5000,
-					ErrorRate:             2.8,
-					AvgLatencyMs:          450,
-					Source:                "eBPF",
+					ServiceName:  "order-processor",
+					Status:       colony.ServiceStatusDegraded,
+					RequestCount: 5000,
+					ErrorRate:    2.8,
+					P95LatencyMs: 450,
+					Source:       "eBPF",
+					StatusReasons: []colony.StatusReason{
+						{Metric: colony.StatusMetricErrorRate, Value: 2.8, Threshold: 1, Status: colony.ServiceStatusDegraded},
+					},
 					HostCPUUtilization:    88.0,
 					HostCPUUtilizationAvg: 85.0,
 					ProfilingSummary: &colony.ProfilingSummaryData{
@@ -226,6 +229,15 @@ func TestQueryUnifiedSummaryHandler_ProfilingEnrichment(t *testing.T) {
 		require.Len(t, resp.Msg.Summaries, 1)
 
 		s := resp.Msg.Summaries[0]
+
+		// p95 latency is exposed under its own field and the deprecated alias.
+		assert.InDelta(t, 450.0, s.P95LatencyMs, 0.01)
+		assert.InDelta(t, 450.0, s.AvgLatencyMs, 0.01)
+		require.Len(t, s.StatusReasons, 1)
+		assert.Equal(t, "error_rate_pct", s.StatusReasons[0].Metric)
+		assert.InDelta(t, 2.8, s.StatusReasons[0].Value, 0.01)
+		assert.InDelta(t, 1.0, s.StatusReasons[0].Threshold, 0.01)
+		assert.Equal(t, "degraded", s.StatusReasons[0].Status)
 
 		// Verify profiling summary is populated.
 		require.NotNil(t, s.ProfilingSummary)

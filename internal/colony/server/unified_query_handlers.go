@@ -46,7 +46,8 @@ func (s *Server) QueryUnifiedSummary(
 			Status:                r.Status.String(),
 			RequestCount:          r.RequestCount,
 			ErrorRate:             r.ErrorRate,
-			AvgLatencyMs:          r.AvgLatencyMs,
+			P95LatencyMs:          r.P95LatencyMs,
+			AvgLatencyMs:          r.P95LatencyMs, // Deprecated alias kept for compatibility.
 			Source:                r.Source,
 			Issues:                r.Issues,
 			HostCpuUtilization:    r.HostCPUUtilization,
@@ -55,6 +56,15 @@ func (s *Server) QueryUnifiedSummary(
 			HostMemoryLimitGb:     r.HostMemoryLimitGB,
 			HostMemoryUtilization: r.HostMemoryUtilization,
 			AgentId:               r.AgentID,
+		}
+
+		for _, reason := range r.StatusReasons {
+			result.StatusReasons = append(result.StatusReasons, &colonyv1.StatusReason{
+				Metric:    reason.Metric,
+				Value:     reason.Value,
+				Threshold: reason.Threshold,
+				Status:    reason.Status.String(),
+			})
 		}
 
 		// RFD 074: Profiling-enriched data.

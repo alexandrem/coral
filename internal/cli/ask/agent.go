@@ -630,7 +630,7 @@ func compactServiceAlert(header string, lines []string) string {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Status:") ||
 			strings.HasPrefix(line, "Error Rate:") ||
-			strings.HasPrefix(line, "Avg Latency:") ||
+			strings.HasPrefix(line, "P95 Latency:") ||
 			strings.HasPrefix(line, "Requests:") {
 			parts = append(parts, line)
 		}
