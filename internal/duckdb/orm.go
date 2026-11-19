@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	duckdbDriver "github.com/marcboeker/go-duckdb"
+	duckdbDriver "github.com/duckdb/duckdb-go/v2"
 
 	"github.com/coral-mesh/coral/internal/retry"
 )
@@ -278,7 +278,7 @@ func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return t.withRetry(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, isUpsertRetryable, func() error {
 		_, err := t.db.ExecContext(ctx, query, values...)
 		return err
 	})
@@ -317,7 +317,7 @@ func (t *Table[T]) Insert(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return t.withRetry(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, IsTransactionConflict, func() error {
 		_, err := t.db.ExecContext(ctx, query, values...)
 		return err
 	})
@@ -351,7 +351,7 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 	if db, ok := t.db.(*sql.DB); ok && t.stageExprs != nil {
 		err := retry.Do(ctx, cfg, func() error {
 			return t.batchUpsertStaged(ctx, db, items)
-		}, IsTransactionConflict)
+		}, isUpsertRetryable)
 		if !errors.Is(err, errAppenderUnavailable) {
 			return err
 		}
@@ -468,7 +468,7 @@ func (t *Table[T]) batchUpsertPrepared(ctx context.Context, cfg retry.Config, it
 		t.onConflictClause(),
 	)
 
-	return t.withRetry(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, isUpsertRetryable, func() error {
 		// 3. Transact
 		// Check if db is already a Tx or a DB
 		var tx *sql.Tx
@@ -609,7 +609,7 @@ func (t *Table[T]) Update(ctx context.Context, item *T) error {
 		Jitter:         0.1,
 	}
 
-	return t.withRetry(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, IsTransactionConflict, func() error {
 		result, err := t.db.ExecContext(ctx, query, values...)
 		if err != nil {
 			return err
@@ -674,7 +674,7 @@ func (t *Table[T]) UpdateFields(ctx context.Context, pk any, fieldUpdates map[st
 		Jitter:         0.1,
 	}
 
-	return t.withRetry(ctx, cfg, func() error {
+	return t.withRetry(ctx, cfg, IsTransactionConflict, func() error {
 		result, err := t.db.ExecContext(ctx, query, values...)
 		if err != nil {
 			return err
@@ -768,18 +768,34 @@ func (t *Table[T]) scanRows(rows *sql.Rows) (*T, error) {
 	return &item, nil
 }
 
-// withRetry runs fn, retrying it with cfg while it fails with a transaction
-// conflict.
+// withRetry runs fn, retrying it with cfg while retryable reports its error as
+// transient.
 //
 // When the table is bound to a caller's *sql.Tx, fn runs exactly once: DuckDB
 // aborts a transaction on its first error, so further attempts inside the same
 // transaction can only fail with "Current transaction is aborted". Callers that
 // own the transaction must retry at the boundary where they begin it.
-func (t *Table[T]) withRetry(ctx context.Context, cfg retry.Config, fn func() error) error {
+func (t *Table[T]) withRetry(ctx context.Context, cfg retry.Config, retryable func(error) bool, fn func() error) error {
 	if _, inTx := t.db.(*sql.Tx); inTx {
 		return fn()
 	}
-	return retry.Do(ctx, cfg, fn, IsTransactionConflict)
+	return retry.Do(ctx, cfg, fn, retryable)
+}
+
+// isUpsertRetryable reports whether err from an INSERT ... ON CONFLICT (pk)
+// statement is transient.
+//
+// Besides transaction conflicts, it matches a primary-key Constraint error:
+// when another transaction commits the same key while the statement runs,
+// DuckDB raises it instead of applying the ON CONFLICT action, and the
+// statement succeeds when retried against the committed row.
+func isUpsertRetryable(err error) bool {
+	if IsTransactionConflict(err) {
+		return true
+	}
+	var dErr *duckdbDriver.Error
+	return errors.As(err, &dErr) && dErr.Type == duckdbDriver.ErrorTypeConstraint &&
+		strings.Contains(dErr.Msg, "violates primary key constraint")
 }
 
 // IsTransactionConflict reports whether err is a transient DuckDB
@@ -797,5 +813,5 @@ func IsTransactionConflict(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(dErr.Msg), "conflict") ||
-		strings.Contains(dErr.Msg, "PRIMARY KEY or UNIQUE constraint violated")
+		strings.Contains(dErr.Msg, "PRIMARY KEY or UNIQUE constraint violation")
 }

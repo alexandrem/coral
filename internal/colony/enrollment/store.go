@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	duckdb "github.com/marcboeker/go-duckdb"
+	duckdb "github.com/duckdb/duckdb-go/v2"
 )
 
 // Phase is a step in the enrollment state machine. Only "authorized" and
@@ -233,7 +233,7 @@ func isConstraintViolation(err error) bool {
 		// Under concurrent transactions DuckDB can surface the duplicate-key
 		// conflict as a commit-time TransactionContext error instead of a
 		// bind-time Constraint error; match on message as a fallback.
-		return strings.Contains(duckErr.Msg, "PRIMARY KEY or UNIQUE constraint violated")
+		return strings.Contains(duckErr.Msg, "PRIMARY KEY or UNIQUE constraint violation")
 	}
 	return false
 }

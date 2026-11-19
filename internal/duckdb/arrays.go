@@ -83,7 +83,7 @@ func Float32ArrayToBytes(arr []float32) []byte {
 }
 
 // InterfaceToFloat32Array converts a DuckDB FLOAT[N] fixed-size array returned
-// as []interface{} by go-duckdb into []float32. Each element is expected to be
+// as []interface{} by duckdb-go into []float32. Each element is expected to be
 // float64 (the default Go numeric type from database/sql) or float32.
 func InterfaceToFloat32Array(data []interface{}) []float32 {
 	if len(data) == 0 {

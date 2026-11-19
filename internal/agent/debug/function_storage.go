@@ -419,7 +419,7 @@ func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName stri
 					Int("embedding_floats", len(fn.Embedding)).
 					Msg("Loaded embedding from cache")
 			case []interface{}:
-				// go-duckdb returns FLOAT[N] fixed-size arrays as []interface{}.
+				// duckdb-go returns FLOAT[N] fixed-size arrays as []interface{}.
 				fn.Embedding = duckdb.InterfaceToFloat32Array(v)
 			case string:
 				// Some DuckDB versions might return as string.
