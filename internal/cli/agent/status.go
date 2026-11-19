@@ -382,7 +382,13 @@ func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
 }
 
 // outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
-func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string, writer io.Writer) error {
+func outputAgentStatusFormattedWithCert(
+	ctx *agentv1.RuntimeContextResponse,
+	certInfo *certs.CertificateInfo,
+	meshTelemetry *networkv1.MeshTelemetry,
+	format string,
+	writer io.Writer,
+) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
 	}
