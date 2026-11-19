@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -33,6 +34,7 @@ multi-line queries, and meta-commands.
 Meta-commands:
   .tables     - List all tables in attached databases
   .databases  - Show attached databases
+  .refresh    - Re-attach databases with the latest committed data
   .help       - Show help message
   .exit       - Exit shell (or Ctrl+D)
   .quit       - Exit shell
@@ -144,6 +146,10 @@ func attachDatabases(ctx context.Context, db *sql.DB, agentIDs []string, databas
 	var attachedDBs []string
 
 	for _, agentID := range agentIDs {
+		alias := fmt.Sprintf("agent_%s", sanitizeAgentID(agentID))
+		if slices.Contains(attachedDBs, alias) {
+			return nil, fmt.Errorf("multiple agent arguments map to database alias %s", alias)
+		}
 		agentBase, err := agentDuckDBBase(ctx, agentID, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve agent %s: %w", agentID, err)
@@ -168,7 +174,6 @@ func attachDatabases(ctx context.Context, db *sql.DB, agentIDs []string, databas
 			return nil, fmt.Errorf("failed to attach database for agent %s: %w", agentID, err)
 		}
 
-		alias := fmt.Sprintf("agent_%s", sanitizeAgentID(agentID))
 		attachedDBs = append(attachedDBs, alias)
 	}
 
@@ -281,7 +286,7 @@ func handleMetaCommand(ctx context.Context, db *sql.DB, command string, agentIDs
 		fmt.Println("Meta-commands:")
 		fmt.Println("  .tables     - List all tables in attached databases")
 		fmt.Println("  .databases  - Show attached databases")
-		fmt.Println("  .refresh    - Detach and re-attach databases to refresh data")
+		fmt.Println("  .refresh    - Re-attach databases with the latest committed data")
 		fmt.Println("  .help       - Show this help message")
 		fmt.Println("  .exit       - Exit shell")
 		fmt.Println("  .quit       - Exit shell")
@@ -412,6 +417,9 @@ func executeQuery(ctx context.Context, db *sql.DB, query string) error {
 		}
 		fmt.Fprintln(w)
 		rowCount++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read query results: %w", err)
 	}
 
 	_ = w.Flush() // TODO: errcheck

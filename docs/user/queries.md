@@ -138,7 +138,15 @@ the normal [context selection](configuration.md#select-a-colony) to choose the
 environment first. The shell embeds DuckDB locally and loads its `httpfs`
 extension for remote reads, which can require an initial extension download.
 Use `.tables`, `.databases`, and SQL against `information_schema.columns` to
-inspect attached data. `.refresh` reattaches databases to refresh the snapshot.
+inspect attached data.
+
+The shell and `coral duckdb query` read remote databases as read-only copies of
+their database files. Before attaching, they ask the Colony or agent to write
+recently committed data to the file, so results include everything committed
+up to that moment. Data committed while the shell is open appears after
+`.refresh`, which reattaches the databases the same way. If the server cannot
+write the data, a warning is printed and the results show the database as it
+was at its last automatic write, which can be much older on a quiet system.
 
 For example, query an agent's retained application spans to find routes with
 slow captured requests:

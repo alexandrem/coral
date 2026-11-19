@@ -341,7 +341,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Handler is created separately from registration so it can be passed to the public endpoint.
 	duckdbHandler := duckdb.NewDuckDBHandler(logger.With().Str("component", "duckdb-handler").Logger())
 	var registeredDuckDB bool
-	if err := duckdbHandler.RegisterDatabase(filepath.Base(db.Path()), db.Path()); err != nil {
+	if err := duckdbHandler.RegisterDatabase(filepath.Base(db.Path()), db.Path(), db.DB()); err != nil {
 		logger.Warn().Err(err).Msg("Failed to register colony database for HTTP serving")
 	} else {
 		mux.Handle("/duckdb/", duckdbHandler)
