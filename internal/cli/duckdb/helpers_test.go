@@ -2,6 +2,8 @@ package duckdb
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,4 +68,23 @@ func TestAgentDuckDBBase(t *testing.T) {
 	localBase, err := agentDuckDBBase(ctx, "agent123", "10.0.0.1")
 	require.NoError(t, err)
 	assert.Equal(t, "http://10.0.0.1:9001", localBase)
+}
+
+func TestRequestCheckpoint(t *testing.T) {
+	status := http.StatusNoContent
+	var gotMethod, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	dbURL := server.URL + "/agent/agent-1/duckdb/metrics.duckdb"
+
+	require.NoError(t, requestCheckpoint(context.Background(), dbURL))
+	assert.Equal(t, http.MethodPost, gotMethod)
+	assert.Equal(t, "/agent/agent-1/duckdb/metrics.duckdb/checkpoint", gotPath)
+
+	status = http.StatusServiceUnavailable
+	err := requestCheckpoint(context.Background(), dbURL)
+	require.ErrorContains(t, err, "503")
 }

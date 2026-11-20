@@ -929,7 +929,7 @@ Aliases: `list-agents`.
 
 #### coral duckdb query
 
-Execute a one-shot SQL query against a database.
+Execute a one-shot SQL query against a database. Results include data committed before the command starts; see `coral duckdb shell` for how remote data is read.
 
 ```text
 coral duckdb query [agent-id] <sql> [flags]
@@ -950,6 +950,8 @@ coral duckdb shell <agent-id> [flags]
 ```
 
 Uses embedded DuckDB with the `httpfs` extension, which may need an initial download. Use `--colony` without an agent ID for Colony storage, or provide an agent ID for agent storage. Multiple-agent selections use `--agents`. Meta-commands include `.tables`, `.databases`, `.refresh`, `.help`, `.exit`, and `.quit`.
+
+Each attached database shows data committed up to the moment it was attached; `.refresh` reattaches databases to include later data. Before attaching, the command asks the Colony or agent to write committed data to its database file. If that fails, the command prints a warning and shows data as of the server's last automatic write.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |

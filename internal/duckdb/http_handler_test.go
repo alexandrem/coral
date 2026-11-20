@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDuckDBHandler_ServeFile_Success(t *testing.T) {
@@ -22,7 +23,7 @@ func TestDuckDBHandler_ServeFile_Success(t *testing.T) {
 	// Create handler and register database.
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
-	if err := handler.RegisterDatabase("test.duckdb", dbPath); err != nil {
+	if err := handler.RegisterDatabase("test.duckdb", dbPath, nil); err != nil {
 		t.Fatalf("Failed to register database: %v", err)
 	}
 
@@ -96,7 +97,7 @@ func TestDuckDBHandler_NoDirectoryTraversal(t *testing.T) {
 
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
-	if err := handler.RegisterDatabase("test.duckdb", dbPath); err != nil {
+	if err := handler.RegisterDatabase("test.duckdb", dbPath, nil); err != nil {
 		t.Fatalf("Failed to register database: %v", err)
 	}
 
@@ -134,7 +135,7 @@ func TestDuckDBHandler_RangeRequests(t *testing.T) {
 
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
-	if err := handler.RegisterDatabase("test.duckdb", dbPath); err != nil {
+	if err := handler.RegisterDatabase("test.duckdb", dbPath, nil); err != nil {
 		t.Fatalf("Failed to register database: %v", err)
 	}
 
@@ -165,7 +166,7 @@ func TestDuckDBHandler_WALAlwaysReturns404(t *testing.T) {
 
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
-	if err := handler.RegisterDatabase("test.duckdb", dbPath); err != nil {
+	if err := handler.RegisterDatabase("test.duckdb", dbPath, nil); err != nil {
 		t.Fatalf("Failed to register database: %v", err)
 	}
 
@@ -204,7 +205,7 @@ func TestDuckDBHandler_RegisterDatabase_FileNotFound(t *testing.T) {
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
 
-	err := handler.RegisterDatabase("test.duckdb", "/nonexistent/path/test.duckdb")
+	err := handler.RegisterDatabase("test.duckdb", "/nonexistent/path/test.duckdb", nil)
 	if err == nil {
 		t.Error("Expected error when registering non-existent file, got nil")
 	}
@@ -250,10 +251,10 @@ func TestDuckDBHandler_ListDatabases(t *testing.T) {
 	// Create handler and register databases.
 	logger := zerolog.Nop()
 	handler := NewDuckDBHandler(logger)
-	if err := handler.RegisterDatabase("test1.duckdb", db1Path); err != nil {
+	if err := handler.RegisterDatabase("test1.duckdb", db1Path, nil); err != nil {
 		t.Fatalf("Failed to register database: %v", err)
 	}
-	if err := handler.RegisterDatabase("test2.duckdb", db2Path); err != nil {
+	if err := handler.RegisterDatabase("test2.duckdb", db2Path, nil); err != nil {
 		t.Fatalf("Failed to register database: %v", err)
 	}
 
@@ -294,4 +295,70 @@ func containsAt(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestDuckDBHandler_CheckpointMakesCommittedDataVisible(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "metrics.duckdb")
+	writer, err := OpenDB(dbPath)
+	require.NoError(t, err)
+	defer func() { _ = writer.Close() }()
+
+	handler := NewDuckDBHandler(zerolog.Nop())
+	require.NoError(t, handler.RegisterDatabase("metrics.duckdb", dbPath, writer))
+	checkpoint := func() int {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/duckdb/metrics.duckdb/checkpoint", nil))
+		return response.Code
+	}
+	// remoteCount reads the served file without its WAL, as a remote attach does.
+	remoteCount := func() int {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/duckdb/metrics.duckdb", nil))
+		require.Equal(t, http.StatusOK, response.Code)
+		copyPath := filepath.Join(t.TempDir(), "copy.duckdb")
+		require.NoError(t, os.WriteFile(copyPath, response.Body.Bytes(), 0600))
+		reader, err := OpenDB(copyPath + "?access_mode=READ_ONLY")
+		require.NoError(t, err)
+		defer func() { _ = reader.Close() }()
+		var count int
+		require.NoError(t, reader.QueryRow("SELECT count(*) FROM events").Scan(&count))
+		return count
+	}
+
+	_, err = writer.Exec("CREATE TABLE events (id INTEGER); CHECKPOINT; INSERT INTO events VALUES (1)")
+	require.NoError(t, err)
+	require.Equal(t, 0, remoteCount(), "committed rows stay in the WAL until a checkpoint")
+
+	require.Equal(t, http.StatusNoContent, checkpoint())
+	require.Equal(t, 1, remoteCount())
+
+	// A request right after a checkpoint reuses it instead of running another.
+	_, err = writer.Exec("INSERT INTO events VALUES (2)")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, checkpoint())
+	require.Equal(t, 1, remoteCount())
+}
+
+func TestDuckDBHandler_CheckpointRejectsInvalidRequests(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.duckdb")
+	require.NoError(t, os.WriteFile(dbPath, []byte("mock duckdb data"), 0600))
+	handler := NewDuckDBHandler(zerolog.Nop())
+	require.NoError(t, handler.RegisterDatabase("test.duckdb", dbPath, nil))
+
+	tests := []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodGet, "/duckdb/test.duckdb/checkpoint", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/duckdb/missing.duckdb/checkpoint", http.StatusNotFound},
+		{http.MethodPost, "/duckdb/test.duckdb/checkpoint", http.StatusNotFound}, // No open handle.
+		{http.MethodPost, "/duckdb/test.duckdb", http.StatusMethodNotAllowed},
+	}
+	for _, tt := range tests {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(tt.method, tt.path, nil))
+		require.Equal(t, tt.want, response.Code, "%s %s", tt.method, tt.path)
+	}
 }

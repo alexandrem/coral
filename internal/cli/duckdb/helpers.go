@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -180,6 +182,8 @@ func createDuckDBConnection(ctx context.Context) (*sql.DB, error) {
 func attachAgentDatabase(ctx context.Context, db *sql.DB, agentID string, agentBase string, dbName string) error {
 	dbURL := strings.TrimRight(agentBase, "/") + "/duckdb/" + dbName
 
+	checkpointRemoteDatabase(ctx, dbURL)
+
 	// Use agent ID as database alias (with agent_ prefix to ensure valid identifier).
 	alias := fmt.Sprintf("agent_%s", sanitizeAgentID(agentID))
 	attachSQL := fmt.Sprintf("ATTACH '%s' AS %s (READ_ONLY);", dbURL, alias)
@@ -188,6 +192,43 @@ func attachAgentDatabase(ctx context.Context, db *sql.DB, agentID string, agentB
 		return fmt.Errorf("failed to attach database from %s: %w", dbURL, err)
 	}
 
+	return nil
+}
+
+// checkpointRequestTimeout bounds a checkpoint request, including the time
+// the server waits for its database connection.
+const checkpointRequestTimeout = 30 * time.Second
+
+// checkpointRemoteDatabase asks the server to checkpoint the database at
+// dbURL. A remote read-only attach reads only the database file, so data still
+// in the server's WAL is not visible until a checkpoint writes it there. On
+// failure, it warns and the attach shows the data as of the last checkpoint.
+func checkpointRemoteDatabase(ctx context.Context, dbURL string) {
+	if err := requestCheckpoint(ctx, dbURL); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v; showing data as of the last checkpoint\n", err)
+	}
+}
+
+// requestCheckpoint sends a checkpoint request for the database at dbURL.
+func requestCheckpoint(ctx context.Context, dbURL string) error {
+	client, err := helpers.BuildHTTPClient("", dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to checkpoint %s: %w", dbURL, err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkpointRequestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, dbURL+"/checkpoint", nil)
+	if err != nil {
+		return fmt.Errorf("failed to checkpoint %s: %w", dbURL, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to checkpoint %s: %w", dbURL, err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("failed to checkpoint %s: server returned %s", dbURL, resp.Status)
+	}
 	return nil
 }
 
@@ -325,6 +366,7 @@ func attachColonyDatabase(ctx context.Context, db *sql.DB, dbName string) error 
 	// Use HTTP for ATTACH: DuckDB's httpfs cannot verify self-signed TLS certificates.
 	attachURL := duckdbAttachBase(baseURL)
 	dbURL := strings.TrimRight(attachURL, "/") + "/duckdb/" + dbName
+	checkpointRemoteDatabase(ctx, dbURL)
 
 	// Attach database as read-only using DuckDB's HTTP attach.
 	attachSQL := fmt.Sprintf("ATTACH '%s' AS colony (READ_ONLY);", dbURL)

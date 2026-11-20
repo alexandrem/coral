@@ -591,7 +591,7 @@ func (s *ServiceRegistry) registerDuckDBHandler(mux *http.ServeMux) {
 
 	// Register shared metrics database (if using file-based storage).
 	if s.sharedDBPath != "" {
-		if err := duckdbHandler.RegisterDatabase("metrics.duckdb", s.sharedDBPath); err != nil {
+		if err := duckdbHandler.RegisterDatabase("metrics.duckdb", s.sharedDBPath, s.sharedDB); err != nil {
 			s.logger.Warn().Err(err).Msg("Failed to register metrics database for HTTP serving")
 		} else {
 			s.logger.Info().
