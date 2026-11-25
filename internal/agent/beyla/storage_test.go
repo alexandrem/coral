@@ -451,14 +451,25 @@ func TestStoreEventsBatchesBuckets(t *testing.T) {
 		t.Errorf("Expected 1 gRPC metric with 2 buckets, got %v", grpcMetrics)
 	}
 
-	// A malformed event must not leave a partial write behind.
+	// A malformed event is skipped and the valid events are still stored.
+	otherEvent := &ebpfpb.EbpfEvent{
+		Payload: &ebpfpb.EbpfEvent_BeylaHttp{BeylaHttp: &ebpfpb.BeylaHttpMetrics{
+			Timestamp:      timestamppb.New(now),
+			ServiceName:    "api",
+			HttpMethod:     "POST",
+			HttpRoute:      "/orders",
+			HttpStatusCode: 201,
+			LatencyBuckets: []float64{10},
+			LatencyCounts:  []uint64{1},
+		}},
+	}
 	bad := &ebpfpb.EbpfEvent{}
-	if err := storage.StoreEvents(ctx, []*ebpfpb.EbpfEvent{httpEvent, bad}); err == nil {
+	if err := storage.StoreEvents(ctx, []*ebpfpb.EbpfEvent{bad, otherEvent}); err == nil {
 		t.Fatal("StoreEvents() expected error for unsupported event")
 	}
 	httpMetrics, _, _ = storage.QueryHTTPMetricsBySeqID(ctx, 0, 100, nil)
-	if len(httpMetrics) != 1 || len(httpMetrics[0].LatencyBuckets) != 3 {
-		t.Errorf("Expected unchanged HTTP metric after failed batch, got %v", httpMetrics)
+	if len(httpMetrics) != 2 {
+		t.Errorf("Expected valid HTTP metric stored despite malformed event, got %v", httpMetrics)
 	}
 }
 
