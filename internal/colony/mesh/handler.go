@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -22,10 +23,18 @@ import (
 // Handler implements the MeshService RPC handler.
 type Handler struct {
 	cfg             *config.ResolvedConfig
-	wgDevice        *wireguard.Device
+	wgDevice        peerDevice
 	registry        *registry.Registry
 	logger          logging.Logger
 	discoveryClient *discovery.Client
+}
+
+// peerDevice is the subset of *wireguard.Device the handler uses.
+type peerDevice interface {
+	AddPeer(*wireguard.PeerConfig) error
+	RemovePeer(string) error
+	ListPeers() []*wireguard.PeerConfig
+	Allocator() wireguard.Allocator
 }
 
 // NewHandler creates a new mesh service handler.
@@ -172,10 +181,11 @@ func (h *Handler) Register(
 	}
 
 	// Add agent as WireGuard peer
+	allowedIP := meshIP.String() + "/32"
 	peerConfig := &wireguard.PeerConfig{
 		PublicKey:           req.Msg.WireguardPubkey,
 		Endpoint:            agentEndpoint, // Use detected endpoint
-		AllowedIPs:          []string{meshIP.String() + "/32"},
+		AllowedIPs:          []string{allowedIP},
 		PersistentKeepalive: 25, // Keep NAT mappings alive
 	}
 
@@ -208,6 +218,8 @@ func (h *Handler) Register(
 			Reason:   "peer_add_failed",
 		}), nil
 	}
+
+	h.removeStalePeers(req.Msg.AgentId, req.Msg.WireguardPubkey, allowedIP)
 
 	// Register agent in the registry for tracking.
 	// Note: We don't have IPv6 mesh IP yet (future enhancement).
@@ -253,6 +265,34 @@ func (h *Handler) Register(
 		Peers:        peers,
 		RegisteredAt: timestamppb.Now(),
 	}), nil
+}
+
+// removeStalePeers removes peers other than publicKey that still claim
+// allowedIP, such as an Agent's previous key after it re-registers with a new
+// WireGuard identity. wireguard-go already routes allowedIP to the new peer,
+// but the stale peer would otherwise stay configured and be advertised to
+// other Agents in RegisterResponse.Peers.
+func (h *Handler) removeStalePeers(agentID, publicKey, allowedIP string) {
+	for _, peer := range h.wgDevice.ListPeers() {
+		if peer.PublicKey == publicKey || !slices.Contains(peer.AllowedIPs, allowedIP) {
+			continue
+		}
+
+		if err := h.wgDevice.RemovePeer(peer.PublicKey); err != nil {
+			h.logger.Warn().
+				Err(err).
+				Str("agent_id", agentID).
+				Str("stale_pubkey", peer.PublicKey[:8]+"...").
+				Msg("Failed to remove stale WireGuard peer for agent mesh IP")
+			continue
+		}
+
+		h.logger.Info().
+			Str("agent_id", agentID).
+			Str("stale_pubkey", peer.PublicKey[:8]+"...").
+			Str("mesh_ip", allowedIP).
+			Msg("Removed stale WireGuard peer for agent mesh IP")
+	}
 }
 
 // Heartbeat handles agent heartbeat requests to update last_seen timestamp.

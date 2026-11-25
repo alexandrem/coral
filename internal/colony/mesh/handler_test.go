@@ -3,6 +3,8 @@ package mesh
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -366,4 +368,78 @@ func TestRegisterKeepsExistingIPWhenPeerAddFails(t *testing.T) {
 		_, err := allocator.GetAgentIP("agent-2")
 		require.Error(t, err)
 	})
+}
+
+// fakePeerDevice is an in-memory peerDevice.
+type fakePeerDevice struct {
+	allocator wireguard.Allocator
+	peers     map[string]*wireguard.PeerConfig
+}
+
+func newFakePeerDevice(t *testing.T) *fakePeerDevice {
+	t.Helper()
+
+	_, subnet, err := net.ParseCIDR("100.64.0.0/24")
+	require.NoError(t, err)
+	allocator, err := wireguard.NewIPAllocator(subnet)
+	require.NoError(t, err)
+	return &fakePeerDevice{allocator: allocator, peers: make(map[string]*wireguard.PeerConfig)}
+}
+
+func (d *fakePeerDevice) AddPeer(peer *wireguard.PeerConfig) error {
+	d.peers[peer.PublicKey] = peer
+	return nil
+}
+
+func (d *fakePeerDevice) RemovePeer(publicKey string) error {
+	delete(d.peers, publicKey)
+	return nil
+}
+
+func (d *fakePeerDevice) ListPeers() []*wireguard.PeerConfig {
+	peers := make([]*wireguard.PeerConfig, 0, len(d.peers))
+	for _, peer := range d.peers {
+		peers = append(peers, peer)
+	}
+	return peers
+}
+
+func (d *fakePeerDevice) Allocator() wireguard.Allocator {
+	return d.allocator
+}
+
+func TestRegisterRemovesStalePeerOnKeyChange(t *testing.T) {
+	const colonyID = "colony-1"
+	oldKey := "old-key-" + strings.Repeat("a", 35) + "="
+	newKey := "new-key-" + strings.Repeat("b", 35) + "="
+	otherKey := "oth-key-" + strings.Repeat("c", 35) + "="
+
+	device := newFakePeerDevice(t)
+	h := &Handler{
+		cfg:      &config.ResolvedConfig{ColonyID: colonyID},
+		wgDevice: device,
+		registry: registry.New(nil),
+		logger:   logging.NewWithComponent(logging.Config{Level: "error"}, "mesh-test"),
+	}
+	register := func(agentID, publicKey string) *meshv1.RegisterResponse {
+		resp, err := h.Register(context.Background(), connect.NewRequest(&meshv1.RegisterRequest{
+			AgentId:         agentID,
+			ColonyId:        colonyID,
+			WireguardPubkey: publicKey,
+		}))
+		require.NoError(t, err)
+		require.True(t, resp.Msg.Accepted, resp.Msg.Reason)
+		return resp.Msg
+	}
+
+	first := register("agent-1", oldKey)
+	second := register("agent-1", newKey)
+
+	require.Equal(t, first.AssignedIp, second.AssignedIp)
+	require.Contains(t, device.peers, newKey)
+	require.NotContains(t, device.peers, oldKey)
+
+	other := register("agent-2", otherKey)
+	require.Len(t, other.Peers, 1)
+	require.Equal(t, newKey, other.Peers[0].WireguardPubkey)
 }
