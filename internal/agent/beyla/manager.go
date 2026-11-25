@@ -368,6 +368,13 @@ func (m *Manager) Stop() error {
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	// Persist spans still waiting in the batch buffer.
+	if m.beylaStorage != nil {
+		if err := m.beylaStorage.FlushSpans(context.Background()); err != nil {
+			m.logger.Error().Err(err).Msg("Failed to flush buffered spans")
+		}
+	}
+
 	// Cleanup extracted binary if it was in a temp directory.
 	//nolint:staticcheck // filepath.HasPrefix is deprecated but simple enough for this use case
 	if m.beylaBinaryPath != "" && filepath.HasPrefix(m.beylaBinaryPath, os.TempDir()) {
@@ -744,32 +751,35 @@ func (m *Manager) consumeMetrics() {
 				continue
 			}
 
-			// Transform each metric batch.
+			// Transform every metric batch, then store all events of the
+			// cycle with one batched write per table.
+			var events []*ebpfpb.EbpfEvent
 			for _, metricBatch := range metrics {
-				events, err := m.transformer.TransformMetrics(metricBatch)
+				batchEvents, err := m.transformer.TransformMetrics(metricBatch)
 				if err != nil {
 					m.logger.Error().Err(err).Msg("Failed to transform metrics")
 					continue
 				}
+				events = append(events, batchEvents...)
+			}
 
-				// Store events in local DuckDB for pull-based queries (RFD 032).
-				for _, event := range events {
-					if m.beylaStorage != nil {
-						if err := m.beylaStorage.StoreEvent(m.ctx, event); err != nil {
-							m.logger.Error().Err(err).Msg("Failed to store Beyla metric")
-							continue
-						}
-					}
+			// Store events in local DuckDB for pull-based queries (RFD 032).
+			if m.beylaStorage != nil && len(events) > 0 {
+				if err := m.beylaStorage.StoreEvents(m.ctx, events); err != nil {
+					m.logger.Error().Err(err).Msg("Failed to store Beyla metrics")
+					continue
+				}
+			}
 
-					// Also send to channel for backwards compatibility.
-					select {
-					case m.metricsCh <- event:
-					case <-m.ctx.Done():
-						return
-					default:
-						// Channel full, drop metric (already stored in DB).
-						m.logger.Debug().Msg("Metrics channel full (metric already stored in DB)")
-					}
+			// Also send to channel for backwards compatibility.
+			for _, event := range events {
+				select {
+				case m.metricsCh <- event:
+				case <-m.ctx.Done():
+					return
+				default:
+					// Channel full, drop metric (already stored in DB).
+					m.logger.Debug().Msg("Metrics channel full (metric already stored in DB)")
 				}
 			}
 

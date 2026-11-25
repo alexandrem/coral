@@ -76,6 +76,11 @@ type BeylaStorage struct {
 	logger zerolog.Logger
 	mu     sync.RWMutex
 
+	// Buffer of OTLP spans awaiting a batched insert.
+	spanMu    sync.Mutex
+	spanBuf   []*beylaTraceDB
+	spanTimer *time.Timer
+
 	// ORM tables.
 	httpMetricsTable *duckdb.Table[beylaHTTPMetricDB]
 	grpcMetricsTable *duckdb.Table[beylaGRPCMetricDB]
@@ -263,189 +268,218 @@ func (s *BeylaStorage) initSchema() error {
 	return nil
 }
 
-// StoreHTTPMetric stores a Beyla HTTP metric event.
-func (s *BeylaStorage) StoreHTTPMetric(ctx context.Context, event *ebpfpb.EbpfEvent) error {
-	httpMetric := event.GetBeylaHttp()
-	if httpMetric == nil {
+const (
+	// spanFlushSize is the number of buffered OTLP spans that triggers an
+	// immediate flush.
+	spanFlushSize = 500
+
+	// spanFlushDelay is the maximum time an OTLP span waits in the buffer.
+	spanFlushDelay = 250 * time.Millisecond
+)
+
+// metricBatch accumulates histogram bucket rows for a single write.
+type metricBatch struct {
+	http []*beylaHTTPMetricDB
+	grpc []*beylaGRPCMetricDB
+	sql  []*beylaSQLMetricDB
+}
+
+// addHTTP appends one row per non-empty histogram bucket. Attributes are
+// marshaled once per metric rather than once per bucket.
+func (b *metricBatch) addHTTP(event *ebpfpb.EbpfEvent) error {
+	m := event.GetBeylaHttp()
+	if m == nil {
 		return fmt.Errorf("event does not contain HTTP metric")
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Store each histogram bucket as a separate row.
-	for i, bucket := range httpMetric.LatencyBuckets {
-		if i >= len(httpMetric.LatencyCounts) {
+	attributes, err := marshalAttributes(m.Attributes)
+	if err != nil {
+		return err
+	}
+	timestamp := m.Timestamp.AsTime()
+	now := time.Now()
+	for i, bucket := range m.LatencyBuckets {
+		if i >= len(m.LatencyCounts) {
 			break
 		}
-
-		count := httpMetric.LatencyCounts[i]
-		if count == 0 {
-			continue // Skip empty buckets
+		if m.LatencyCounts[i] == 0 {
+			continue // Skip empty buckets.
 		}
-
-		// Convert attributes to JSON.
-		attributesJSON, err := json.Marshal(httpMetric.Attributes)
-		if err != nil {
-			return fmt.Errorf("failed to marshal attributes: %w", err)
-		}
-
-		query := `
-			INSERT INTO beyla_http_metrics_local (
-				timestamp, service_name, http_method, http_route, http_status_code,
-				latency_bucket_ms, count, attributes
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`
-
-		timestamp := time.Unix(0, httpMetric.Timestamp.Seconds*int64(time.Second)+int64(httpMetric.Timestamp.Nanos))
-
-		_, err = s.db.ExecContext(
-			ctx,
-			query,
-			timestamp,
-			httpMetric.ServiceName,
-			httpMetric.HttpMethod,
-			httpMetric.HttpRoute,
-			httpMetric.HttpStatusCode,
-			bucket,
-			count,
-			string(attributesJSON),
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to insert HTTP metric: %w", err)
-		}
+		b.http = append(b.http, &beylaHTTPMetricDB{
+			Timestamp:       timestamp,
+			ServiceName:     m.ServiceName,
+			HTTPMethod:      m.HttpMethod,
+			HTTPRoute:       m.HttpRoute,
+			HTTPStatusCode:  int(m.HttpStatusCode),
+			LatencyBucketMs: bucket,
+			Count:           int64(m.LatencyCounts[i]), // #nosec G115 - counts fit in int64.
+			Attributes:      attributes,
+			CreatedAt:       now,
+		})
 	}
-
 	return nil
+}
+
+// addGRPC appends one row per non-empty histogram bucket.
+func (b *metricBatch) addGRPC(event *ebpfpb.EbpfEvent) error {
+	m := event.GetBeylaGrpc()
+	if m == nil {
+		return fmt.Errorf("event does not contain gRPC metric")
+	}
+	attributes, err := marshalAttributes(m.Attributes)
+	if err != nil {
+		return err
+	}
+	timestamp := m.Timestamp.AsTime()
+	now := time.Now()
+	for i, bucket := range m.LatencyBuckets {
+		if i >= len(m.LatencyCounts) {
+			break
+		}
+		if m.LatencyCounts[i] == 0 {
+			continue // Skip empty buckets.
+		}
+		b.grpc = append(b.grpc, &beylaGRPCMetricDB{
+			Timestamp:       timestamp,
+			ServiceName:     m.ServiceName,
+			GRPCMethod:      m.GrpcMethod,
+			GRPCStatusCode:  int(m.GrpcStatusCode),
+			LatencyBucketMs: bucket,
+			Count:           int64(m.LatencyCounts[i]), // #nosec G115 - counts fit in int64.
+			Attributes:      attributes,
+			CreatedAt:       now,
+		})
+	}
+	return nil
+}
+
+// addSQL appends one row per non-empty histogram bucket.
+func (b *metricBatch) addSQL(event *ebpfpb.EbpfEvent) error {
+	m := event.GetBeylaSql()
+	if m == nil {
+		return fmt.Errorf("event does not contain SQL metric")
+	}
+	attributes, err := marshalAttributes(m.Attributes)
+	if err != nil {
+		return err
+	}
+	timestamp := m.Timestamp.AsTime()
+	now := time.Now()
+	for i, bucket := range m.LatencyBuckets {
+		if i >= len(m.LatencyCounts) {
+			break
+		}
+		if m.LatencyCounts[i] == 0 {
+			continue // Skip empty buckets.
+		}
+		b.sql = append(b.sql, &beylaSQLMetricDB{
+			Timestamp:       timestamp,
+			ServiceName:     m.ServiceName,
+			SQLOperation:    m.SqlOperation,
+			TableName:       m.TableName,
+			LatencyBucketMs: bucket,
+			Count:           int64(m.LatencyCounts[i]), // #nosec G115 - counts fit in int64.
+			Attributes:      attributes,
+			CreatedAt:       now,
+		})
+	}
+	return nil
+}
+
+// marshalAttributes encodes metric or span attributes as a JSON string.
+func marshalAttributes(attributes map[string]string) (string, error) {
+	data, err := json.Marshal(attributes)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal attributes: %w", err)
+	}
+	return string(data), nil
+}
+
+// StoreHTTPMetric stores a Beyla HTTP metric event.
+func (s *BeylaStorage) StoreHTTPMetric(ctx context.Context, event *ebpfpb.EbpfEvent) error {
+	if event.GetBeylaHttp() == nil {
+		return fmt.Errorf("event does not contain HTTP metric")
+	}
+	return s.StoreEvents(ctx, []*ebpfpb.EbpfEvent{event})
 }
 
 // StoreGRPCMetric stores a Beyla gRPC metric event.
 func (s *BeylaStorage) StoreGRPCMetric(ctx context.Context, event *ebpfpb.EbpfEvent) error {
-	grpcMetric := event.GetBeylaGrpc()
-	if grpcMetric == nil {
+	if event.GetBeylaGrpc() == nil {
 		return fmt.Errorf("event does not contain gRPC metric")
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Store each histogram bucket as a separate row.
-	for i, bucket := range grpcMetric.LatencyBuckets {
-		if i >= len(grpcMetric.LatencyCounts) {
-			break
-		}
-
-		count := grpcMetric.LatencyCounts[i]
-		if count == 0 {
-			continue // Skip empty buckets
-		}
-
-		// Convert attributes to JSON.
-		attributesJSON, err := json.Marshal(grpcMetric.Attributes)
-		if err != nil {
-			return fmt.Errorf("failed to marshal attributes: %w", err)
-		}
-
-		query := `
-			INSERT INTO beyla_grpc_metrics_local (
-				timestamp, service_name, grpc_method, grpc_status_code,
-				latency_bucket_ms, count, attributes
-			) VALUES (?, ?, ?, ?, ?, ?, ?)
-		`
-
-		timestamp := time.Unix(0, grpcMetric.Timestamp.Seconds*int64(time.Second)+int64(grpcMetric.Timestamp.Nanos))
-
-		_, err = s.db.ExecContext(
-			ctx,
-			query,
-			timestamp,
-			grpcMetric.ServiceName,
-			grpcMetric.GrpcMethod,
-			grpcMetric.GrpcStatusCode,
-			bucket,
-			count,
-			string(attributesJSON),
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to insert gRPC metric: %w", err)
-		}
-	}
-
-	return nil
+	return s.StoreEvents(ctx, []*ebpfpb.EbpfEvent{event})
 }
 
 // StoreSQLMetric stores a Beyla SQL metric event.
 func (s *BeylaStorage) StoreSQLMetric(ctx context.Context, event *ebpfpb.EbpfEvent) error {
-	sqlMetric := event.GetBeylaSql()
-	if sqlMetric == nil {
+	if event.GetBeylaSql() == nil {
 		return fmt.Errorf("event does not contain SQL metric")
+	}
+	return s.StoreEvents(ctx, []*ebpfpb.EbpfEvent{event})
+}
+
+// StoreEvent routes an event to the appropriate storage method based on its type.
+func (s *BeylaStorage) StoreEvent(ctx context.Context, event *ebpfpb.EbpfEvent) error {
+	return s.StoreEvents(ctx, []*ebpfpb.EbpfEvent{event})
+}
+
+// StoreEvents stores a set of events. All metric rows of the set are written
+// with one batched insert per table instead of one statement per histogram
+// bucket. Events are validated before anything is written, so a malformed
+// metric fails the call without partially storing the metrics.
+func (s *BeylaStorage) StoreEvents(ctx context.Context, events []*ebpfpb.EbpfEvent) error {
+	var batch metricBatch
+	var traces []*ebpfpb.EbpfEvent
+
+	for _, event := range events {
+		var err error
+		switch event.Payload.(type) {
+		case *ebpfpb.EbpfEvent_BeylaHttp:
+			err = batch.addHTTP(event)
+		case *ebpfpb.EbpfEvent_BeylaGrpc:
+			err = batch.addGRPC(event)
+		case *ebpfpb.EbpfEvent_BeylaSql:
+			err = batch.addSQL(event)
+		case *ebpfpb.EbpfEvent_BeylaTrace:
+			traces = append(traces, event)
+		default:
+			err = fmt.Errorf("unsupported event type: %T", event.Payload)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := s.writeMetrics(ctx, &batch); err != nil {
+		return err
+	}
+	for _, event := range traces {
+		if err := s.StoreTrace(ctx, event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeMetrics inserts the accumulated metric rows, one batched insert per table.
+func (s *BeylaStorage) writeMetrics(ctx context.Context, batch *metricBatch) error {
+	if len(batch.http) == 0 && len(batch.grpc) == 0 && len(batch.sql) == 0 {
+		return nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Store each histogram bucket as a separate row.
-	for i, bucket := range sqlMetric.LatencyBuckets {
-		if i >= len(sqlMetric.LatencyCounts) {
-			break
-		}
-
-		count := sqlMetric.LatencyCounts[i]
-		if count == 0 {
-			continue // Skip empty buckets
-		}
-
-		// Convert attributes to JSON.
-		attributesJSON, err := json.Marshal(sqlMetric.Attributes)
-		if err != nil {
-			return fmt.Errorf("failed to marshal attributes: %w", err)
-		}
-
-		query := `
-			INSERT INTO beyla_sql_metrics_local (
-				timestamp, service_name, sql_operation, table_name,
-				latency_bucket_ms, count, attributes
-			) VALUES (?, ?, ?, ?, ?, ?, ?)
-		`
-
-		timestamp := time.Unix(0, sqlMetric.Timestamp.Seconds*int64(time.Second)+int64(sqlMetric.Timestamp.Nanos))
-
-		_, err = s.db.ExecContext(
-			ctx,
-			query,
-			timestamp,
-			sqlMetric.ServiceName,
-			sqlMetric.SqlOperation,
-			sqlMetric.TableName,
-			bucket,
-			count,
-			string(attributesJSON),
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to insert SQL metric: %w", err)
-		}
+	if err := s.httpMetricsTable.BatchUpsert(ctx, batch.http); err != nil {
+		return fmt.Errorf("failed to insert HTTP metrics: %w", err)
 	}
-
+	if err := s.grpcMetricsTable.BatchUpsert(ctx, batch.grpc); err != nil {
+		return fmt.Errorf("failed to insert gRPC metrics: %w", err)
+	}
+	if err := s.sqlMetricsTable.BatchUpsert(ctx, batch.sql); err != nil {
+		return fmt.Errorf("failed to insert SQL metrics: %w", err)
+	}
 	return nil
-}
-
-// StoreEvent routes an event to the appropriate storage method based on its type.
-func (s *BeylaStorage) StoreEvent(ctx context.Context, event *ebpfpb.EbpfEvent) error {
-	switch event.Payload.(type) {
-	case *ebpfpb.EbpfEvent_BeylaHttp:
-		return s.StoreHTTPMetric(ctx, event)
-	case *ebpfpb.EbpfEvent_BeylaGrpc:
-		return s.StoreGRPCMetric(ctx, event)
-	case *ebpfpb.EbpfEvent_BeylaSql:
-		return s.StoreSQLMetric(ctx, event)
-	case *ebpfpb.EbpfEvent_BeylaTrace:
-		return s.StoreTrace(ctx, event)
-	default:
-		return fmt.Errorf("unsupported event type: %T", event.Payload)
-	}
 }
 
 // StoreTrace stores a Beyla trace span event (RFD 036).
@@ -490,17 +524,19 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 	return nil
 }
 
-// StoreOTLPSpan stores a span from the OTLP receiver into beyla_traces_local.
-// This is used by the Beyla manager's SpanHandler to route Beyla traces
-// to the correct table instead of otel_spans_local.
+// StoreOTLPSpan buffers a span from the OTLP receiver for insertion into
+// beyla_traces_local. This is used by the Beyla manager's SpanHandler to route
+// Beyla traces to the correct table instead of otel_spans_local.
+//
+// Spans are written in batches: the buffer is flushed when it reaches
+// spanFlushSize spans or spanFlushDelay after the first buffered span,
+// whichever comes first. Trace queries flush the buffer first, so they observe
+// every span accepted before the query. Insert failures are logged because the
+// write happens after this call returns.
 func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceID, spanID, parentSpanID, serviceName, spanName, spanKind string, startTime time.Time, durationUs int64, statusCode int, processPID uint32, attributes map[string]string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Convert attributes to JSON.
-	attributesJSON, err := json.Marshal(attributes)
+	attributesJSON, err := marshalAttributes(attributes)
 	if err != nil {
-		return fmt.Errorf("failed to marshal attributes: %w", err)
+		return err
 	}
 
 	item := &beylaTraceDB{
@@ -515,14 +551,50 @@ func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceI
 		DurationUs:   durationUs,
 		StatusCode:   statusCode,
 		ProcessPID:   int32(processPID), // #nosec G115 - PIDs are always positive.
-		Attributes:   string(attributesJSON),
+		Attributes:   attributesJSON,
 		CreatedAt:    time.Now(),
 	}
 
-	if err := s.tracesTable.Insert(ctx, item); err != nil {
-		return fmt.Errorf("failed to insert OTLP span: %w", err)
+	s.spanMu.Lock()
+	s.spanBuf = append(s.spanBuf, item)
+	full := len(s.spanBuf) >= spanFlushSize
+	if !full && s.spanTimer == nil {
+		s.spanTimer = time.AfterFunc(spanFlushDelay, func() {
+			if err := s.FlushSpans(context.Background()); err != nil {
+				s.logger.Error().Err(err).Msg("Failed to flush buffered OTLP spans")
+			}
+		})
+	}
+	s.spanMu.Unlock()
+
+	if full {
+		return s.FlushSpans(ctx)
+	}
+	return nil
+}
+
+// FlushSpans writes all buffered OTLP spans to beyla_traces_local in a single
+// batched insert.
+func (s *BeylaStorage) FlushSpans(ctx context.Context) error {
+	s.spanMu.Lock()
+	spans := s.spanBuf
+	s.spanBuf = nil
+	if s.spanTimer != nil {
+		s.spanTimer.Stop()
+		s.spanTimer = nil
+	}
+	s.spanMu.Unlock()
+
+	if len(spans) == 0 {
+		return nil
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.tracesTable.BatchUpsert(ctx, spans); err != nil {
+		return fmt.Errorf("failed to insert %d OTLP spans: %w", len(spans), err)
+	}
 	return nil
 }
 
@@ -810,6 +882,9 @@ func (s *BeylaStorage) QuerySQLMetricsBySeqID(ctx context.Context, startSeqID ui
 
 // QueryTracesBySeqID queries trace spans with seq_id > startSeqID (RFD 089).
 func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaTraceSpan, uint64, error) {
+	if err := s.FlushSpans(ctx); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to flush buffered OTLP spans")
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -906,6 +981,9 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 
 // QueryTraceByID queries all spans for a specific trace ID (RFD 036).
 func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
+	if err := s.FlushSpans(ctx); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to flush buffered OTLP spans")
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
