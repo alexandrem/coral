@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -15,6 +16,13 @@ const otelServiceNameVar = "OTEL_SERVICE_NAME"
 // serviceNameVar is the fallback environment variable, checked when
 // otelServiceNameVar is absent.
 const serviceNameVar = "SERVICE_NAME"
+
+// otelServiceNamePrefix and serviceNamePrefix are the environ entry prefixes
+// readServiceNameEnv matches.
+var (
+	otelServiceNamePrefix = []byte(otelServiceNameVar + "=")
+	serviceNamePrefix     = []byte(serviceNameVar + "=")
+)
 
 // EnvVarProvider discovers service name hints by reading
 // OTEL_SERVICE_NAME (or SERVICE_NAME) from each running process's
@@ -96,13 +104,28 @@ func readEnviron(root string, pid int) (map[string]string, bool) {
 // is false if the environ file could not be read at all (e.g. the process
 // exited between the PID scan and this read); it is true (with an empty
 // name) when the file is readable but neither variable is set.
+//
+// It runs for every process on every discovery cycle, so it scans the raw
+// entries for the two variables instead of building the map readEnviron
+// returns. As with that map, the last occurrence of a variable wins.
 func readServiceNameEnv(root string, pid int) (string, bool) {
-	env, ok := readEnviron(root, pid)
-	if !ok {
+	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
+	data, err := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "environ"))
+	if err != nil {
 		return "", false
 	}
-	if name, ok := env[otelServiceNameVar]; ok {
-		return name, true
+
+	var otelName, serviceName []byte
+	otelSet := false
+	for entry := range bytes.SplitSeq(data, []byte{0}) {
+		if value, ok := bytes.CutPrefix(entry, otelServiceNamePrefix); ok {
+			otelName, otelSet = value, true
+		} else if value, ok := bytes.CutPrefix(entry, serviceNamePrefix); ok {
+			serviceName = value
+		}
 	}
-	return env[serviceNameVar], true
+	if otelSet {
+		return string(otelName), true
+	}
+	return string(serviceName), true
 }

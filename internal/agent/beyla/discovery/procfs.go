@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog"
 )
@@ -30,6 +31,10 @@ type ProcFSProvider struct {
 	procRoot string
 
 	logger zerolog.Logger
+
+	// mu serializes Discover calls, which share fdCache.
+	mu      sync.Mutex
+	fdCache fdScanCache
 }
 
 // NewProcFSProvider creates a ProcFSProvider rooted at /proc.
@@ -60,6 +65,9 @@ func (p *ProcFSProvider) root() string {
 // workloads can still be instrumented explicitly through static discovery
 // or a configured Beyla service.
 func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	root := p.root()
 
 	pids, err := listPids(root)
@@ -77,19 +85,18 @@ func (p *ProcFSProvider) Discover(_ context.Context) ([]ProcessCandidate, error)
 			Int("processes", permissionDenied).
 			Msg("Insufficient permission to read network namespace for some processes; container discovery may be incomplete")
 	}
-	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace)
+	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace, &p.fdCache)
 
-	candidates := make([]ProcessCandidate, 0, len(pids))
+	candidates := make([]ProcessCandidate, 0, len(portsByPID))
 	for _, pid := range pids {
-		name, ok := readComm(root, pid)
-		if !ok {
-			// Process exited between listing PIDs and reading its comm
-			// file; skip it rather than reporting a nameless candidate.
-			continue
-		}
-
 		ports := portsByPID[pid]
 		if len(ports) == 0 {
+			continue
+		}
+		name, ok := readComm(root, pid)
+		if !ok {
+			// Process exited between the socket scan and reading its comm
+			// file; skip it rather than reporting a nameless candidate.
 			continue
 		}
 		candidates = append(candidates, ProcessCandidate{
@@ -171,7 +178,9 @@ func (p *ProcFSProvider) FindPortOwners(queries map[int]PortQuery) (map[int]Port
 		return nil, fmt.Errorf("failed to list processes: %w", err)
 	}
 	nsGroups, pidNamespace, _ := groupPIDsByNamespace(root, pids)
-	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace)
+	// No fdScanCache: connect-time resolution walks every descriptor so an
+	// ownership change since the last discovery cycle is never missed.
+	portsByPID := p.listeningPortsByPID(root, nsGroups, pidNamespace, nil)
 
 	wanted := func(port int) bool {
 		_, ok := queries[port]
@@ -283,31 +292,11 @@ func (p *ProcFSProvider) ListensOn(pid, port int) bool {
 	if err != nil {
 		return false
 	}
-	inodes := make(map[string]bool)
-	for inode, listenPort := range table {
-		if listenPort == port {
-			inodes[inode] = true
-		}
-	}
-	if len(inodes) == 0 {
+	if !slices.Contains(slices.Collect(maps.Values(table)), port) {
 		return false
 	}
-
-	fdDir := filepath.Join(pidRoot, "fd")
-	entries, err := os.ReadDir(fdDir)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		link, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		if inode, ok := parseSocketInode(link); ok && inodes[inode] {
-			return true
-		}
-	}
-	return false
+	ports, _ := heldListeningPorts(pidRoot, table)
+	return slices.Contains(ports, port)
 }
 
 // listPids returns every numeric directory entry under root, sorted
@@ -390,85 +379,145 @@ func groupPIDsByNamespace(root string, pids []int) (map[netNamespaceID][]int, ma
 	return groups, pidNamespace, permissionDenied
 }
 
-// socketKey identifies a listening socket by the composite of its owning
-// network namespace and inode number, since inodes are only meaningful
-// within one namespace.
-type socketKey struct {
-	ns    netNamespaceID
-	inode string
+// fullFDScanEvery is how many Discover cycles may reuse fdScanCache before
+// one walks every process's descriptors again. It bounds how long a
+// listening socket can go unnoticed when it reaches a process the cache
+// considers idle without changing its namespace's socket table, e.g. via
+// SCM_RIGHTS fd passing.
+const fullFDScanEvery = 10
+
+// fdScanCache remembers, across Discover cycles, which processes held none
+// of their namespace's listening sockets, so a stable host does not walk
+// every descriptor of every process on each cycle. A process is skipped only
+// while it stays idle in the same namespace and that namespace's listening
+// socket table is unchanged: a new listener always has a new inode, so any
+// bind or close forces a re-walk of the whole namespace. Processes that do
+// hold a listener, and processes not seen on the previous cycle, are always
+// walked, so a cached entry can never make a process appear to listen.
+type fdScanCache struct {
+	// tables is the previous cycle's listening socket table (inode -> port)
+	// per network namespace.
+	tables map[netNamespaceID]map[string]int
+
+	// idle maps each PID found holding no listening socket on the previous
+	// cycle to the namespace it was in.
+	idle map[int]netNamespaceID
+
+	// cycles counts the Discover cycles run so far.
+	cycles int
+}
+
+// advance starts a cycle against the namespaces' current socket tables. It
+// returns the namespaces whose table is unchanged since the previous cycle
+// and the previous cycle's idle PIDs. Every fullFDScanEvery cycles it
+// reports no namespace as unchanged, forcing a full walk. A nil cache
+// returns nil maps, so every process is walked.
+func (c *fdScanCache) advance(tables map[netNamespaceID]map[string]int) (map[netNamespaceID]bool, map[int]netNamespaceID) {
+	if c == nil {
+		return nil, nil
+	}
+	unchanged := make(map[netNamespaceID]bool)
+	if c.cycles%fullFDScanEvery != 0 {
+		for ns, table := range tables {
+			if prev, ok := c.tables[ns]; ok && maps.Equal(prev, table) {
+				unchanged[ns] = true
+			}
+		}
+	}
+	c.cycles++
+	c.tables = tables
+	return unchanged, c.idle
+}
+
+// setIdle records the PIDs found idle in the cycle started by advance.
+func (c *fdScanCache) setIdle(idle map[int]netNamespaceID) {
+	if c != nil {
+		c.idle = idle
+	}
 }
 
 // listeningPortsByPID returns, for each PID with at least one listening
 // socket, the set of local ports it is bound to. It scans one socket table
 // per network namespace, then cross-references each process's open file
-// descriptors (fd -> socket inode) against the namespace-scoped inode->port
-// map for the namespace that process belongs to.
-func (p *ProcFSProvider) listeningPortsByPID(root string, nsGroups map[netNamespaceID][]int, pidNamespace map[int]netNamespaceID) map[int][]int {
-	socketPorts := p.scanNamespaces(root, nsGroups)
+// descriptors (fd -> socket inode) against the table of the namespace that
+// process belongs to. Processes in a namespace without listeners are never
+// walked. With a non-nil cache, processes it reports as still idle are not
+// walked either (see fdScanCache).
+func (p *ProcFSProvider) listeningPortsByPID(root string, nsGroups map[netNamespaceID][]int, pidNamespace map[int]netNamespaceID, cache *fdScanCache) map[int][]int {
+	tables := p.scanNamespaces(root, nsGroups)
+	unchanged, prevIdle := cache.advance(tables)
+	idle := make(map[int]netNamespaceID)
 
+	pids := slices.Sorted(maps.Keys(pidNamespace))
 	result := make(map[int][]int)
-	if len(socketPorts) == 0 {
-		return result
-	}
-
-	pids := make([]int, 0, len(pidNamespace))
-	for pid := range pidNamespace {
-		pids = append(pids, pid)
-	}
-	sort.Ints(pids)
-
 	for _, pid := range pids {
 		ns := pidNamespace[pid]
-		fdDir := filepath.Join(root, strconv.Itoa(pid), "fd")
-		entries, err := os.ReadDir(fdDir)
-		if err != nil {
+		table := tables[ns]
+		if len(table) == 0 {
+			continue
+		}
+		if unchanged[ns] && prevIdle[pid] == ns {
+			idle[pid] = ns
+			continue
+		}
+
+		ports, ok := heldListeningPorts(filepath.Join(root, strconv.Itoa(pid)), table)
+		if !ok {
 			// Process exited or fd dir unreadable (permission denied);
 			// skip gracefully rather than failing the whole scan.
 			continue
 		}
-
-		for _, entry := range entries {
-			link, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
-			if err != nil {
-				continue
-			}
-			inode, ok := parseSocketInode(link)
-			if !ok {
-				continue
-			}
-			if port, ok := socketPorts[socketKey{ns: ns, inode: inode}]; ok {
-				result[pid] = appendUniquePort(result[pid], port)
-			}
+		if len(ports) == 0 {
+			idle[pid] = ns
+			continue
 		}
+		result[pid] = ports
 	}
 
+	cache.setIdle(idle)
 	return result
 }
 
-// scanNamespaces reads one listening-socket table per network namespace in
-// nsGroups and returns their union, keyed by (namespace, inode). Namespaces
-// whose socket table cannot be read from any candidate PID are omitted; the
-// caller degrades to reporting no listeners for that namespace this cycle
-// rather than failing discovery for the other namespaces.
-func (p *ProcFSProvider) scanNamespaces(root string, nsGroups map[netNamespaceID][]int) map[socketKey]int {
-	result := make(map[socketKey]int)
-
-	nsIDs := make([]netNamespaceID, 0, len(nsGroups))
-	for ns := range nsGroups {
-		nsIDs = append(nsIDs, ns)
+// heldListeningPorts returns the ports of the sockets in table (inode ->
+// port) that the process at pidRoot holds a descriptor for. The second
+// return value is false if its fd directory could not be read.
+func heldListeningPorts(pidRoot string, table map[string]int) ([]int, bool) {
+	fdDir := filepath.Join(pidRoot, "fd")
+	entries, err := os.ReadDir(fdDir)
+	if err != nil {
+		return nil, false
 	}
-	slices.Sort(nsIDs)
 
-	for _, ns := range nsIDs {
-		pids := append([]int{}, nsGroups[ns]...)
-		sort.Ints(pids)
-
-		table, ok := p.scanNamespaceSocketTable(root, ns, pids)
+	var ports []int
+	for _, entry := range entries {
+		link, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		inode, ok := parseSocketInode(link)
 		if !ok {
 			continue
 		}
-		for inode, port := range table {
-			result[socketKey{ns: ns, inode: inode}] = port
+		if port, ok := table[inode]; ok {
+			ports = appendUniquePort(ports, port)
+		}
+	}
+	return ports, true
+}
+
+// scanNamespaces reads one listening-socket table (inode -> port) per
+// network namespace in nsGroups. Socket inodes are only unique within a
+// namespace, so tables are kept separate rather than merged. Namespaces
+// whose socket table cannot be read from any candidate PID are omitted; the
+// caller degrades to reporting no listeners for that namespace this cycle
+// rather than failing discovery for the other namespaces.
+func (p *ProcFSProvider) scanNamespaces(root string, nsGroups map[netNamespaceID][]int) map[netNamespaceID]map[string]int {
+	result := make(map[netNamespaceID]map[string]int, len(nsGroups))
+
+	for _, ns := range slices.Sorted(maps.Keys(nsGroups)) {
+		pids := slices.Sorted(slices.Values(nsGroups[ns]))
+		if table, ok := p.scanNamespaceSocketTable(root, ns, pids); ok {
+			result[ns] = table
 		}
 	}
 
