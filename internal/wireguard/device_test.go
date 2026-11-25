@@ -78,6 +78,45 @@ func devicePeers(t *testing.T, d *Device) map[string][]string {
 	return peers
 }
 
+func TestDeviceRemovePeer(t *testing.T) {
+	d := newTestDevice(t)
+	removed := newTestPublicKey(t)
+	kept := newTestPublicKey(t)
+
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: removed, AllowedIPs: []string{"100.64.0.2/32"}}))
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: kept, AllowedIPs: []string{"100.64.0.3/32"}}))
+
+	require.NoError(t, d.RemovePeer(removed))
+
+	require.Equal(t, map[string][]string{kept: {"100.64.0.3/32"}}, devicePeers(t, d))
+	_, ok := d.GetPeer(removed)
+	require.False(t, ok)
+
+	// Removing an absent peer is a no-op.
+	require.NoError(t, d.RemovePeer(removed))
+}
+
+func TestDeviceAddPeerRejectsNonBase64Key(t *testing.T) {
+	d := newTestDevice(t)
+
+	err := d.AddPeer(&PeerConfig{
+		PublicKey:  strings.Repeat("!", 44),
+		AllowedIPs: []string{"100.64.0.2/32"},
+	})
+
+	require.Error(t, err)
+	require.Empty(t, d.ListPeers())
+	require.Empty(t, devicePeers(t, d))
+}
+
+func TestDeviceAllowedIPInUse(t *testing.T) {
+	d := newTestDevice(t)
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: newTestPublicKey(t), AllowedIPs: []string{"100.64.0.2/32"}}))
+
+	require.True(t, d.allowedIPInUse("100.64.0.2/32"))
+	require.False(t, d.allowedIPInUse("100.64.0.3/32"))
+}
+
 // deviceKeepalive returns the persistent keepalive interval configured in
 // the wireguard-go device for the peer with the given public key.
 func deviceKeepalive(t *testing.T, d *Device, publicKey string) string {
