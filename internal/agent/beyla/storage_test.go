@@ -3,14 +3,16 @@ package beyla
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
-	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
 	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 func setupTestStorage(t *testing.T) (*BeylaStorage, func()) {
@@ -397,5 +399,119 @@ func TestTraceCleanup(t *testing.T) {
 	}
 	if len(recentSpans) != 1 {
 		t.Errorf("Recent trace should exist, found %d spans", len(recentSpans))
+	}
+}
+
+func TestStoreEventsBatchesBuckets(t *testing.T) {
+	storage, cleanup := setupTestStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	httpEvent := &ebpfpb.EbpfEvent{
+		Payload: &ebpfpb.EbpfEvent_BeylaHttp{BeylaHttp: &ebpfpb.BeylaHttpMetrics{
+			Timestamp:      timestamppb.New(now),
+			ServiceName:    "api",
+			HttpMethod:     "GET",
+			HttpRoute:      "/users",
+			HttpStatusCode: 200,
+			LatencyBuckets: []float64{10, 25, 50, 100},
+			LatencyCounts:  []uint64{3, 0, 2, 1}, // Empty bucket is skipped.
+			Attributes:     map[string]string{"k": "v"},
+		}},
+	}
+	grpcEvent := &ebpfpb.EbpfEvent{
+		Payload: &ebpfpb.EbpfEvent_BeylaGrpc{BeylaGrpc: &ebpfpb.BeylaGrpcMetrics{
+			Timestamp:      timestamppb.New(now),
+			ServiceName:    "api",
+			GrpcMethod:     "/pkg.Svc/Call",
+			LatencyBuckets: []float64{10, 25},
+			LatencyCounts:  []uint64{1, 1},
+		}},
+	}
+
+	if err := storage.StoreEvents(ctx, []*ebpfpb.EbpfEvent{httpEvent, grpcEvent}); err != nil {
+		t.Fatalf("StoreEvents() error: %v", err)
+	}
+
+	httpMetrics, _, err := storage.QueryHTTPMetricsBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryHTTPMetricsBySeqID() error: %v", err)
+	}
+	// Queries fold bucket rows back into one histogram per metric.
+	if len(httpMetrics) != 1 || len(httpMetrics[0].LatencyBuckets) != 3 {
+		t.Errorf("Expected 1 HTTP metric with 3 buckets, got %v", httpMetrics)
+	}
+	grpcMetrics, _, err := storage.QueryGRPCMetricsBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryGRPCMetricsBySeqID() error: %v", err)
+	}
+	if len(grpcMetrics) != 1 || len(grpcMetrics[0].LatencyBuckets) != 2 {
+		t.Errorf("Expected 1 gRPC metric with 2 buckets, got %v", grpcMetrics)
+	}
+
+	// A malformed event must not leave a partial write behind.
+	bad := &ebpfpb.EbpfEvent{}
+	if err := storage.StoreEvents(ctx, []*ebpfpb.EbpfEvent{httpEvent, bad}); err == nil {
+		t.Fatal("StoreEvents() expected error for unsupported event")
+	}
+	httpMetrics, _, _ = storage.QueryHTTPMetricsBySeqID(ctx, 0, 100, nil)
+	if len(httpMetrics) != 1 || len(httpMetrics[0].LatencyBuckets) != 3 {
+		t.Errorf("Expected unchanged HTTP metric after failed batch, got %v", httpMetrics)
+	}
+}
+
+func TestStoreOTLPSpanBuffering(t *testing.T) {
+	storage, cleanup := setupTestStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	store := func(i int) {
+		t.Helper()
+		err := storage.StoreOTLPSpan(ctx, "", "trace-buffered", fmt.Sprintf("span-%03d", i), "", "svc", "op", "SERVER",
+			time.Now(), 1000, 0, 42, map[string]string{"a": "b"})
+		if err != nil {
+			t.Fatalf("StoreOTLPSpan() error: %v", err)
+		}
+	}
+
+	// Spans below the size threshold are visible to trace queries (flush on read).
+	for i := 0; i < 3; i++ {
+		store(i)
+	}
+	spans, err := storage.QueryTraceByID(ctx, "trace-buffered")
+	if err != nil {
+		t.Fatalf("QueryTraceByID() error: %v", err)
+	}
+	if len(spans) != 3 {
+		t.Errorf("Expected 3 spans, got %d", len(spans))
+	}
+
+	// Reaching the size threshold flushes without a read.
+	for i := 3; i < 3+spanFlushSize; i++ {
+		store(i)
+	}
+	storage.spanMu.Lock()
+	buffered := len(storage.spanBuf)
+	storage.spanMu.Unlock()
+	if buffered != 0 {
+		t.Errorf("Expected empty buffer after size flush, got %d", buffered)
+	}
+
+	// The timer flushes a partial buffer.
+	store(9999)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		storage.spanMu.Lock()
+		buffered = len(storage.spanBuf)
+		storage.spanMu.Unlock()
+		if buffered == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timer did not flush buffered span")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
