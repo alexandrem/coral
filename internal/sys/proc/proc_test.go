@@ -8,9 +8,8 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
-	"sync"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +24,7 @@ func TestGetKernelVersion(t *testing.T) {
 }
 
 func TestListPids(t *testing.T) {
-	pids, err := ListPids()
+	pids, err := FS("").ListPids()
 	if err != nil {
 		// If /proc doesn't exist (macOS), it returns error.
 		if os.Getenv("GOOS") == "linux" {
@@ -108,121 +107,64 @@ func TestFindPidByExePattern_InvalidRegex(t *testing.T) {
 	}
 }
 
-func addTestDescriptor(t testing.TB, root string, pid, fd int, target string) string {
+// fakeProcess creates <root>/<pid> with a comm file and a network namespace
+// link, plus one fd symlink per socket inode it holds.
+func fakeProcess(t *testing.T, root string, pid int, ns string, inodes ...string) {
 	t.Helper()
-	dir := filepath.Join(root, strconv.Itoa(pid), "fd")
-	require.NoError(t, os.MkdirAll(dir, 0755))
-	path := filepath.Join(dir, strconv.Itoa(fd))
-	require.NoError(t, os.Symlink(target, path))
-	return path
-}
-
-func TestSocketOwnerCache_SharedSnapshot(t *testing.T) {
-	root := t.TempDir()
-	addTestDescriptor(t, root, 20, 3, "socket:[100]")
-	addTestDescriptor(t, root, 10, 4, "socket:[200]")
-	addTestDescriptor(t, root, 10, 5, "socket:[100]") // Shared socket: prefer lowest PID.
-	addTestDescriptor(t, root, 10, 6, "pipe:[300]")
-	addTestDescriptor(t, root, 10, 7, "/missing/file")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "10", "fd", "8"), nil, 0600))
-	require.NoError(t, os.Mkdir(filepath.Join(root, "30"), 0755)) // Process with no accessible fd directory.
-	require.NoError(t, os.Mkdir(filepath.Join(root, "self"), 0755))
-	now := time.Now()
-	cache := socketOwnerCache{procRoot: root, now: func() time.Time { return now }}
-	for _, inode := range []string{"100", "200"} {
-		pid, err := cache.lookup(inode)
-		require.NoError(t, err)
-		require.Equal(t, int32(10), pid)
-	}
-	pid, err := cache.lookup("300")
-	require.NoError(t, err)
-	require.Zero(t, pid, "pipes are not sockets")
-
-	// A new process is invisible within the snapshot, even on repeated misses.
-	// This verifies nearby lookups do not traverse procfs again.
-	addTestDescriptor(t, root, 40, 3, "socket:[400]")
-	for range 3 {
-		pid, err = cache.lookup("400")
-		require.NoError(t, err)
-		require.Zero(t, pid)
-	}
-	now = now.Add(time.Second)
-	pid, err = cache.lookup("400")
-	require.NoError(t, err)
-	require.Equal(t, int32(40), pid, "new sockets must be discovered when the snapshot expires")
-}
-
-func TestSocketOwnerCache_RejectsStaleOwners(t *testing.T) {
-	for _, change := range []string{"closed fd", "reused fd", "exited process"} {
-		t.Run(change, func(t *testing.T) {
-			root := t.TempDir()
-			fd := addTestDescriptor(t, root, 10, 3, "socket:[100]")
-			now := time.Now()
-			cache := socketOwnerCache{procRoot: root, now: func() time.Time { return now }}
-			pid, err := cache.lookup("100")
-			require.NoError(t, err)
-			require.Equal(t, int32(10), pid)
-
-			switch change {
-			case "closed fd":
-				require.NoError(t, os.Remove(fd))
-			case "reused fd":
-				require.NoError(t, os.Remove(fd))
-				addTestDescriptor(t, root, 10, 3, "socket:[200]")
-			case "exited process":
-				require.NoError(t, os.RemoveAll(filepath.Join(root, "10")))
-			}
-			pid, err = cache.lookup("100")
-			require.NoError(t, err)
-			require.Zero(t, pid, "never return stale ownership during the cache TTL")
-
-			// Reusing the inode in another process is picked up on refresh.
-			addTestDescriptor(t, root, 20, 3, "socket:[100]")
-			now = now.Add(time.Second)
-			pid, err = cache.lookup("100")
-			require.NoError(t, err)
-			require.Equal(t, int32(20), pid)
-		})
+	dir := filepath.Join(root, strconv.Itoa(pid))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fd"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ns"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "comm"), []byte("app\n"), 0o644))
+	require.NoError(t, os.Symlink(ns, filepath.Join(dir, "ns", "net")))
+	for i, inode := range inodes {
+		holdSocket(t, root, pid, 3+i, inode)
 	}
 }
 
-func TestSocketOwnerCache_ConcurrentLookups(t *testing.T) {
-	root := t.TempDir()
-	for pid := 1; pid <= 20; pid++ {
-		addTestDescriptor(t, root, pid, 3, fmt.Sprintf("socket:[%d]", pid))
-	}
-	cache := socketOwnerCache{procRoot: root, now: time.Now}
-	var wg sync.WaitGroup
-	for i := range 100 {
-		wg.Go(func() {
-			want := int32(i%20 + 1)
-			pid, err := cache.lookup(strconv.Itoa(int(want)))
-			if err != nil || pid != want {
-				t.Errorf("lookup returned (%d, %v), want (%d, nil)", pid, err, want)
-			}
-		})
-	}
-	wg.Wait()
+// holdSocket gives pid an fd symlink for the socket with the given inode.
+func holdSocket(t *testing.T, root string, pid, fd int, inode string) {
+	t.Helper()
+	path := filepath.Join(root, strconv.Itoa(pid), "fd", strconv.Itoa(fd))
+	require.NoError(t, os.Symlink("socket:["+inode+"]", path))
 }
 
-func TestSocketOwnerCache_RefreshError(t *testing.T) {
-	root := t.TempDir()
-	now := time.Now()
-	cache := socketOwnerCache{procRoot: filepath.Join(root, "proc"), now: func() time.Time { return now }}
-	_, err := cache.lookup("100")
-	require.Error(t, err)
-	addTestDescriptor(t, cache.procRoot, 10, 3, "socket:[100]")
-	pid, err := cache.lookup("100")
-	require.NoError(t, err, "a failed refresh must not cache the error")
-	require.Equal(t, int32(10), pid)
-	now = now.Add(time.Second)
-	require.NoError(t, os.Rename(cache.procRoot, filepath.Join(root, "gone")))
-	pid, err = cache.lookup("100")
-	require.Error(t, err)
-	require.Zero(t, pid, "a failed refresh must not serve an expired snapshot")
+// writeListeners writes pid's net/tcp table with one LISTEN entry per
+// inode -> port pair.
+func writeListeners(t *testing.T, root string, pid int, sockets map[string]int) {
+	t.Helper()
+	var sb strings.Builder
+	sb.WriteString("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n")
+	for inode, port := range sockets {
+		fmt.Fprintf(&sb, "   0: 00000000:%04X 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 %s 1 0000000000000000 100 0 0 10 0\n", port, inode)
+	}
+	path := filepath.Join(root, strconv.Itoa(pid), "net", "tcp")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(sb.String()), 0o644))
 }
 
-func TestFindPidByPort_ListeningSocket(t *testing.T) {
+const testNS = "net:[4026531993]"
+
+func TestLookupEnv(t *testing.T) {
+	environ := []byte("malformed\x00OTEL_SERVICE_NAME=a\x00SERVICE_NAME=b\x00EMPTY=\x00SERVICE_NAME=c\x00")
+	tests := []struct {
+		key       string
+		want      string
+		wantFound bool
+	}{
+		{"OTEL_SERVICE_NAME", "a", true},
+		{"SERVICE_NAME", "c", true}, // Last occurrence wins; not matched inside OTEL_SERVICE_NAME.
+		{"EMPTY", "", true},
+		{"MISSING", "", false},
+		{"malformed", "", false},
+	}
+	for _, tt := range tests {
+		got, found := LookupEnv(environ, tt.key)
+		require.Equal(t, tt.want, got, tt.key)
+		require.Equal(t, tt.wantFound, found, tt.key)
+	}
+}
+
+func TestScanListeners_LiveSocket(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("requires Linux procfs")
 	}
@@ -238,40 +180,76 @@ func TestFindPidByPort_ListeningSocket(t *testing.T) {
 			}
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = listener.Close() })
-			portSocketOwners.mu.Lock()
-			portSocketOwners.expiresAt = time.Time{}
-			portSocketOwners.mu.Unlock()
-			pid, err := FindPidByPort(listener.Addr().(*net.TCPAddr).Port)
+
+			listeners, err := FS("").ScanListeners()
 			require.NoError(t, err)
-			require.Equal(t, int32(os.Getpid()), pid)
+			require.Contains(t, listeners.Ports[os.Getpid()], listener.Addr().(*net.TCPAddr).Port)
 		})
 	}
 }
 
-func BenchmarkSocketOwnerCache(b *testing.B) {
-	root := b.TempDir()
-	for pid := 1; pid <= 100; pid++ {
-		for fd := 1; fd <= 20; fd++ {
-			addTestDescriptor(b, root, pid, fd, fmt.Sprintf("socket:[%d]", pid*100+fd))
+// TestListenerScanner verifies that a scan skips the descriptor walk of
+// processes that held no listener on the previous scan only while their
+// namespace's socket table is unchanged, and never trusts that for
+// processes that do listen or were not seen before.
+func TestListenerScanner(t *testing.T) {
+	// setup creates PID 100 listening on 8080 (inode 111) and an idle PID
+	// 200 in the same namespace, and runs a first, full scan.
+	setup := func(t *testing.T) (string, *ListenerScanner) {
+		t.Helper()
+		root := t.TempDir()
+		fakeProcess(t, root, 100, testNS, "111")
+		fakeProcess(t, root, 200, testNS)
+		writeListeners(t, root, 100, map[string]int{"111": 8080})
+		s := NewListenerScanner(FS(root))
+		require.Equal(t, map[int][]int{100: {8080}}, scanPorts(t, s))
+		return root, s
+	}
+
+	t.Run("idle process skipped until full scan", func(t *testing.T) {
+		root, s := setup(t)
+		// PID 200 receives the existing listener (e.g. via SCM_RIGHTS),
+		// leaving the socket table unchanged.
+		holdSocket(t, root, 200, 3, "111")
+
+		for scan := 2; scan <= listenerFullScanEvery; scan++ {
+			require.NotContains(t, scanPorts(t, s), 200, "scan %d", scan)
 		}
-	}
-	now := time.Now()
-	for _, cached := range []bool{false, true} {
-		b.Run(fmt.Sprintf("cached_%t", cached), func(b *testing.B) {
-			cache := socketOwnerCache{procRoot: root, now: func() time.Time { return now }}
-			_, err := cache.lookup("101")
-			require.NoError(b, err)
-			b.ResetTimer()
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				if !cached {
-					cache.expiresAt = time.Time{}
-				}
-				pid, err := cache.lookup(strconv.Itoa((i%100+1)*100 + 1))
-				if err != nil || pid == 0 {
-					b.Fatalf("lookup returned (%d, %v)", pid, err)
-				}
-			}
-		})
-	}
+		require.Equal(t, []int{8080}, scanPorts(t, s)[200])
+	})
+
+	t.Run("socket table change invalidates idle processes", func(t *testing.T) {
+		root, s := setup(t)
+		holdSocket(t, root, 200, 3, "222")
+		writeListeners(t, root, 100, map[string]int{"111": 8080, "222": 9090})
+		require.Equal(t, []int{9090}, scanPorts(t, s)[200])
+	})
+
+	t.Run("new process is walked", func(t *testing.T) {
+		root, s := setup(t)
+		// PID 300 is forked by PID 100 and inherits its listener.
+		fakeProcess(t, root, 300, testNS, "111")
+		require.Equal(t, []int{8080}, scanPorts(t, s)[300])
+	})
+
+	t.Run("listening process is re-verified", func(t *testing.T) {
+		root, s := setup(t)
+		// PID 200 picks up the listener, then a full scan sees it.
+		holdSocket(t, root, 200, 3, "111")
+		for range listenerFullScanEvery {
+			scanPorts(t, s)
+		}
+		// PID 100 closes its copy; PID 200 keeps the socket open, so the
+		// table is unchanged but PID 100 must no longer be reported.
+		require.NoError(t, os.Remove(filepath.Join(root, "100", "fd", "3")))
+		require.Equal(t, map[int][]int{200: {8080}}, scanPorts(t, s))
+	})
+}
+
+// scanPorts runs one scan and returns the ports reported per PID.
+func scanPorts(t *testing.T, s *ListenerScanner) map[int][]int {
+	t.Helper()
+	listeners, err := s.Scan()
+	require.NoError(t, err)
+	return listeners.Ports
 }

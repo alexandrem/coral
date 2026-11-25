@@ -1,173 +1,37 @@
-// Package proc provides utilities for process discovery on Linux systems.
-// It parses /proc filesystem to find process information based on network ports.
+// Package proc reads process, socket, and kernel information from the Linux
+// /proc filesystem.
 package proc
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
-// FindPidByPort finds the PID of the process listening on the given port.
-// This is a simplified implementation parsing /proc/net/tcp.
-func FindPidByPort(port int) (int32, error) {
-	// Check both IPv4 and IPv6
-	inode, err := findSocketInode(port, "/proc/net/tcp")
-	if err != nil || inode == "" {
-		inode, err = findSocketInode(port, "/proc/net/tcp6")
-	}
+// FS is a procfs mount, identified by its root directory. The zero value
+// reads the host's /proc; tests point an FS at a fake tree instead.
+type FS string
 
-	if err != nil {
-		return 0, err
+// root returns the directory fs reads from.
+func (fs FS) root() string {
+	if fs == "" {
+		return "/proc"
 	}
-	if inode == "" {
-		return 0, nil // Not found
-	}
-
-	return findPidByInode(inode)
+	return string(fs)
 }
 
-// findSocketInode parses /proc/net/tcp(6) to find the inode for a listening port.
-func findSocketInode(port int, procPath string) (string, error) {
-	//nolint:gosec // G304: Path is from /proc filesystem for system information.
-	f, err := os.Open(procPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	defer f.Close() // nolint:errcheck
-
-	scanner := bufio.NewScanner(f)
-	// Skip header
-	if scanner.Scan() {
-		_ = scanner.Text()
-	}
-
-	targetHexPort := fmt.Sprintf("%04X", port)
-
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) < 10 {
-			continue
-		}
-
-		// Field 1: local_address (IP:Port)
-		localAddr := fields[1]
-		parts := strings.Split(localAddr, ":")
-		if len(parts) != 2 {
-			continue
-		}
-
-		hexPort := parts[1]
-		if hexPort != targetHexPort {
-			continue
-		}
-
-		// Field 3: st (state). 0A is LISTEN.
-		state := fields[3]
-		if state != "0A" {
-			continue
-		}
-
-		// Field 9: inode
-		return fields[9], nil
-	}
-
-	return "", nil
-}
-
-// socketOwner keeps a descriptor path so cached ownership can be revalidated.
-type socketOwner struct {
-	pid    int32
-	fdPath string
-}
-
-// socketOwnerCache shares one procfs traversal across nearby port lookups.
-// Misses are cached too, so unowned sockets do not trigger repeated scans.
-// New sockets become visible after the one-second snapshot expires.
-type socketOwnerCache struct {
-	mu        sync.Mutex
-	procRoot  string
-	now       func() time.Time
-	expiresAt time.Time
-	owners    map[string]socketOwner
-}
-
-var portSocketOwners = socketOwnerCache{procRoot: "/proc", now: time.Now}
-
-// findPidByInode finds the socket owner using a shared, short-lived procfs snapshot.
-func findPidByInode(inode string) (int32, error) {
-	return portSocketOwners.lookup(inode)
-}
-
-func (c *socketOwnerCache) lookup(inode string) (int32, error) {
-	// Serialize refreshes so simultaneous service checks share the same scan.
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.owners == nil || !c.now().Before(c.expiresAt) {
-		owners, err := scanSocketOwners(c.procRoot)
-		if err != nil {
-			return 0, err
-		}
-		c.owners = owners
-		c.expiresAt = c.now().Add(time.Second)
-	}
-
-	owner, ok := c.owners[inode]
-	if !ok {
-		return 0, nil
-	}
-	// A process may exit or close/reuse its fd before the snapshot expires.
-	// One readlink verifies ownership without crawling any directories.
-	link, err := os.Readlink(owner.fdPath)
-	if err != nil || link != "socket:["+inode+"]" {
-		delete(c.owners, inode)
-		return 0, nil
-	}
-	return owner.pid, nil
-}
-
-// scanSocketOwners builds an inode-to-owner index in a single procfs traversal.
-func scanSocketOwners(procRoot string) (map[string]socketOwner, error) {
-	pids, err := listPids(procRoot)
-	if err != nil {
-		return nil, err
-	}
-	owners := make(map[string]socketOwner)
-	for _, pid := range pids {
-		fdDir := filepath.Join(procRoot, strconv.Itoa(pid), "fd")
-		fds, err := os.ReadDir(fdDir)
-		if err != nil {
-			continue // Process exited or permissions deny access.
-		}
-		for _, fd := range fds {
-			fdPath := filepath.Join(fdDir, fd.Name())
-			// Readlink directly: stat adds a syscall for every descriptor.
-			link, err := os.Readlink(fdPath)
-			if err != nil || !strings.HasPrefix(link, "socket:[") || !strings.HasSuffix(link, "]") {
-				continue
-			}
-			inode := link[len("socket:[") : len(link)-1]
-			if inode == "" {
-				continue
-			}
-			// Preserve the first (lowest PID) owner for shared sockets.
-			if _, exists := owners[inode]; !exists {
-				owners[inode] = socketOwner{pid: int32(pid), fdPath: fdPath}
-			}
-		}
-	}
-	return owners, nil
+// path joins elem onto the directory of pid.
+func (fs FS) path(pid int, elem ...string) string {
+	return filepath.Join(append([]string{fs.root(), strconv.Itoa(pid)}, elem...)...)
 }
 
 // FindPidByExePattern finds the PID of the first running process whose name
@@ -183,17 +47,18 @@ func FindPidByExePattern(pattern string) (int32, error) {
 		return 0, fmt.Errorf("invalid exe pattern %q: %w", pattern, err)
 	}
 
-	pids, err := ListPids()
+	var fs FS
+	pids, err := fs.ListPids()
 	if err != nil {
 		return 0, err
 	}
 
 	for _, pid := range pids {
-		if comm, ok := readComm(pid); ok && re.MatchString(comm) {
+		if comm, ok := fs.Comm(pid); ok && re.MatchString(comm) {
 			//nolint:gosec // G109: PID conversion is safe, sourced from ListPids.
 			return int32(pid), nil
 		}
-		if cmdline, ok := readCmdline(pid); ok && re.MatchString(cmdline) {
+		if cmdline, ok := fs.cmdline(pid); ok && re.MatchString(cmdline) {
 			//nolint:gosec // G109: PID conversion is safe, sourced from ListPids.
 			return int32(pid), nil
 		}
@@ -202,23 +67,23 @@ func FindPidByExePattern(pattern string) (int32, error) {
 	return 0, nil // Not found.
 }
 
-// readComm reads the process name from /proc/<pid>/comm. Returns false if
-// the process has exited or the file is unreadable.
-func readComm(pid int) (string, bool) {
-	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))
+// Comm reads the process name from /proc/<pid>/comm. The second return value
+// is false if the process has exited or the file is unreadable.
+func (fs FS) Comm(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from a procfs root and a numeric PID, not user input.
+	data, err := os.ReadFile(fs.path(pid, "comm"))
 	if err != nil {
 		return "", false
 	}
 	return strings.TrimSpace(string(data)), true
 }
 
-// readCmdline reads the full command line from /proc/<pid>/cmdline, joining
-// the NUL-separated arguments with spaces. Returns false if the process has
-// exited or the file is unreadable.
-func readCmdline(pid int) (string, bool) {
-	//nolint:gosec // G304: path is built from a fixed /proc root and a numeric PID, not user input.
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+// cmdline reads the full command line from /proc/<pid>/cmdline, joining the
+// NUL-separated arguments with spaces. The second return value is false if
+// the process has exited or the file is unreadable.
+func (fs FS) cmdline(pid int) (string, bool) {
+	//nolint:gosec // G304: path is built from a procfs root and a numeric PID, not user input.
+	data, err := os.ReadFile(fs.path(pid, "cmdline"))
 	if err != nil {
 		return "", false
 	}
@@ -286,16 +151,12 @@ func InNamespacePath(pid int, path string) string {
 	return path
 }
 
-// ListPids returns a list of all running process IDs from /proc.
-// Pids are sorted in ascending order.
-func ListPids() ([]int, error) {
-	return listPids("/proc")
-}
-
-func listPids(procRoot string) ([]int, error) {
-	entries, err := os.ReadDir(procRoot)
+// ListPids returns the ID of every running process, sorted in ascending
+// order.
+func (fs FS) ListPids() ([]int, error) {
+	entries, err := os.ReadDir(fs.root())
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", procRoot, err)
+		return nil, fmt.Errorf("failed to read %s: %w", fs.root(), err)
 	}
 
 	var pids []int
@@ -318,6 +179,355 @@ func listPids(procRoot string) ([]int, error) {
 	sort.Ints(pids)
 
 	return pids, nil
+}
+
+// Environ reads the initial environment of pid from /proc/<pid>/environ,
+// as NUL-separated KEY=value entries. Search it with LookupEnv.
+func (fs FS) Environ(pid int) ([]byte, error) {
+	//nolint:gosec // G304: path is built from a procfs root and a numeric PID, not user input.
+	return os.ReadFile(fs.path(pid, "environ"))
+}
+
+// LookupEnv returns the value of key in environ, as read by Environ. When
+// key appears more than once, the last occurrence wins. It scans environ in
+// place rather than building a map, since callers may run it for every
+// process on the host. Entries without '=' are skipped.
+func LookupEnv(environ []byte, key string) (string, bool) {
+	var value []byte
+	found := false
+	for entry := range bytes.SplitSeq(environ, []byte{0}) {
+		if len(entry) > len(key) && entry[len(key)] == '=' && string(entry[:len(key)]) == key {
+			value, found = entry[len(key)+1:], true
+		}
+	}
+	return string(value), found
+}
+
+// NetNamespace identifies a Linux network namespace by the target of a
+// /proc/<pid>/ns/net symlink (e.g. "net:[4026531993]"). Socket inode numbers
+// are only unique within a namespace, so any join across processes must key
+// on the namespace as well as the inode.
+type NetNamespace string
+
+// NetNamespace resolves the network namespace of pid. The error is non-nil
+// if the symlink cannot be read, e.g. the process exited or the caller lacks
+// permission.
+func (fs FS) NetNamespace(pid int) (NetNamespace, error) {
+	link, err := os.Readlink(fs.path(pid, "ns", "net"))
+	if err != nil {
+		return "", err
+	}
+	return NetNamespace(link), nil
+}
+
+// SelfNetNamespace resolves the network namespace of the calling process.
+func (fs FS) SelfNetNamespace() (NetNamespace, error) {
+	link, err := os.Readlink(filepath.Join(fs.root(), "self", "ns", "net"))
+	if err != nil {
+		return "", err
+	}
+	return NetNamespace(link), nil
+}
+
+// SocketTable maps the inode of each listening TCP socket in one network
+// namespace to its local port.
+type SocketTable map[string]int
+
+// ListeningSockets parses /proc/<pid>/net/tcp and /proc/<pid>/net/tcp6,
+// which describe the sockets of pid's network namespace, and returns the
+// entries in the LISTEN state. A missing table, e.g. tcp6 on a host without
+// IPv6, contributes no entries.
+func (fs FS) ListeningSockets(pid int) (SocketTable, error) {
+	result := make(SocketTable)
+	for _, name := range []string{"tcp", "tcp6"} {
+		entries, err := parseSocketTable(fs.path(pid, "net", name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		maps.Copy(result, entries)
+	}
+	return result, nil
+}
+
+// parseSocketTable parses a /proc/net/tcp[6]-formatted file, returning every
+// entry in the LISTEN (0A) state. Local addresses are formatted
+// "<hex IP>:<hex port>" for both IPv4 and IPv6, so the same hex-port parsing
+// applies to both tables.
+func parseSocketTable(path string) (SocketTable, error) {
+	//nolint:gosec // G304: path is a procfs location, not user input.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	result := make(SocketTable)
+	scanner := bufio.NewScanner(f)
+	scanner.Scan() // Skip header line.
+
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 10 {
+			continue
+		}
+
+		// Field 3 (st): 0A is LISTEN.
+		if fields[3] != "0A" {
+			continue
+		}
+
+		// Field 1 (local_address): "<hex IP>:<hex port>".
+		_, hexPort, ok := strings.Cut(fields[1], ":")
+		if !ok {
+			continue
+		}
+		port, err := strconv.ParseInt(hexPort, 16, 32)
+		if err != nil {
+			continue
+		}
+
+		// Field 9: inode.
+		result[fields[9]] = int(port)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// HeldPorts returns the ports of the sockets in table that pid holds a file
+// descriptor for. The second return value is false if its fd directory could
+// not be read, e.g. the process exited or the caller lacks permission.
+func (fs FS) HeldPorts(pid int, table SocketTable) ([]int, bool) {
+	fdDir := fs.path(pid, "fd")
+	entries, err := os.ReadDir(fdDir)
+	if err != nil {
+		return nil, false
+	}
+
+	var ports []int
+	for _, entry := range entries {
+		link, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		inode, ok := strings.CutPrefix(link, "socket:[")
+		if !ok {
+			continue
+		}
+		inode, ok = strings.CutSuffix(inode, "]")
+		if !ok {
+			continue
+		}
+		if port, ok := table[inode]; ok && !slices.Contains(ports, port) {
+			ports = append(ports, port)
+		}
+	}
+	return ports, true
+}
+
+// Listeners is the result of a listener scan.
+type Listeners struct {
+	// Ports lists, for each PID holding at least one listening socket, the
+	// local ports of those sockets.
+	Ports map[int][]int
+
+	// Namespaces maps every PID whose network namespace could be read to
+	// that namespace.
+	Namespaces map[int]NetNamespace
+
+	// PermissionDenied counts PIDs whose network namespace could not be read
+	// for lack of permission, as opposed to having exited. Their listeners
+	// are missing from Ports.
+	PermissionDenied int
+
+	// Unreadable maps each namespace whose socket table could not be read
+	// through any of its processes to the last error seen. Its listeners are
+	// missing from Ports.
+	Unreadable map[NetNamespace]error
+}
+
+// ScanListeners finds the processes holding listening TCP sockets in every
+// network namespace visible through fs, so containerized listeners are
+// found alongside host ones. It groups processes by namespace, reads one
+// socket table per namespace, and walks the file descriptors of every
+// process in a namespace that has at least one listener. ListenerScanner
+// avoids repeating that walk for idle processes.
+func (fs FS) ScanListeners() (Listeners, error) {
+	return fs.scanListeners(nil)
+}
+
+// listenerFullScanEvery is how many ListenerScanner scans may skip idle
+// processes before one walks every process's descriptors again. It bounds
+// how long a listening socket can go unnoticed when it reaches a process
+// considered idle without changing its namespace's socket table, e.g. via
+// SCM_RIGHTS fd passing.
+const listenerFullScanEvery = 10
+
+// ListenerScanner runs repeated listener scans, remembering which processes
+// held none of their namespace's listening sockets so a stable host does not
+// walk every descriptor of every process on each scan. A process is skipped
+// only while it stays idle in the same namespace and that namespace's socket
+// table is unchanged: a new listener always has a new inode, so any bind or
+// close forces a walk of the whole namespace. Processes that do hold a
+// listener, and processes not seen on the previous scan, are always walked,
+// so a skipped walk can never make a process appear to listen. Every
+// listenerFullScanEvery scans, every process is walked again.
+//
+// A ListenerScanner is safe for concurrent use; scans are serialized.
+type ListenerScanner struct {
+	fs FS
+
+	mu sync.Mutex
+	// tables is the previous scan's socket table per network namespace.
+	tables map[NetNamespace]SocketTable
+	// idle maps each PID found holding no listening socket on the previous
+	// scan to the namespace it was in.
+	idle map[int]NetNamespace
+	// scans counts the scans run so far.
+	scans int
+}
+
+// NewListenerScanner creates a ListenerScanner reading fs.
+func NewListenerScanner(fs FS) *ListenerScanner {
+	return &ListenerScanner{fs: fs}
+}
+
+// Scan is ScanListeners, skipping the descriptor walk of processes that are
+// still idle since the previous scan.
+func (s *ListenerScanner) Scan() (Listeners, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fs.scanListeners(s)
+}
+
+// advance starts a scan against the namespaces' current socket tables. It
+// returns the namespaces whose table is unchanged since the previous scan
+// and the previous scan's idle PIDs. Every listenerFullScanEvery scans it
+// reports no namespace as unchanged, forcing a full walk. A nil scanner
+// returns nil maps, so every process is walked.
+func (s *ListenerScanner) advance(tables map[NetNamespace]SocketTable) (map[NetNamespace]bool, map[int]NetNamespace) {
+	if s == nil {
+		return nil, nil
+	}
+	unchanged := make(map[NetNamespace]bool)
+	if s.scans%listenerFullScanEvery != 0 {
+		for ns, table := range tables {
+			if prev, ok := s.tables[ns]; ok && maps.Equal(prev, table) {
+				unchanged[ns] = true
+			}
+		}
+	}
+	s.scans++
+	s.tables = tables
+	return unchanged, s.idle
+}
+
+// setIdle records the PIDs found idle in the scan started by advance.
+func (s *ListenerScanner) setIdle(idle map[int]NetNamespace) {
+	if s != nil {
+		s.idle = idle
+	}
+}
+
+// scanListeners implements ScanListeners. A non-nil scanner skips the
+// processes it reports as still idle.
+func (fs FS) scanListeners(scanner *ListenerScanner) (Listeners, error) {
+	pids, err := fs.ListPids()
+	if err != nil {
+		return Listeners{}, err
+	}
+
+	result := Listeners{
+		Ports:      make(map[int][]int),
+		Namespaces: make(map[int]NetNamespace, len(pids)),
+	}
+	groups := make(map[NetNamespace][]int)
+	for _, pid := range pids {
+		ns, err := fs.NetNamespace(pid)
+		if err != nil {
+			if os.IsPermission(err) {
+				result.PermissionDenied++
+			}
+			continue
+		}
+		groups[ns] = append(groups[ns], pid)
+		result.Namespaces[pid] = ns
+	}
+
+	tables := make(map[NetNamespace]SocketTable, len(groups))
+	for ns, members := range groups {
+		table, err := fs.namespaceSocketTable(members)
+		if err != nil {
+			if result.Unreadable == nil {
+				result.Unreadable = make(map[NetNamespace]error)
+			}
+			result.Unreadable[ns] = err
+			continue
+		}
+		tables[ns] = table
+	}
+
+	unchanged, prevIdle := scanner.advance(tables)
+	idle := make(map[int]NetNamespace)
+	for _, pid := range pids {
+		ns, ok := result.Namespaces[pid]
+		if !ok {
+			continue
+		}
+		table := tables[ns]
+		if len(table) == 0 {
+			continue
+		}
+		if unchanged[ns] && prevIdle[pid] == ns {
+			idle[pid] = ns
+			continue
+		}
+
+		ports, ok := fs.HeldPorts(pid, table)
+		if !ok {
+			// Process exited or fd dir unreadable (permission denied);
+			// skip it rather than failing the whole scan.
+			continue
+		}
+		if len(ports) == 0 {
+			idle[pid] = ns
+			continue
+		}
+		result.Ports[pid] = ports
+	}
+	scanner.setIdle(idle)
+
+	return result, nil
+}
+
+// namespaceSocketTable reads the socket table of a network namespace by
+// trying each of its member PIDs, given in ascending order, as a
+// representative. It moves on to the next PID whenever the current one has
+// exited or its table cannot be read, so one racing or unreadable process
+// does not hide an entire namespace's listeners. It returns the last error
+// when no member could be read.
+func (fs FS) namespaceSocketTable(pids []int) (SocketTable, error) {
+	var lastErr error
+	for _, pid := range pids {
+		// ListeningSockets treats missing tables as empty, so check the
+		// process still exists before trusting an empty result.
+		if _, err := os.Stat(fs.path(pid)); err != nil {
+			lastErr = err
+			continue
+		}
+		table, err := fs.ListeningSockets(pid)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return table, nil
+	}
+	return nil, lastErr
 }
 
 // ListThreads returns the thread IDs (TIDs) for all threads in the given process.
