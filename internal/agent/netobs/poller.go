@@ -4,8 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net"
+	"net/netip"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -14,9 +18,15 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// poller collects active outbound TCP connections by running an OS-level
-// network statistics command and parsing its output.
-// On Linux it prefers `ss`; on all other platforms it falls back to `netstat`.
+// procNetTCPPaths lists the kernel socket tables read on Linux.
+var procNetTCPPaths = []string{"/proc/net/tcp", "/proc/net/tcp6"}
+
+// tcpEstablished is the /proc/net/tcp state code for TCP_ESTABLISHED.
+const tcpEstablished = "01"
+
+// poller collects active outbound TCP connections.
+// On Linux it reads the kernel socket tables in /proc/net directly; on other
+// platforms it falls back to parsing `netstat -an` output.
 // Transport-level metrics (RTT, retransmits) are not available on this path.
 type poller struct {
 	logger zerolog.Logger
@@ -27,33 +37,101 @@ func newPoller(logger zerolog.Logger) *poller {
 	return &poller{logger: logger}
 }
 
-// Poll runs the netstat or ss command and returns one ConnectionEntry per unique
-// established outbound TCP connection (local IP is a private address, remote IP
-// is any address on port > 0). The caller is responsible for filtering out
-// loopback connections if desired.
+// Poll returns one ConnectionEntry per unique established TCP connection to a
+// non-loopback remote endpoint.
 func (p *poller) Poll(ctx context.Context) ([]ConnectionEntry, error) {
-	entries, err := p.pollSS(ctx)
+	entries, err := pollProcNetTCP()
 	if err != nil {
-		// Fallback to netstat when ss is unavailable (non-Linux, older kernels).
-		p.logger.Debug().Err(err).Msg("ss unavailable, falling back to netstat")
+		// Fallback to netstat when procfs is unavailable (non-Linux).
+		p.logger.Debug().Err(err).Msg("procfs socket tables unavailable, falling back to netstat")
 		entries, err = p.pollNetstat(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("both ss and netstat failed: %w", err)
+			return nil, fmt.Errorf("both procfs and netstat failed: %w", err)
 		}
 	}
 	return entries, nil
 }
 
-// pollSS parses `ss -tnp` output for established TCP connections.
-// Example line (abbreviated):
-//
-//	ESTAB 0 0 10.0.0.1:50000 10.0.0.2:5432
-func (p *poller) pollSS(ctx context.Context) ([]ConnectionEntry, error) {
-	out, err := runCommand(ctx, "ss", "-tnp")
-	if err != nil {
-		return nil, err
+// pollProcNetTCP reads established TCP connections from /proc/net/tcp and
+// /proc/net/tcp6. It fails only when none of the tables can be read, so hosts
+// with IPv6 disabled still report IPv4 connections.
+func pollProcNetTCP() ([]ConnectionEntry, error) {
+	var (
+		entries []ConnectionEntry
+		readAny bool
+		lastErr error
+	)
+	for _, path := range procNetTCPPaths {
+		data, err := os.ReadFile(path) //nolint:gosec // G304: fixed /proc paths.
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		readAny = true
+		entries = append(entries, parseProcNetTCP(data)...)
 	}
-	return parseSS(out), nil
+	if !readAny {
+		return nil, lastErr
+	}
+	return deduplicateEntries(entries), nil
+}
+
+// parseProcNetTCP parses a /proc/net/tcp or /proc/net/tcp6 table and returns
+// established connections to non-loopback remote endpoints.
+// Format: sl local_address rem_address st ...
+// Addresses are "<hex IP>:<hex port>"; the IP is a sequence of 32-bit words
+// printed in host byte order, and the port is already in host byte order.
+func parseProcNetTCP(data []byte) []ConnectionEntry {
+	var entries []ConnectionEntry
+	now := time.Now()
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Scan() // Skip header line.
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 || fields[3] != tcpEstablished {
+			continue
+		}
+
+		remote, err := parseProcNetAddr(fields[2])
+		if err != nil || remote.Port() == 0 || remote.Addr().IsLoopback() {
+			continue
+		}
+
+		entries = append(entries, ConnectionEntry{
+			RemoteIP:      remote.Addr().String(),
+			RemotePort:    uint32(remote.Port()),
+			Protocol:      "tcp",
+			FirstObserved: now,
+			LastObserved:  now,
+		})
+	}
+
+	return entries
+}
+
+// parseProcNetAddr decodes a /proc/net/tcp[6] "<hex IP>:<hex port>" address.
+// IPv4-mapped IPv6 addresses are unmapped to plain IPv4.
+func parseProcNetAddr(s string) (netip.AddrPort, error) {
+	ipHex, portHex, ok := strings.Cut(s, ":")
+	if !ok {
+		return netip.AddrPort{}, fmt.Errorf("malformed address %q", s)
+	}
+	port, err := strconv.ParseUint(portHex, 16, 16)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("malformed port in %q: %w", s, err)
+	}
+	raw, err := hex.DecodeString(ipHex)
+	if err != nil || (len(raw) != 4 && len(raw) != 16) {
+		return netip.AddrPort{}, fmt.Errorf("malformed IP in %q", s)
+	}
+	// Each 32-bit word was printed as a host-order integer; restore the
+	// network byte order.
+	for i := 0; i < len(raw); i += 4 {
+		binary.NativeEndian.PutUint32(raw[i:], binary.BigEndian.Uint32(raw[i:]))
+	}
+	addr, _ := netip.AddrFromSlice(raw)
+	return netip.AddrPortFrom(addr.Unmap(), uint16(port)), nil
 }
 
 // pollNetstat parses `netstat -an` output for established TCP connections.
@@ -70,57 +148,12 @@ func (p *poller) pollNetstat(ctx context.Context) ([]ConnectionEntry, error) {
 
 // runCommand executes a command and returns its stdout.
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: callers use fixed ss and netstat commands.
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: callers use a fixed netstat command.
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("command %q failed: %w", name, err)
 	}
 	return out, nil
-}
-
-// parseSS parses ss -tnp output.
-// The first column (State) is "ESTAB" for established connections.
-// Only lines whose first field is exactly "ESTAB" are processed; all header
-// and non-established lines are silently skipped.
-// Format: State RecvQ SendQ Local:Port Remote:Port [Process]
-func parseSS(data []byte) []ConnectionEntry {
-	var entries []ConnectionEntry
-	now := time.Now()
-
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		// Minimum: Netid State RecvQ SendQ Local Remote = 6 fields.
-		if len(fields) < 6 {
-			continue
-		}
-		// ss -tnp format: Netid State RecvQ SendQ Local Peer [Process]
-		// fields[0] = Netid ("tcp"), fields[1] = State.
-		state := fields[1]
-		if state != "ESTAB" && state != "ESTABLISHED" {
-			continue
-		}
-
-		// fields[5] = remote addr:port
-		remoteIP, remotePort, err := splitAddrPort(fields[5])
-		if err != nil {
-			continue
-		}
-		if isLoopback(remoteIP) {
-			continue
-		}
-
-		entries = append(entries, ConnectionEntry{
-			RemoteIP:      remoteIP,
-			RemotePort:    remotePort,
-			Protocol:      "tcp",
-			FirstObserved: now,
-			LastObserved:  now,
-		})
-	}
-
-	return deduplicateEntries(entries)
 }
 
 // parseNetstat parses netstat -an output.

@@ -1,5 +1,5 @@
 // Package netobs provides L4 network connection observation for the Coral agent (RFD 033).
-// It observes outbound TCP connections via netstat/ss polling (all platforms) or eBPF
+// It observes outbound TCP connections via procfs/netstat polling (all platforms) or eBPF
 // tcp_v4_connect hooks (Linux), aggregates per-edge metrics, and streams batches to
 // the colony's ReportConnections RPC.
 package netobs

@@ -62,12 +62,14 @@ window does not imply that every returned edge was observed in the last hour.
 
 ## Network-observed edges
 
-The agent's `netobs` poller runs `ss -tnp`, falling back to `netstat -an` when
-needed, and parses established TCP connections. The manager filters and
-aggregates observations before reporting them. This is snapshot polling, not
-an installed Linux TCP-connect eBPF probe. Short-lived connections between polls
-can be missed, and the available metrics depend on what the command output
-actually supplies.
+On Linux, the agent's `netobs` poller reads established TCP connections
+directly from `/proc/net/tcp` and `/proc/net/tcp6` in its network namespace,
+without spawning a process. Other platforms fall back to parsing
+`netstat -an`. IPv4-mapped IPv6 peers are reported as IPv4, and loopback peers
+are dropped. The manager filters and aggregates observations before reporting
+them. This is snapshot polling, not an installed Linux TCP-connect eBPF probe.
+Short-lived connections between polls can be missed, and the socket tables
+supply no byte, RTT, or retransmit metrics.
 
 The aggregator deduplicates by destination IP, destination port, and protocol
 within a flush window. `Streamer` opens a `ReportConnections` client stream,
