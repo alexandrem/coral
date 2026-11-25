@@ -147,6 +147,9 @@ func (p *ContinuousMemoryProfiler) profileServiceLoop(service MemoryServiceInfo)
 	ticker := time.NewTicker(p.config.Interval)
 	defer ticker.Stop()
 
+	// The build ID is fixed for the loop's PID, so extract it only once.
+	var buildID string
+
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -165,7 +168,7 @@ func (p *ContinuousMemoryProfiler) profileServiceLoop(service MemoryServiceInfo)
 				return
 			}
 
-			if err := p.collectAndStore(service); err != nil {
+			if err := p.collectAndStore(service, &buildID); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("service_id", service.ServiceID).
@@ -176,7 +179,8 @@ func (p *ContinuousMemoryProfiler) profileServiceLoop(service MemoryServiceInfo)
 }
 
 // collectAndStore fetches a heap snapshot from the SDK and stores it.
-func (p *ContinuousMemoryProfiler) collectAndStore(service MemoryServiceInfo) error {
+// The buildID pointer caches the service's build ID across collections.
+func (p *ContinuousMemoryProfiler) collectAndStore(service MemoryServiceInfo, buildID *string) error {
 	startTime := time.Now()
 
 	result, err := debug.CollectHeapSnapshot(service.SDKAddr, p.logger)
@@ -194,14 +198,16 @@ func (p *ContinuousMemoryProfiler) collectAndStore(service MemoryServiceInfo) er
 		return nil
 	}
 
-	// Extract build ID from the binary.
-	buildID, err := ExtractBuildIDFromPID(service.PID) //nolint:staticcheck // SA4023: Related diagnostic for the platform-dependent error check below.
-	if err != nil {                                    //nolint:staticcheck // SA4023: Non-Linux stub always returns an error; Linux requires this check.
-		p.logger.Warn().
-			Err(err).
-			Str("service_id", service.ServiceID).
-			Msg("Failed to extract build ID, using fallback")
-		buildID = fmt.Sprintf("unknown_%d_%d", service.PID, time.Now().Unix())
+	if *buildID == "" {
+		id, err := ExtractBuildIDFromPID(service.PID) //nolint:staticcheck // SA4023: Related diagnostic for the platform-dependent error check below.
+		if err != nil {                               //nolint:staticcheck // SA4023: Non-Linux stub always returns an error; Linux requires this check.
+			p.logger.Warn().
+				Err(err).
+				Str("service_id", service.ServiceID).
+				Msg("Failed to extract build ID, using fallback")
+			id = fmt.Sprintf("unknown_%d_%d", service.PID, time.Now().Unix())
+		}
+		*buildID = id
 	}
 
 	// Convert and store samples.
@@ -219,7 +225,7 @@ func (p *ContinuousMemoryProfiler) collectAndStore(service MemoryServiceInfo) er
 		samples = append(samples, MemoryProfileSample{
 			Timestamp:     startTime,
 			ServiceID:     service.ServiceID,
-			BuildID:       buildID,
+			BuildID:       *buildID,
 			StackHash:     computeStackHash(frameIDs),
 			StackFrameIDs: frameIDs,
 			AllocBytes:    sample.AllocBytes,

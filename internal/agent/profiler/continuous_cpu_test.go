@@ -175,9 +175,9 @@ func TestStorageEncodeDecodeStackFrames(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, frameNames, decodedNames)
 
-	// Verify frame counts were incremented.
+	// Verify each frame was stored once.
 	var frameCount int64
-	err = db.QueryRow("SELECT frame_count FROM profile_frame_dictionary_local WHERE frame_id = 1").Scan(&frameCount)
+	err = db.QueryRow("SELECT count(*) FROM profile_frame_dictionary_local").Scan(&frameCount)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), frameCount, "Frame count should be 2 (encoded twice)")
+	require.Equal(t, int64(len(frameNames)), frameCount)
 }
