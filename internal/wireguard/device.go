@@ -174,7 +174,8 @@ func (d *Device) Stop() error {
 	return nil
 }
 
-// AddPeer adds or updates a WireGuard peer.
+// AddPeer adds or updates a WireGuard peer. Updating a peer replaces its
+// AllowedIPs and persistent keepalive interval.
 func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 	if err := ParsePeerConfig(peerConfig); err != nil {
 		return fmt.Errorf("invalid peer config: %w", err)
@@ -507,15 +508,15 @@ func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) string {
 		fmt.Fprintf(&uapiConfig, "endpoint=%s\n", peerConfig.Endpoint)
 	}
 
-	// Add allowed IPs
+	// Replace, rather than extend, the allowed IPs of an existing peer, so an
+	// updated peer does not keep routing its previous addresses.
+	uapiConfig.WriteString("replace_allowed_ips=true\n")
 	for _, allowedIP := range peerConfig.AllowedIPs {
 		fmt.Fprintf(&uapiConfig, "allowed_ip=%s\n", allowedIP)
 	}
 
-	// Add persistent keepalive
-	if peerConfig.PersistentKeepalive > 0 {
-		fmt.Fprintf(&uapiConfig, "persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive)
-	}
+	// Always set persistent keepalive; zero disables it on an existing peer.
+	fmt.Fprintf(&uapiConfig, "persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive)
 
 	return uapiConfig.String()
 }
