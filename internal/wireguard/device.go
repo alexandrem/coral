@@ -2,11 +2,13 @@ package wireguard
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -188,7 +190,10 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 	}
 
 	// Build UAPI configuration for the peer
-	uapiConfig := d.buildPeerUAPI(peerConfig)
+	uapiConfig, err := d.buildPeerUAPI(peerConfig)
+	if err != nil {
+		return fmt.Errorf("invalid peer config: %w", err)
+	}
 
 	d.logger.Info().Msg("calling ipcset")
 
@@ -233,22 +238,72 @@ func (d *Device) RemovePeer(publicKey string) error {
 		return fmt.Errorf("device not started")
 	}
 
-	if _, ok := d.peers[publicKey]; !ok {
+	peer, ok := d.peers[publicKey]
+	if !ok {
 		return nil
 	}
 
-	// Remove from peers map
-	delete(d.peers, publicKey)
+	pubKeyHex, err := publicKeyHex(publicKey)
+	if err != nil {
+		return fmt.Errorf("invalid public key: %w", err)
+	}
 
-	// Build UAPI configuration to remove peer
-	uapiConfig := fmt.Sprintf("public_key=%s\nremove=true\n", publicKey)
+	// Build UAPI configuration to remove peer.
+	uapiConfig := fmt.Sprintf("public_key=%s\nremove=true\n", pubKeyHex)
 
-	// Apply configuration
+	// Apply configuration before forgetting the peer, so a failure leaves the
+	// peers map consistent with the device.
 	if err := d.wgDevice.IpcSet(uapiConfig); err != nil {
 		return fmt.Errorf("failed to remove peer: %w", err)
 	}
+	delete(d.peers, publicKey)
+
+	d.deletePeerRoutes(publicKey, peer.AllowedIPs)
 
 	return nil
+}
+
+// deletePeerRoutes deletes the routes for a removed peer's AllowedIPs,
+// keeping any route still needed by a remaining peer (for example, the
+// same Agent re-registered under a new key). Callers must hold d.mu.
+func (d *Device) deletePeerRoutes(publicKey string, allowedIPs []string) {
+	if d.iface == nil {
+		return
+	}
+
+	for _, allowedIP := range allowedIPs {
+		if d.allowedIPInUse(allowedIP) {
+			continue
+		}
+
+		ip, _, err := net.ParseCIDR(allowedIP)
+		if err != nil {
+			ip = net.ParseIP(allowedIP)
+		}
+		if ip == nil {
+			continue
+		}
+
+		if err := d.iface.DeleteRoute(ip); err != nil {
+			// Log but don't fail - the peer is already gone.
+			d.logger.Debug().
+				Err(err).
+				Str("peer_pubkey", publicKey[:8]+"...").
+				Str("ip", ip.String()).
+				Msg("Error deleting route for removed peer")
+		}
+	}
+}
+
+// allowedIPInUse reports whether any configured peer has allowedIP in its
+// AllowedIPs. Callers must hold d.mu.
+func (d *Device) allowedIPInUse(allowedIP string) bool {
+	for _, peer := range d.peers {
+		if slices.Contains(peer.AllowedIPs, allowedIP) {
+			return true
+		}
+	}
+	return false
 }
 
 // TriggerHandshake initiates an immediate WireGuard handshake with the peer
@@ -489,16 +544,14 @@ func (d *Device) configure() error {
 }
 
 // buildPeerUAPI builds UAPI configuration string for a peer.
-func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) string {
+func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) (string, error) {
 	uapiConfig := strings.Builder{}
 
-	// Decode public key from base64 to hex
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(peerConfig.PublicKey)
+	// Convert public key from base64 to hex.
+	pubKeyHex, err := publicKeyHex(peerConfig.PublicKey)
 	if err != nil {
-		// Should not happen as we validated in ParsePeerConfig
-		return ""
+		return "", fmt.Errorf("invalid public key: %w", err)
 	}
-	pubKeyHex := fmt.Sprintf("%x", pubKeyBytes)
 
 	fmt.Fprintf(&uapiConfig, "public_key=%s\n", pubKeyHex)
 
@@ -517,7 +570,20 @@ func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) string {
 		fmt.Fprintf(&uapiConfig, "persistent_keepalive_interval=%d\n", peerConfig.PersistentKeepalive)
 	}
 
-	return uapiConfig.String()
+	return uapiConfig.String(), nil
+}
+
+// publicKeyHex converts a base64-encoded WireGuard public key to the hex
+// encoding expected by the UAPI.
+func publicKeyHex(publicKey string) (string, error) {
+	keyBytes, err := base64.StdEncoding.DecodeString(publicKey)
+	if err != nil {
+		return "", err
+	}
+	if len(keyBytes) != 32 {
+		return "", fmt.Errorf("expected 32 bytes, got %d", len(keyBytes))
+	}
+	return hex.EncodeToString(keyBytes), nil
 }
 
 // isPermissionError checks if an error is related to insufficient privileges.
