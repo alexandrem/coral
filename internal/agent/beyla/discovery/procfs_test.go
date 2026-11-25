@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 // defaultTestNamespace is the network namespace used by addFakeProcess,
@@ -97,7 +99,7 @@ func writeHostSocketTable(t *testing.T, root string, pid int, tcp6 bool, rows []
 }
 
 func newTestProvider(root string) *ProcFSProvider {
-	return &ProcFSProvider{procRoot: root, logger: zerolog.Nop()}
+	return newProcFSProvider(proc.FS(root), zerolog.Nop())
 }
 
 func TestProcFSProviderServerProcess(t *testing.T) {
@@ -419,7 +421,7 @@ func TestProcFSProviderUnreadableNamespaceDoesNotFailOthers(t *testing.T) {
 		t.Fatalf("failed to create ns/net symlink: %v", err)
 	}
 	writeProcFile(t, root, "1000/comm", "broken\n")
-	// No net/tcp or net/tcp6 file for PID 1000: scanListeningSockets will
+	// No net/tcp or net/tcp6 file for PID 1000: ListeningSockets will
 	// simply find nothing, so this namespace legitimately has no listeners
 	// rather than being "unreadable" in the strict sense; still exercises
 	// the code path of a namespace producing zero candidates.
@@ -773,102 +775,4 @@ func TestListensOn(t *testing.T) {
 			t.Errorf("ListensOn(%d, %d) = %v, want %v", tt.pid, tt.port, got, tt.want)
 		}
 	}
-}
-
-// discoverPorts runs one Discover cycle and returns the ports reported per
-// PID.
-func discoverPorts(t *testing.T, p *ProcFSProvider) map[int][]int {
-	t.Helper()
-	candidates, err := p.Discover(context.Background())
-	if err != nil {
-		t.Fatalf("Discover() error = %v", err)
-	}
-	ports := make(map[int][]int, len(candidates))
-	for _, c := range candidates {
-		ports[c.PID] = c.Ports
-	}
-	return ports
-}
-
-// TestProcFSProviderFDCache verifies that Discover skips the descriptor walk
-// of processes that held no listener on the previous cycle only while their
-// namespace's socket table is unchanged, and never trusts the cache for
-// processes that do listen or were not seen before.
-func TestProcFSProviderFDCache(t *testing.T) {
-	// setup creates PID 100 listening on 8080 (inode 111) and an idle PID
-	// 200 in the same namespace, and runs a first, full cycle.
-	setup := func(t *testing.T) (string, *ProcFSProvider) {
-		t.Helper()
-		root := t.TempDir()
-		addFakeProcess(t, root, 100, "web")
-		addFakeSocket(t, root, 100, 3, "111")
-		addFakeProcess(t, root, 200, "worker")
-		writeHostSocketTable(t, root, 100, false, [][3]string{
-			{"00000000:1F90", "0A", "111"},
-		})
-		p := newTestProvider(root)
-		if got := discoverPorts(t, p); len(got) != 1 || len(got[100]) != 1 {
-			t.Fatalf("first cycle = %v, want only PID 100 on 8080", got)
-		}
-		return root, p
-	}
-
-	t.Run("idle process skipped until full rescan", func(t *testing.T) {
-		root, p := setup(t)
-		// PID 200 receives the existing listener (e.g. via SCM_RIGHTS),
-		// leaving the socket table unchanged.
-		addFakeSocket(t, root, 200, 3, "111")
-
-		for cycle := 2; cycle <= fullFDScanEvery; cycle++ {
-			if got := discoverPorts(t, p); got[200] != nil {
-				t.Fatalf("cycle %d reported cached-idle PID 200: %v", cycle, got)
-			}
-		}
-		if got := discoverPorts(t, p); len(got[200]) != 1 || got[200][0] != 8080 {
-			t.Errorf("full rescan = %v, want PID 200 on 8080", got)
-		}
-	})
-
-	t.Run("socket table change invalidates idle processes", func(t *testing.T) {
-		root, p := setup(t)
-		addFakeSocket(t, root, 200, 3, "222")
-		writeHostSocketTable(t, root, 100, false, [][3]string{
-			{"00000000:1F90", "0A", "111"},
-			{"00000000:2382", "0A", "222"},
-		})
-		if got := discoverPorts(t, p); len(got[200]) != 1 || got[200][0] != 9090 {
-			t.Errorf("Discover() = %v, want PID 200 on 9090", got)
-		}
-	})
-
-	t.Run("new process is walked", func(t *testing.T) {
-		root, p := setup(t)
-		// PID 300 is forked by PID 100 and inherits its listener.
-		addFakeProcess(t, root, 300, "web")
-		addFakeSocket(t, root, 300, 3, "111")
-		if got := discoverPorts(t, p); len(got[300]) != 1 || got[300][0] != 8080 {
-			t.Errorf("Discover() = %v, want PID 300 on 8080", got)
-		}
-	})
-
-	t.Run("listening process is re-verified", func(t *testing.T) {
-		root, p := setup(t)
-		// PID 200 picks up the listener, then a full cycle sees it.
-		addFakeSocket(t, root, 200, 3, "111")
-		for range fullFDScanEvery {
-			discoverPorts(t, p)
-		}
-		// PID 100 closes its copy; PID 200 keeps the socket open, so the
-		// table is unchanged but PID 100 must no longer be reported.
-		if err := os.Remove(filepath.Join(root, "100", "fd", "3")); err != nil {
-			t.Fatalf("failed to remove fd: %v", err)
-		}
-		got := discoverPorts(t, p)
-		if got[100] != nil {
-			t.Errorf("Discover() reported PID 100 after it closed its listener: %v", got)
-		}
-		if len(got[200]) != 1 {
-			t.Errorf("Discover() = %v, want PID 200 still on 8080", got)
-		}
-	})
 }

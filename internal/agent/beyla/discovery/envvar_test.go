@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 // writeEnviron writes a null-delimited /proc/<pid>/environ file from a list
@@ -23,7 +25,7 @@ func TestEnvVarProviderPresent(t *testing.T) {
 	root := t.TempDir()
 	writeEnviron(t, root, 100, "PATH=/usr/bin", "OTEL_SERVICE_NAME=otel-app", "HOME=/root")
 
-	p := &EnvVarProvider{procRoot: root}
+	p := &EnvVarProvider{fs: proc.FS(root)}
 	candidates, err := p.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
@@ -42,7 +44,7 @@ func TestEnvVarProviderFallsBackToServiceName(t *testing.T) {
 	root := t.TempDir()
 	writeEnviron(t, root, 100, "PATH=/usr/bin", "SERVICE_NAME=legacy-worker")
 
-	p := &EnvVarProvider{procRoot: root}
+	p := &EnvVarProvider{fs: proc.FS(root)}
 	candidates, err := p.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
@@ -58,7 +60,7 @@ func TestEnvVarProviderPrefersOtelOverServiceName(t *testing.T) {
 	root := t.TempDir()
 	writeEnviron(t, root, 100, "SERVICE_NAME=legacy-worker", "OTEL_SERVICE_NAME=otel-app")
 
-	p := &EnvVarProvider{procRoot: root}
+	p := &EnvVarProvider{fs: proc.FS(root)}
 	candidates, err := p.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
@@ -74,7 +76,7 @@ func TestEnvVarProviderAbsent(t *testing.T) {
 	root := t.TempDir()
 	writeEnviron(t, root, 100, "PATH=/usr/bin", "HOME=/root")
 
-	p := &EnvVarProvider{procRoot: root}
+	p := &EnvVarProvider{fs: proc.FS(root)}
 	candidates, err := p.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
@@ -101,7 +103,7 @@ func TestEnvVarProviderMalformedEnviron(t *testing.T) {
 		t.Fatalf("failed to write environ: %v", err)
 	}
 
-	p := &EnvVarProvider{procRoot: root}
+	p := &EnvVarProvider{fs: proc.FS(root)}
 	candidates, err := p.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover() error = %v, want graceful skip of malformed entry", err)
@@ -126,7 +128,7 @@ func TestEnvVarProviderProcessDisappearsBetweenScanAndRead(t *testing.T) {
 	// A healthy process should still be reported.
 	writeEnviron(t, root, 100, "OTEL_SERVICE_NAME=otel-app")
 
-	p := &EnvVarProvider{procRoot: root}
+	p := &EnvVarProvider{fs: proc.FS(root)}
 	candidates, err := p.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover() error = %v, want graceful skip of exited process", err)

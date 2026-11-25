@@ -46,20 +46,38 @@ a representative PID in ascending order, trying another member when that PID
 has exited or its table cannot be read. Failure in one namespace does not
 abort discovery of the others.
 
-The provider joins socket tables to per-process file descriptors using
-`socketKey{ns, inode}`. For example, two namespace tables can contain the same
-inode value; including the namespace prevents the discovery join from
-attributing one table's listening port to a process in the other. Namespace and
-PID ordering is deterministic so map iteration alone does not trigger a changed
-candidate set and an unnecessary Beyla restart.
+The scan then joins each namespace's table to the file descriptors of the
+processes in that namespace. A descriptor that links to `socket:[<inode>]`
+matches only an inode in its own namespace's table, never another's. For
+example, two namespace tables can contain the same inode value; keeping the
+tables separate prevents the join from attributing one table's listening port
+to a process in the other. Processes in a namespace with no listeners are not
+walked at all. Namespace and PID ordering is deterministic so map iteration
+alone does not trigger a changed candidate set and an unnecessary Beyla
+restart.
+
+Walking every descriptor of every process is the expensive part of a cycle, so
+the provider's scanner remembers which processes held none of their
+namespace's listening sockets. On the next cycle it skips such a process if
+the process is still in the same namespace and that namespace's socket table
+is unchanged. Any new or closed listener has a different inode and so changes
+the table, which makes the scanner walk the whole namespace again. Processes
+that do hold a listener, and processes not seen on the previous cycle, are
+always walked, so the cache cannot make a process appear to listen. It can
+miss one case: an existing idle process that receives an existing listener,
+for example through descriptor passing, without the table changing. Every
+tenth cycle walks every process to bound that gap. Port ownership lookups for
+`coral connect` do not use the cache.
 
 Unreadable namespace links produce an aggregated capability warning per cycle.
 This path requires visibility into the relevant `/proc` entries, but does not
 require a Docker socket. It discovers containerized listeners; it does not
 supply Compose service names or Kubernetes labels.
 
-Implementation and fixtures: [ProcFS provider](../../internal/agent/beyla/discovery/procfs.go)
-and [namespace discovery tests](../../internal/agent/beyla/discovery/procfs_test.go).
+Implementation and fixtures: [socket and namespace scanning](../../internal/sys/proc/proc.go)
+(`FS.ScanListeners`, `ListenerScanner`),
+[ProcFS provider](../../internal/agent/beyla/discovery/procfs.go), and
+[namespace discovery tests](../../internal/agent/beyla/discovery/procfs_test.go).
 
 ## Turning candidates into instrumentation
 
