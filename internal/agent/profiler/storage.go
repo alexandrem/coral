@@ -105,8 +105,7 @@ func (s *Storage) initSchema() error {
 		-- Frame dictionary for compression (shared across all profiles).
 		CREATE TABLE IF NOT EXISTS profile_frame_dictionary_local (
 			frame_id    INTEGER PRIMARY KEY,
-			frame_name  TEXT UNIQUE NOT NULL,
-			frame_count BIGINT NOT NULL DEFAULT 0
+			frame_name  TEXT UNIQUE NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_profile_frame_dictionary_name
 			ON profile_frame_dictionary_local (frame_name);
@@ -218,63 +217,32 @@ func (s *Storage) loadFrameDictionary() error {
 	return nil
 }
 
-// StoreSample stores a single profile sample with integer-encoded stacks.
-func (s *Storage) StoreSample(ctx context.Context, sample ProfileSample) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// sampleBatchSize bounds the number of rows bound into a single batched
+// statement, keeping the SQL text and argument count reasonable.
+const sampleBatchSize = 500
 
-	// Use UPDATE-then-INSERT to avoid consuming sequence values on conflicts.
-	// ON CONFLICT DO UPDATE calls nextval() even when the row already exists,
-	// creating phantom sequence gaps that trigger false warnings on the colony.
-	updateQuery := `
-		UPDATE cpu_profile_samples_local
-		SET sample_count = sample_count + ?
-		WHERE timestamp = ? AND service_id = ? AND build_id = ? AND tgid = ? AND stack_hash = ?
-	`
-	result, err := s.db.ExecContext(ctx, updateQuery,
-		sample.SampleCount,
-		sample.Timestamp,
-		sample.ServiceID,
-		sample.BuildID,
-		sample.TGID,
-		sample.StackHash,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update sample: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		// No existing row — insert a new one (this is the only path that consumes a seq_id).
-		frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
-
-		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-		insertQuery := `
-			INSERT INTO cpu_profile_samples_local (
-				timestamp, service_id, build_id, tgid, stack_hash, stack_frame_ids, sample_count
-			) VALUES (?, ?, ?, ?, ?, ` + frameIDsStr + `, ?)
-		`
-		_, err = s.db.ExecContext(ctx, insertQuery,
-			sample.Timestamp,
-			sample.ServiceID,
-			sample.BuildID,
-			sample.TGID,
-			sample.StackHash,
-			sample.SampleCount,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert sample: %w", err)
-		}
-	}
-
-	return nil
+// cpuSampleKey identifies a CPU profile sample row (the table's primary key).
+type cpuSampleKey struct {
+	timestamp time.Time
+	serviceID string
+	buildID   string
+	tgid      uint32
+	stackHash string
 }
 
 // StoreSamples stores multiple profile samples in a single transaction.
+//
+// Samples sharing a primary key are summed, both within the batch and with
+// rows already stored. Each batch is written with one UPDATE for existing rows
+// and one INSERT for new rows, rather than a statement pair per sample. Only
+// new rows consume a seq_id, which keeps the sequence free of gaps that the
+// colony would report as data loss.
 func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) error {
 	if len(samples) == 0 {
 		return nil
 	}
+
+	samples = mergeCPUSamples(samples)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -285,36 +253,16 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, sample := range samples {
-		// Use UPDATE-then-INSERT to avoid consuming sequence values on conflicts.
-		updateQuery := `
-			UPDATE cpu_profile_samples_local
-			SET sample_count = sample_count + ?
-			WHERE timestamp = ? AND service_id = ? AND build_id = ? AND tgid = ? AND stack_hash = ?
-		`
-		result, err := tx.ExecContext(ctx, updateQuery,
-			sample.SampleCount,
-			sample.Timestamp,
-			sample.ServiceID,
-			sample.BuildID,
-			sample.TGID,
-			sample.StackHash,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update sample: %w", err)
-		}
+	for start := 0; start < len(samples); start += sampleBatchSize {
+		batch := samples[start:min(start+sampleBatchSize, len(samples))]
 
-		rowsAffected, _ := result.RowsAffected()
-		if rowsAffected == 0 {
-			frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
-
-			// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-			insertQuery := `
-				INSERT INTO cpu_profile_samples_local (
-					timestamp, service_id, build_id, tgid, stack_hash, stack_frame_ids, sample_count
-				) VALUES (?, ?, ?, ?, ?, ` + frameIDsStr + `, ?)
-			`
-			_, err = tx.ExecContext(ctx, insertQuery,
+		rows := make([]string, len(batch))
+		args := make([]any, 0, len(batch)*6)
+		for i, sample := range batch {
+			// #nosec G202 - the array literal is formatted integers, not user input.
+			rows[i] = "(?::TIMESTAMP, ?::TEXT, ?::TEXT, ?::INTEGER, ?::TEXT, " +
+				duckdb.Int64ArrayToString(sample.StackFrameIDs) + "::INTEGER[], ?::INTEGER)"
+			args = append(args,
 				sample.Timestamp,
 				sample.ServiceID,
 				sample.BuildID,
@@ -322,9 +270,34 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 				sample.StackHash,
 				sample.SampleCount,
 			)
-			if err != nil {
-				return fmt.Errorf("failed to insert sample: %w", err)
-			}
+		}
+		values := "(VALUES " + strings.Join(rows, ", ") + `) AS b(
+			timestamp, service_id, build_id, tgid, stack_hash, stack_frame_ids, sample_count
+		)`
+		match := `t.timestamp = b.timestamp AND t.service_id = b.service_id
+			AND t.build_id = b.build_id AND t.tgid = b.tgid AND t.stack_hash = b.stack_hash`
+
+		// Update existing rows first so the INSERT below only sees new keys.
+		// #nosec G202 - values and match are built from constants and placeholders.
+		updateQuery := `
+			UPDATE cpu_profile_samples_local AS t
+			SET sample_count = t.sample_count + b.sample_count
+			FROM ` + values + `
+			WHERE ` + match
+		if _, err := tx.ExecContext(ctx, updateQuery, args...); err != nil {
+			return fmt.Errorf("failed to update samples: %w", err)
+		}
+
+		// #nosec G202 - values and match are built from constants and placeholders.
+		insertQuery := `
+			INSERT INTO cpu_profile_samples_local (
+				timestamp, service_id, build_id, tgid, stack_hash, stack_frame_ids, sample_count
+			)
+			SELECT b.timestamp, b.service_id, b.build_id, b.tgid, b.stack_hash, b.stack_frame_ids, b.sample_count
+			FROM ` + values + `
+			WHERE NOT EXISTS (SELECT 1 FROM cpu_profile_samples_local AS t WHERE ` + match + `)`
+		if _, err := tx.ExecContext(ctx, insertQuery, args...); err != nil {
+			return fmt.Errorf("failed to insert samples: %w", err)
 		}
 	}
 
@@ -333,6 +306,24 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 	}
 
 	return nil
+}
+
+// mergeCPUSamples sums the counts of samples sharing a primary key, preserving
+// the order of first occurrence. Distinct kernel stacks can symbolize to the
+// same frames, so a single drain may produce duplicate keys.
+func mergeCPUSamples(samples []ProfileSample) []ProfileSample {
+	index := make(map[cpuSampleKey]int, len(samples))
+	merged := make([]ProfileSample, 0, len(samples))
+	for _, sample := range samples {
+		key := cpuSampleKey{sample.Timestamp, sample.ServiceID, sample.BuildID, sample.TGID, sample.StackHash}
+		if i, ok := index[key]; ok {
+			merged[i].SampleCount += sample.SampleCount
+			continue
+		}
+		index[key] = len(merged)
+		merged = append(merged, sample)
+	}
+	return merged
 }
 
 // UpsertBinaryMetadata updates or creates binary metadata entry.
@@ -487,11 +478,24 @@ func (s *Storage) DecodeStackFrames(ctx context.Context, frameIDs []int64) ([]st
 	return frameNames, nil
 }
 
+// memorySampleKey identifies a memory profile sample row (the table's primary key).
+type memorySampleKey struct {
+	timestamp time.Time
+	serviceID string
+	buildID   string
+	stackHash string
+}
+
 // StoreMemorySamples stores multiple memory profile samples in a single transaction (RFD 077).
+//
+// It batches writes the same way as StoreSamples: samples sharing a primary
+// key are summed, and only new rows consume a seq_id.
 func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfileSample) error {
 	if len(samples) == 0 {
 		return nil
 	}
+
+	samples = mergeMemorySamples(samples)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -502,37 +506,16 @@ func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfil
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, sample := range samples {
-		// Use UPDATE-then-INSERT to avoid consuming sequence values on conflicts.
-		updateQuery := `
-			UPDATE memory_profile_samples_local
-			SET alloc_bytes = alloc_bytes + ?,
-				alloc_objects = alloc_objects + ?
-			WHERE timestamp = ? AND service_id = ? AND build_id = ? AND stack_hash = ?
-		`
-		result, err := tx.ExecContext(ctx, updateQuery,
-			sample.AllocBytes,
-			sample.AllocObjects,
-			sample.Timestamp,
-			sample.ServiceID,
-			sample.BuildID,
-			sample.StackHash,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update memory sample: %w", err)
-		}
+	for start := 0; start < len(samples); start += sampleBatchSize {
+		batch := samples[start:min(start+sampleBatchSize, len(samples))]
 
-		rowsAffected, _ := result.RowsAffected()
-		if rowsAffected == 0 {
-			frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
-
-			// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-			insertQuery := `
-				INSERT INTO memory_profile_samples_local (
-					timestamp, service_id, build_id, stack_hash, stack_frame_ids, alloc_bytes, alloc_objects
-				) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?, ?)
-			`
-			_, err = tx.ExecContext(ctx, insertQuery,
+		rows := make([]string, len(batch))
+		args := make([]any, 0, len(batch)*6)
+		for i, sample := range batch {
+			// #nosec G202 - the array literal is formatted integers, not user input.
+			rows[i] = "(?::TIMESTAMP, ?::TEXT, ?::TEXT, ?::TEXT, " +
+				duckdb.Int64ArrayToString(sample.StackFrameIDs) + "::INTEGER[], ?::BIGINT, ?::BIGINT)"
+			args = append(args,
 				sample.Timestamp,
 				sample.ServiceID,
 				sample.BuildID,
@@ -540,9 +523,35 @@ func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfil
 				sample.AllocBytes,
 				sample.AllocObjects,
 			)
-			if err != nil {
-				return fmt.Errorf("failed to insert memory sample: %w", err)
-			}
+		}
+		values := "(VALUES " + strings.Join(rows, ", ") + `) AS b(
+			timestamp, service_id, build_id, stack_hash, stack_frame_ids, alloc_bytes, alloc_objects
+		)`
+		match := `t.timestamp = b.timestamp AND t.service_id = b.service_id
+			AND t.build_id = b.build_id AND t.stack_hash = b.stack_hash`
+
+		// Update existing rows first so the INSERT below only sees new keys.
+		// #nosec G202 - values and match are built from constants and placeholders.
+		updateQuery := `
+			UPDATE memory_profile_samples_local AS t
+			SET alloc_bytes = t.alloc_bytes + b.alloc_bytes,
+				alloc_objects = t.alloc_objects + b.alloc_objects
+			FROM ` + values + `
+			WHERE ` + match
+		if _, err := tx.ExecContext(ctx, updateQuery, args...); err != nil {
+			return fmt.Errorf("failed to update memory samples: %w", err)
+		}
+
+		// #nosec G202 - values and match are built from constants and placeholders.
+		insertQuery := `
+			INSERT INTO memory_profile_samples_local (
+				timestamp, service_id, build_id, stack_hash, stack_frame_ids, alloc_bytes, alloc_objects
+			)
+			SELECT b.timestamp, b.service_id, b.build_id, b.stack_hash, b.stack_frame_ids, b.alloc_bytes, b.alloc_objects
+			FROM ` + values + `
+			WHERE NOT EXISTS (SELECT 1 FROM memory_profile_samples_local AS t WHERE ` + match + `)`
+		if _, err := tx.ExecContext(ctx, insertQuery, args...); err != nil {
+			return fmt.Errorf("failed to insert memory samples: %w", err)
 		}
 	}
 
@@ -551,6 +560,24 @@ func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfil
 	}
 
 	return nil
+}
+
+// mergeMemorySamples sums the allocations of samples sharing a primary key,
+// preserving the order of first occurrence.
+func mergeMemorySamples(samples []MemoryProfileSample) []MemoryProfileSample {
+	index := make(map[memorySampleKey]int, len(samples))
+	merged := make([]MemoryProfileSample, 0, len(samples))
+	for _, sample := range samples {
+		key := memorySampleKey{sample.Timestamp, sample.ServiceID, sample.BuildID, sample.StackHash}
+		if i, ok := index[key]; ok {
+			merged[i].AllocBytes += sample.AllocBytes
+			merged[i].AllocObjects += sample.AllocObjects
+			continue
+		}
+		index[key] = len(merged)
+		merged = append(merged, sample)
+	}
+	return merged
 }
 
 // QueryMemorySamplesBySeqID queries memory profile samples with seq_id > startSeqID (RFD 089).
@@ -730,6 +757,10 @@ func (s *Storage) RunCleanupLoop(ctx context.Context, sampleRetention, metadataR
 }
 
 // encodeStackFrames converts frame names to integer-encoded frame IDs.
+//
+// Known frames are resolved from the in-memory cache without touching the
+// database. Unseen frames are assigned IDs and written in one INSERT, so the
+// steady state, where every frame is already known, issues no statements.
 func (s *Storage) encodeStackFrames(ctx context.Context, frameNames []string) ([]int64, error) {
 	if len(frameNames) == 0 {
 		return nil, nil
@@ -739,40 +770,45 @@ func (s *Storage) encodeStackFrames(ctx context.Context, frameNames []string) ([
 	defer s.mu.Unlock()
 
 	frameIDs := make([]int64, len(frameNames))
+	var pending map[string]int64 // Unseen frames in this stack: frame_name -> frame_id.
+	var placeholders []string
+	var args []any
 
-	// Process each frame name.
 	for i, frameName := range frameNames {
-		// Check cache first.
 		if frameID, exists := s.frameDictCache[frameName]; exists {
 			frameIDs[i] = frameID
-
-			// Increment frame count.
-			_, err := s.db.ExecContext(ctx, `
-				UPDATE profile_frame_dictionary_local
-				SET frame_count = frame_count + 1
-				WHERE frame_id = ?
-			`, frameID)
-			if err != nil {
-				s.logger.Warn().Err(err).Int64("frame_id", frameID).Msg("Failed to increment frame count")
-			}
 			continue
 		}
-
-		// Not in cache - assign new ID and insert.
+		// A recursive stack can repeat an unseen frame; assign it once.
+		if frameID, exists := pending[frameName]; exists {
+			frameIDs[i] = frameID
+			continue
+		}
+		if pending == nil {
+			pending = make(map[string]int64)
+		}
 		frameID := s.nextFrameID
 		s.nextFrameID++
-
-		_, err := s.db.ExecContext(ctx, `
-			INSERT OR IGNORE INTO profile_frame_dictionary_local (frame_id, frame_name, frame_count)
-			VALUES (?, ?, 1)
-		`, frameID, frameName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to insert frame %q: %w", frameName, err)
-		}
-
-		// Add to cache.
-		s.frameDictCache[frameName] = frameID
+		pending[frameName] = frameID
 		frameIDs[i] = frameID
+		placeholders = append(placeholders, "(?, ?)")
+		args = append(args, frameID, frameName)
+	}
+
+	if len(pending) == 0 {
+		return frameIDs, nil
+	}
+
+	// #nosec G202 - placeholders are constant strings.
+	query := `INSERT OR IGNORE INTO profile_frame_dictionary_local (frame_id, frame_name) VALUES ` +
+		strings.Join(placeholders, ", ")
+	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+		return nil, fmt.Errorf("failed to insert %d frames: %w", len(pending), err)
+	}
+
+	// Cache only after the insert succeeds, so a failed write is retried.
+	for frameName, frameID := range pending {
+		s.frameDictCache[frameName] = frameID
 	}
 
 	return frameIDs, nil

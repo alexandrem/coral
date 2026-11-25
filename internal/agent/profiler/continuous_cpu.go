@@ -46,6 +46,18 @@ type ServiceInfo struct {
 	BinaryPath string
 }
 
+// metadataRefreshInterval is how often a profiling loop refreshes last_seen on
+// its binary metadata. It only needs to stay well inside MetadataRetention.
+const metadataRefreshInterval = time.Hour
+
+// profiledBinary caches a profiled process's build ID for the lifetime of its
+// profiling loop, which is bound to a single PID. This avoids re-reading the
+// ELF binary (or hashing it, when it lacks a build ID note) on every drain.
+type profiledBinary struct {
+	buildID       string
+	metadataSaved time.Time // Last successful binary metadata upsert.
+}
+
 // NewContinuousCPUProfiler creates a new continuous CPU profiler.
 func NewContinuousCPUProfiler(
 	parentCtx context.Context,
@@ -175,6 +187,8 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 	ticker := time.NewTicker(p.config.Interval)
 	defer ticker.Stop()
 
+	var binary profiledBinary
+
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -194,7 +208,7 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 				return
 			}
 
-			if err := p.drainAndStore(session, service); err != nil {
+			if err := p.drainAndStore(session, service, &binary); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("service_id", service.ServiceID).
@@ -208,7 +222,11 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 // drainAndStore reads accumulated samples from the persistent BPF session's maps,
 // clears them, and stores the results. This is non-blocking — the BPF program
 // continues to collect samples in the background.
-func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, service ServiceInfo) error {
+func (p *ContinuousCPUProfiler) drainAndStore(
+	session *debug.CPUProfileSession,
+	service ServiceInfo,
+	binary *profiledBinary,
+) error {
 	startTime := time.Now()
 
 	// Read and clear BPF maps (non-blocking — no sleep).
@@ -228,31 +246,7 @@ func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, 
 		return nil
 	}
 
-	// Extract build ID from the binary.
-	buildID, err := ExtractBuildIDFromPID(service.PID)
-	if err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("service_id", service.ServiceID).
-			Int("pid", service.PID).
-			Msg("Failed to extract build ID, using fallback")
-		buildID = fmt.Sprintf("unknown_%d_%d", service.PID, time.Now().Unix())
-	}
-
-	// Update binary metadata.
-	now := time.Now()
-	metadata := BinaryMetadata{
-		BuildID:      buildID,
-		ServiceID:    service.ServiceID,
-		BinaryPath:   service.BinaryPath,
-		FirstSeen:    now,
-		LastSeen:     now,
-		HasDebugInfo: session.Symbolizer != nil,
-	}
-
-	if err := p.storage.UpsertBinaryMetadata(p.ctx, metadata); err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to update binary metadata")
-	}
+	buildID := p.resolveBinary(service, binary, session.Symbolizer != nil)
 
 	// Convert and store samples.
 	samples := make([]ProfileSample, 0, len(result.Samples))
@@ -307,6 +301,44 @@ func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, 
 		Msg("Stored continuous CPU profile samples")
 
 	return nil
+}
+
+// resolveBinary returns the service's build ID, extracting it on first use, and
+// upserts its binary metadata at most once per metadataRefreshInterval.
+func (p *ContinuousCPUProfiler) resolveBinary(service ServiceInfo, binary *profiledBinary, hasDebugInfo bool) string {
+	if binary.buildID == "" {
+		buildID, err := ExtractBuildIDFromPID(service.PID)
+		if err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("service_id", service.ServiceID).
+				Int("pid", service.PID).
+				Msg("Failed to extract build ID, using fallback")
+			buildID = fmt.Sprintf("unknown_%d_%d", service.PID, time.Now().Unix())
+		}
+		binary.buildID = buildID
+	}
+
+	now := time.Now()
+	if now.Sub(binary.metadataSaved) < min(metadataRefreshInterval, p.config.MetadataRetention/2) {
+		return binary.buildID
+	}
+
+	metadata := BinaryMetadata{
+		BuildID:      binary.buildID,
+		ServiceID:    service.ServiceID,
+		BinaryPath:   service.BinaryPath,
+		FirstSeen:    now,
+		LastSeen:     now,
+		HasDebugInfo: hasDebugInfo,
+	}
+	if err := p.storage.UpsertBinaryMetadata(p.ctx, metadata); err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to update binary metadata")
+	} else {
+		binary.metadataSaved = now
+	}
+
+	return binary.buildID
 }
 
 // AddService adds a service to be profiled continuously.
