@@ -116,3 +116,53 @@ func TestDeviceAllowedIPInUse(t *testing.T) {
 	require.True(t, d.allowedIPInUse("100.64.0.2/32"))
 	require.False(t, d.allowedIPInUse("100.64.0.3/32"))
 }
+
+// deviceKeepalive returns the persistent keepalive interval configured in
+// the wireguard-go device for the peer with the given public key.
+func deviceKeepalive(t *testing.T, d *Device, publicKey string) string {
+	t.Helper()
+
+	keyBytes, err := base64.StdEncoding.DecodeString(publicKey)
+	require.NoError(t, err)
+	uapi, err := d.wgDevice.IpcGet()
+	require.NoError(t, err)
+
+	var inPeer bool
+	for _, line := range strings.Split(uapi, "\n") {
+		key, value, _ := strings.Cut(line, "=")
+		switch key {
+		case "public_key":
+			inPeer = value == hex.EncodeToString(keyBytes)
+		case "persistent_keepalive_interval":
+			if inPeer {
+				return value
+			}
+		}
+	}
+	t.Fatalf("peer %s not found in device", publicKey)
+	return ""
+}
+
+func TestDeviceAddPeerReplacesAllowedIPs(t *testing.T) {
+	d := newTestDevice(t)
+	publicKey := newTestPublicKey(t)
+
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: publicKey, AllowedIPs: []string{"100.64.0.2/32"}}))
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: publicKey, AllowedIPs: []string{"100.64.0.3/32"}}))
+
+	require.Equal(t, map[string][]string{publicKey: {"100.64.0.3/32"}}, devicePeers(t, d))
+	peer, ok := d.GetPeer(publicKey)
+	require.True(t, ok)
+	require.Equal(t, []string{"100.64.0.3/32"}, peer.AllowedIPs)
+}
+
+func TestDeviceAddPeerDisablesKeepalive(t *testing.T) {
+	d := newTestDevice(t)
+	publicKey := newTestPublicKey(t)
+
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: publicKey, AllowedIPs: []string{"100.64.0.2/32"}, PersistentKeepalive: 25}))
+	require.Equal(t, "25", deviceKeepalive(t, d, publicKey))
+
+	require.NoError(t, d.AddPeer(&PeerConfig{PublicKey: publicKey, AllowedIPs: []string{"100.64.0.2/32"}}))
+	require.Equal(t, "0", deviceKeepalive(t, d, publicKey))
+}
