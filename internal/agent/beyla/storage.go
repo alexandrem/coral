@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -425,11 +426,13 @@ func (s *BeylaStorage) StoreEvent(ctx context.Context, event *ebpfpb.EbpfEvent) 
 
 // StoreEvents stores a set of events. All metric rows of the set are written
 // with one batched insert per table instead of one statement per histogram
-// bucket. Events are validated before anything is written, so a malformed
-// metric fails the call without partially storing the metrics.
+// bucket. A malformed event is skipped without affecting the others: the valid
+// events are stored and the returned error joins the failures. The per-table
+// inserts are not atomic with each other.
 func (s *BeylaStorage) StoreEvents(ctx context.Context, events []*ebpfpb.EbpfEvent) error {
 	var batch metricBatch
 	var traces []*ebpfpb.EbpfEvent
+	var errs []error
 
 	for _, event := range events {
 		var err error
@@ -446,19 +449,19 @@ func (s *BeylaStorage) StoreEvents(ctx context.Context, events []*ebpfpb.EbpfEve
 			err = fmt.Errorf("unsupported event type: %T", event.Payload)
 		}
 		if err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 
 	if err := s.writeMetrics(ctx, &batch); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 	for _, event := range traces {
 		if err := s.StoreTrace(ctx, event); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // writeMetrics inserts the accumulated metric rows, one batched insert per table.

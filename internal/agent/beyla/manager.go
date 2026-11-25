@@ -368,13 +368,6 @@ func (m *Manager) Stop() error {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Persist spans still waiting in the batch buffer.
-	if m.beylaStorage != nil {
-		if err := m.beylaStorage.FlushSpans(context.Background()); err != nil {
-			m.logger.Error().Err(err).Msg("Failed to flush buffered spans")
-		}
-	}
-
 	// Cleanup extracted binary if it was in a temp directory.
 	//nolint:staticcheck // filepath.HasPrefix is deprecated but simple enough for this use case
 	if m.beylaBinaryPath != "" && filepath.HasPrefix(m.beylaBinaryPath, os.TempDir()) {
@@ -411,6 +404,14 @@ func (m *Manager) Stop() error {
 
 	// Wait for all goroutines to finish.
 	m.wg.Wait()
+
+	// Persist spans still waiting in the batch buffer. This runs after the
+	// OTLP receiver has stopped, so no span can be buffered afterwards.
+	if m.beylaStorage != nil {
+		if err := m.beylaStorage.FlushSpans(context.Background()); err != nil {
+			m.logger.Error().Err(err).Msg("Failed to flush buffered spans")
+		}
+	}
 
 	// Close channels.
 	close(m.tracesCh)
@@ -764,10 +765,10 @@ func (m *Manager) consumeMetrics() {
 			}
 
 			// Store events in local DuckDB for pull-based queries (RFD 032).
+			// Malformed events are skipped; the rest of the cycle is stored.
 			if m.beylaStorage != nil && len(events) > 0 {
 				if err := m.beylaStorage.StoreEvents(m.ctx, events); err != nil {
-					m.logger.Error().Err(err).Msg("Failed to store Beyla metrics")
-					continue
+					m.logger.Error().Err(err).Msg("Failed to store some Beyla metrics")
 				}
 			}
 
