@@ -97,8 +97,11 @@ func (h *Handler) Register(
 		}), nil
 	}
 
-	// Allocate mesh IP for the agent
+	// Allocate mesh IP for the agent. Allocate returns the existing IP for an
+	// Agent that is already registered, which must not be released on failure.
 	allocator := h.wgDevice.Allocator()
+	_, err := allocator.GetAgentIP(req.Msg.AgentId)
+	newAllocation := err != nil
 	meshIP, err := allocator.Allocate(req.Msg.AgentId)
 	if err != nil {
 		h.logger.Error().
@@ -198,8 +201,17 @@ func (h *Handler) Register(
 			Str("agent_id", req.Msg.AgentId).
 			Msg("Failed to add agent as WireGuard peer")
 
-		// Release the allocated IP since we couldn't add the peer
-		_ = allocator.Release(meshIP) // TODO: errcheck
+		// Release the IP only if this call allocated it; an existing IP is
+		// still in use by the Agent's current peer.
+		if newAllocation {
+			if err := allocator.Release(meshIP); err != nil {
+				h.logger.Warn().
+					Err(err).
+					Str("agent_id", req.Msg.AgentId).
+					Str("mesh_ip", meshIP.String()).
+					Msg("Failed to release mesh IP after peer add failure")
+			}
+		}
 
 		return connect.NewResponse(&meshv1.RegisterResponse{
 			Accepted: false,

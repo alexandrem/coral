@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -317,6 +318,56 @@ func BenchmarkSelectBestAgentEndpoint(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		SelectBestAgentEndpoint(endpoints, peerHost, logger, fmt.Sprintf("agent-%d", i))
 	}
+}
+
+func TestRegisterKeepsExistingIPWhenPeerAddFails(t *testing.T) {
+	const colonyID = "colony-1"
+	const publicKey = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+
+	// The device is never started, so AddPeer fails after allocation.
+	device, err := wireguard.NewDevice(&config.WireGuardConfig{
+		PrivateKey:      "private",
+		PublicKey:       "public",
+		MeshNetworkIPv4: "100.64.0.0/24",
+	}, zerolog.Nop())
+	require.NoError(t, err)
+	allocator := device.Allocator()
+
+	h := NewHandler(
+		&config.ResolvedConfig{ColonyID: colonyID},
+		device,
+		registry.New(nil),
+		nil,
+		logging.NewWithComponent(logging.Config{Level: "error"}, "mesh-test"),
+	)
+	register := func(agentID string) {
+		resp, err := h.Register(context.Background(), connect.NewRequest(&meshv1.RegisterRequest{
+			AgentId:         agentID,
+			ColonyId:        colonyID,
+			WireguardPubkey: publicKey,
+		}))
+		require.NoError(t, err)
+		require.False(t, resp.Msg.Accepted)
+		require.Equal(t, "peer_add_failed", resp.Msg.Reason)
+	}
+
+	t.Run("existing agent keeps its IP", func(t *testing.T) {
+		existingIP, err := allocator.Allocate("agent-1")
+		require.NoError(t, err)
+
+		register("agent-1")
+
+		ip, err := allocator.GetAgentIP("agent-1")
+		require.NoError(t, err)
+		require.True(t, existingIP.Equal(ip))
+	})
+
+	t.Run("new agent IP is released", func(t *testing.T) {
+		register("agent-2")
+
+		_, err := allocator.GetAgentIP("agent-2")
+		require.Error(t, err)
+	})
 }
 
 // fakePeerDevice is an in-memory peerDevice.
